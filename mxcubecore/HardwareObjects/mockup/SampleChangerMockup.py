@@ -19,7 +19,6 @@ class SampleChangerMockup(AbstractSampleChanger.SampleChanger):
         self._selected_sample = -1
         self._selected_basket = -1
         self._scIsCharging = None
-
         self.no_of_baskets = self.get_property(
             "no_of_baskets", SampleChangerMockup.NO_OF_BASKETS
         )
@@ -37,6 +36,10 @@ class SampleChangerMockup(AbstractSampleChanger.SampleChanger):
         self._init_sc_contents()
         self.signal_wait_task = None
         AbstractSampleChanger.SampleChanger.init(self)
+        print(">>>>>>>>>>>>>> Sample Changer <<<<<<<<<<<<<<<< \n","MOCKUP", "\n\n\n")
+        print(str(self.get_state()) , "\n\n\n")
+        exit()
+
 
         self.log_filename = self.get_property("log_filename")
 
