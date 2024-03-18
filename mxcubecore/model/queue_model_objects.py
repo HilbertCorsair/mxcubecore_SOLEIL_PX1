@@ -28,7 +28,6 @@ import os
 import logging
 
 from mxcubecore.model import queue_model_enumerables
-from mxcubecore.model import crystal_symmetry
 
 # This module is used as a self contained entity by the BES
 # workflows, so we need to make sure that this module can be
@@ -1327,7 +1326,7 @@ class XrayCentring2(TaskNode):
         """Set parameters from task input dictionary.
 
         sample_model is required as this may be called before the object is enqueued
-        params is a dictionary with structure determined by mxcube3 usage
+        params is a dictionary with structure determined by mxcubeweb usage
         """
 
         # Set path template
@@ -1450,15 +1449,11 @@ class Acquisition(object):
         self.acquisition_parameters = AcquisitionParameters()
 
     def get_preview_image_paths(self):
-        """
-        Returns the full paths, including the filename, to preview/thumbnail
+        """Returns the full paths, including the filename, to preview/thumbnail
         images stored in the archive directory.
 
-        :param acquisition: The acqusition object to generate paths for.
-        :type acquisition: Acquisition
-
-        :returns: The full paths.
-        :rtype: str
+        Returns:
+            list: list of paths
         """
         paths = []
 
@@ -2020,7 +2015,9 @@ class GphlWorkflow(TaskNode):
         self.snapshot_count = 2
         self.recentring_mode = "sweep"
         self.recentring_calc_preference = "GPHL"
-        self.std_dose_rate = 0.0
+
+        # TEST attribute - if true collection is skipped. Set also if init_spot_dir
+        self.skip_collection = False
 
         # Workflow interleave order (string).
         # Slowest changing first, characters 'g' (Goniostat position);
@@ -2040,6 +2037,15 @@ class GphlWorkflow(TaskNode):
         self.set_requires_centring(False)
 
         self.set_from_dict(workflow_hwobj.settings["defaults"])
+
+        # Set missing values from BL defaults and limits.
+        # NB cannot be done till after all HO are initialised.
+        bl_defaults = HWR.beamline.get_default_acquisition_parameters().as_dict()
+        exposure_time = self.exposure_time or bl_defaults.get("exp_time", 0)
+        self.exposure_time = max(
+            exposure_time, HWR.beamline.detector.get_exposure_time_limits()[0]
+        )
+        self.image_width = self.image_width or bl_defaults.get("osc_range", 0.1)
 
     def parameter_summary(self):
         """Main parameter summary, for output purposes"""
@@ -2071,7 +2077,7 @@ class GphlWorkflow(TaskNode):
         summary["orgxy"] = self.detector_setting.orgxy
         summary["strategy_variant"] = self.strategy_options.get("variant", "not set")
         summary["orientation_count"] = len(self.goniostat_translations)
-        summary["radiation_dose"] = self.calculate_dose()
+        summary["radiation_dose"] = self.calc_maximum_dose() * self.transmission / 100.0
         summary["total_dose_budget"] = self.recommended_dose_budget()
         #
         return summary
@@ -2091,8 +2097,8 @@ class GphlWorkflow(TaskNode):
         strategy="",
         strategy_options=None,
         init_spot_dir=None,
-        relative_rad_sensitivity=1.0,
-        use_cell_for_processing=False,
+        relative_rad_sensitivity=None,
+        use_cell_for_processing=None,
         **unused,
     ):
         """
@@ -2112,13 +2118,18 @@ class GphlWorkflow(TaskNode):
         """
 
         from mxcubecore.HardwareObjects.Gphl import GphlMessages
+        from mxcubecore.model import crystal_symmetry
 
-        if space_group and not crystal_classes:
-            crystal_classes = (
+        if space_group:
+            self.space_group = space_group
+        else:
+            space_group = self.space_group
+        if crystal_classes:
+            self.crystal_classes = tuple(crystal_classes)
+        elif space_group:
+            self.crystal_classes = (
                 crystal_symmetry.SPACEGROUP_MAP[space_group].crystal_class,
             )
-        self.space_group = space_group
-        self.crystal_classes = tuple(crystal_classes)
         if cell_parameters:
             self.cell_parameters = cell_parameters
 
@@ -2165,6 +2176,15 @@ class GphlWorkflow(TaskNode):
             distance = HWR.beamline.resolution.resolution_to_distance(
                 resolution, wavelength
             )
+            distance_limits = HWR.beamline.detector.distance.get_limits()
+            if None in distance_limits:
+                distance_limits = (150, 500)
+            if distance < distance_limits[0]:
+                distance = distance_limits[0]
+                resolution = HWR.beamline.resolution.distance_to_resolution(distance)
+            elif distance > distance_limits[1]:
+                distance = distance_limits[1]
+                resolution = HWR.beamline.resolution.distance_to_resolution(distance)
             orgxy = HWR.beamline.detector.get_beam_position(distance, wavelength)
 
             self.detector_setting = GphlMessages.BcsDetectorSetting(
@@ -2197,9 +2217,12 @@ class GphlWorkflow(TaskNode):
             strategy = strategy or settings["characterisation_strategies"][0]
             self.initial_strategy = strategy
 
+        # NB init_spot_dir must be re-set every time, hence no if test
         self.init_spot_dir = init_spot_dir
-        self.relative_rad_sensitivity = relative_rad_sensitivity
-        self.use_cell_for_processing = use_cell_for_processing
+        if relative_rad_sensitivity:
+            self.relative_rad_sensitivity = relative_rad_sensitivity
+        if use_cell_for_processing is not None:
+            self.use_cell_for_processing = use_cell_for_processing
 
     def set_pre_acquisition_params(
         self,
@@ -2211,6 +2234,7 @@ class GphlWorkflow(TaskNode):
         snapshot_count=None,
         recentring_mode=None,
         energies=(),
+        skip_collection=False,
         **unused,
     ):
         """
@@ -2224,6 +2248,7 @@ class GphlWorkflow(TaskNode):
             snapshot_count:
             recentring_mode:
             energies:
+            skip_collection:
             **unused:
 
         Returns:
@@ -2270,14 +2295,28 @@ class GphlWorkflow(TaskNode):
                     "Number of energies %s do not match remaining slots %s"
                     % (energies, energy_tags[len(self.wavelengths) :])
                 )
+        if skip_collection:
+            self.skip_collection = True
 
     def init_from_task_data(self, sample_model, params):
         """
         sample_model is required as this may be called before the object is enqueued
-        params is a dictionary with structure determined by mxcube3 usage
+        params is a dictionary with structure determined by mxcubeweb usage
         """
 
         from mxcubecore.HardwareObjects.Gphl import GphlMessages
+        import ruamel.yaml as yaml
+
+        if self.automation_mode == "TEST_FROM_FILE":
+            fname = os.getenv("GPHL_TEST_INPUT")
+            if os.path.isfile(fname):
+                with open(fname, "r") as fp0:
+                    task = yaml.load(fp0)["task"]
+                    print(task)
+                    params.update(task["parameters"])
+            else:
+                print("WARNING no GPHL_TEST_INPUT found. test using default values")
+
 
         # Set attributes directly from params
         self.strategy_settings = HWR.beamline.gphl_workflow.workflow_strategies.get(
@@ -2329,12 +2368,6 @@ class GphlWorkflow(TaskNode):
                     "when 'init_spot_dir' is set"
                 )
             self.transmission = HWR.beamline.transmission.get_value()
-
-        else:
-            # Normal characterisation, set some parameters from defaults
-            default_parameters = HWR.beamline.get_default_acquisition_parameters()
-            self.exposure_time = default_parameters.exp_time
-            self.image_width = default_parameters.osc_range
 
         # Path template and prefixes
         base_prefix = self.path_template.base_prefix = params.get(
@@ -2453,58 +2486,42 @@ class GphlWorkflow(TaskNode):
         return result
 
 
+    def calc_maximum_dose(self, energy=None, exposure_time=None, image_width=None):
+        """Dose at transmission=100 for given energy, exposure time and image width
 
-    def calculate_transmission(self, use_dose=None):
-        """Calculate transmission correspoiding to using up a given dose
-        NBNB value may be higher than 100%; this must be dealt with by the caller
+        The strategy length is taken from self.strategy_length
 
-        :param use_dose (float): Dose to consume, in MGy
-        :return (float): transmission in %
+        Args:
+            energy Optional[float]: Energy in keV; defaults to self.energy
+            exposure_time Optional[float]: Value in s; defaults to self.exposure_time
+            image_width Optional[float]:  VAlue in deg; defaults to self.image_width
+
+        Returns:
+            float: Maximum dose in MGy
         """
-        if not use_dose:
-            use_dose = self.recommended_dose_budget()
-        max_dose = self.calculate_dose(transmission=100.0)
-        if max_dose:
-            return 100.0 * use_dose / max_dose
-        else:
-            raise ValueError("Could not calculate transmission")
-
-    def calculate_dose(self, transmission=None):
-        """Calculate dose consumed with current parameters
-
-        :param transmission (float): Transmission in %. Defaults to current setting
-        :return:
-        """
-
-        transmission = transmission or self.transmission
-        energy = HWR.beamline.energy.calculate_energy(self.wavelengths[0].wavelength)
-        flux_density = HWR.beamline.flux.get_average_flux_density(
-            transmission=transmission
+        energy = (
+            energy
+            or HWR.beamline.energy.calculate_energy(self.wavelengths[0].wavelength)
         )
-        exposure_time = self.exposure_time
-        image_width = self.image_width
-        strategy_length = self.strategy_length
-        if flux_density:
-            if strategy_length and exposure_time and image_width:
-                total_strategy_length = strategy_length * len(self.wavelengths)
-                duration = exposure_time * total_strategy_length / image_width
-                return HWR.beamline.gphl_workflow.calculate_dose(
-                    duration, energy, flux_density
-                )
+        dose_rate = HWR.beamline.gphl_workflow.maximum_dose_rate(energy)
+        exposure_time = exposure_time or self.exposure_time
+        image_width = image_width  or self.image_width
+        total_strategy_length = self.strategy_length * len(self.wavelengths)
+        if (dose_rate and exposure_time and image_width and total_strategy_length):
+            return (dose_rate * total_strategy_length * exposure_time / image_width)
         msg = (
             "WARNING: Dose could not be calculated from:\n"
-            " energy:%s keV, strategy_length:%s deg, exposure_time:%s s, "
-            "image_width:%s deg, transmission: %s  flux_density:%s  photons/mm^2"
+            " energy:%s keV, total_strategy_length:%s deg, exposure_time:%s s, "
+            "image_width:%s deg, dose_rate: %s"
         )
         raise UserWarning(
             msg
             % (
                 energy,
-                strategy_length,
+                total_strategy_length,
                 exposure_time,
                 image_width,
-                transmission,
-                flux_density,
+                dose_rate
             )
         )
         return 0

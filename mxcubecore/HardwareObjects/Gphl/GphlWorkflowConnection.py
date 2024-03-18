@@ -32,10 +32,10 @@ import time
 import sys
 
 from py4j import clientserver, java_gateway
+from py4j.protocol import Py4JJavaError
 
 from mxcubecore.utils import conversion
 from mxcubecore.HardwareObjects.Gphl import GphlMessages
-from mxcubecore.model import crystal_symmetry
 
 from mxcubecore.BaseHardwareObjects import HardwareObjectYaml
 from mxcubecore import HardwareRepository as HWR
@@ -87,6 +87,7 @@ class GphlWorkflowConnection(HardwareObjectYaml):
         super().__init__(name)
         # Py4J gateway to external workflow program
         self._gateway = None
+        self.msg_class_imported = False
 
         # ID for current workflow calculation
         self._enactment_id = None
@@ -129,14 +130,7 @@ class GphlWorkflowConnection(HardwareObjectYaml):
                     raise ValueError("File path %s not recognised" % val)
             paths[tag] = val2
         paths["GPHL_INSTALLATION"] = locations["GPHL_INSTALLATION"]
-        if "java_binary" not in paths:
-            paths["java_binary"] = "java"
-        paths[
-            "gphl_java_classpath"
-        ] = "%s/ASTRAWorkflows/config:%s/ASTRAWorkflows/lib/*" % (
-            installdir,
-            installdir,
-        )
+        paths["runworkflow"] = "%s/ASTRAWorkflows/bin/runworkflow" % installdir
 
         for tag, val in properties.items():
             val2 = val.format(**locations)
@@ -228,6 +222,8 @@ class GphlWorkflowConnection(HardwareObjectYaml):
             # so we are never in state 'ON'/STANDBY
             raise RuntimeError("Workflow is already running, cannot be started")
 
+        self.msg_class_imported = False
+
         # Cannot be done in init, where the api.sessions link is not yet ready
         self.software_paths["GPHL_WDIR"] = os.path.join(
             HWR.beamline.session.get_base_process_directory(), self.gphl_subdir
@@ -249,7 +245,8 @@ class GphlWorkflowConnection(HardwareObjectYaml):
             command_list.append(host)
         else:
             command_list = []
-        command_list.append(self.software_paths["java_binary"])
+        runworkflow_opts = []
+        command_list.append(self.software_paths["runworkflow"])
 
         # # HACK - debug options REMOVE!
         # import socket
@@ -259,13 +256,13 @@ class GphlWorkflowConnection(HardwareObjectYaml):
         # command_list.append(ss0 % sock.getsockname()[0])
 
         for tag, val in sorted(wf_settings.get("invocation_properties", {}).items()):
-            command_list.extend(
+            runworkflow_opts.extend(
                 conversion.java_property(tag, val, quote_value=in_shell)
             )
 
         init_spot_dir = workflow_model_obj.init_spot_dir
         if init_spot_dir:
-            command_list.extend(
+            runworkflow_opts.extend(
                 conversion.java_property("co.gphl.wf.initSpotDir", init_spot_dir)
             )
 
@@ -300,18 +297,13 @@ class GphlWorkflowConnection(HardwareObjectYaml):
                 workflow_options["rootsubdir"] = rootsubdir
 
         # Hardcoded - location for log output
-        command_list.extend(
+        runworkflow_opts.extend(
             conversion.java_property(
                 "co.gphl.wf.wdir", workflow_options["wdir"], quote_value=in_shell
             )
         )
 
-        ll0 = conversion.command_option(
-            "cp", self.software_paths["gphl_java_classpath"], quote_value=in_shell
-        )
-        command_list.extend(ll0)
-
-        command_list.append(strategy_settings["application"])
+        command_list.append(strategy_settings["wf_selection"])
 
         for keyword, value in wf_settings.get("workflow_properties", {}).items():
             command_list.extend(
@@ -367,6 +359,8 @@ class GphlWorkflowConnection(HardwareObjectYaml):
         GPHL_MINICONDA_PATH = self.software_paths.get("GPHL_MINICONDA_PATH")
         if GPHL_MINICONDA_PATH:
             envs["GPHL_MINICONDA_PATH"] = GPHL_MINICONDA_PATH
+        if runworkflow_opts:
+            envs["RUNWORKFLOW_OPTS"] = " ".join(runworkflow_opts)
 
         logging.getLogger("HWR").debug(
             "Executing GΦL workflow, in environment %s", envs
@@ -498,6 +492,19 @@ class GphlWorkflowConnection(HardwareObjectYaml):
         NB Callled freom external java) workflow"""
         if self.get_state() is self.STATES.OFF:
             return None
+
+        if not self.msg_class_imported:
+            try:
+                msg_class = self._gateway.jvm.py4j.reflection.ReflectionUtil.classForName("co.gphl.sdcp.astra.service.py4j.Py4jMessage")
+                java_gateway.java_import(self._gateway.jvm, "co.gphl.sdcp.astra.service.py4j.Py4jMessage")
+            except Py4JJavaError:
+                msg_class = self._gateway.jvm.py4j.reflection.ReflectionUtil.classForName("co.gphl.sdcp.py4j.Py4jMessage")
+                java_gateway.java_import(self._gateway.jvm, "co.gphl.sdcp.py4j.Py4jMessage")
+
+            logging.getLogger("HWR").debug(
+                "GΦL workflow Py4jMessage class is: %s" % msg_class
+            )
+        self.msg_class_imported = True
 
         xx0 = self._decode_py4j_message(py4j_message)
         message_type = xx0.message_type
@@ -685,7 +692,7 @@ class GphlWorkflowConnection(HardwareObjectYaml):
         else:
             detectorSetting = None
         return GphlMessages.GeometricStrategy(
-            isInterleaved=py4jGeometricStrategy.isInterleaved(),
+            # isInterleaved=py4jGeometricStrategy.isInterleaved(),
             isUserModifiable=py4jGeometricStrategy.isUserModifiable(),
             allowedWidths=py4jGeometricStrategy.getAllowedWidths(),
             sweepOffset=py4jGeometricStrategy.getSweepOffset(),
@@ -793,7 +800,6 @@ class GphlWorkflowConnection(HardwareObjectYaml):
             result = GphlMessages.GoniostatRotation(
                 id_=uuid.UUID(uuidString), **axisSettings
             )
-
         py4jGoniostatTranslation = py4jGoniostatRotation.getTranslation()
         if py4jGoniostatTranslation:
             translationAxisSettings = py4jGoniostatTranslation.getAxisSettings()
@@ -954,7 +960,7 @@ class GphlWorkflowConnection(HardwareObjectYaml):
         py4j_payload = self._payload_to_java(payload)
 
         try:
-            response = self._gateway.jvm.co.gphl.sdcp.py4j.Py4jMessage(
+            response = self._gateway.jvm.Py4jMessage(
                 py4j_payload, enactment_id, correlation_id
             )
         except:
@@ -1039,8 +1045,25 @@ class GphlWorkflowConnection(HardwareObjectYaml):
         proposalId = jvm.java.util.UUID.fromString(
             conversion.text_type(collectionDone.proposalId)
         )
+        centrings = set(
+            self._GoniostatTranslation_to_java(translation)
+            for translation in collectionDone.centrings
+        )
+        scanIdMap = {}
+        for item in collectionDone.scanIdMap.items():
+            scanIdMap[
+                jvm.java.util.UUID.fromString(
+                    conversion.text_type(item[0])
+                )
+            ] = jvm.java.util.UUID.fromString(
+                conversion.text_type(item[1])
+            )
         return jvm.astra.messagebus.messages.information.CollectionDoneImpl(
-            proposalId, collectionDone.imageRoot, collectionDone.status
+            proposalId,
+            collectionDone.status,
+            collectionDone.procWithLatticeParams,
+            scanIdMap,
+            centrings,
         )
 
     def _SelectedLattice_to_java(self, selectedLattice):

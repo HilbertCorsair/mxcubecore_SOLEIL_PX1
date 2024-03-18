@@ -27,8 +27,6 @@ import json
 from collections import OrderedDict
 from collections import namedtuple
 
-from mxcubecore.utils.conversion import string_types
-
 from mxcubecore.model import crystal_symmetry
 
 __copyright__ = """ Copyright © 2016 - 2019 by Global Phasing Ltd. """
@@ -490,11 +488,21 @@ class CollectionDone(MessageData):
 
     INTENT = "EVENT"
 
-    def __init__(self, proposalId, status, procWithLatticeParams=False, imageRoot=None):
+    def __init__(
+        self,
+        proposalId,
+        status,
+        procWithLatticeParams=False,
+        imageRoot=None,
+        scanIdMap=None,
+        centrings=None,
+    ):
         self._proposalId = proposalId
         self._imageRoot = imageRoot
         self._status = status
         self._procWithLatticeParams = procWithLatticeParams
+        self._scanIdMap = scanIdMap
+        self._centrings = centrings
 
     @property
     def proposalId(self):
@@ -516,6 +524,18 @@ class CollectionDone(MessageData):
     def procWithLatticeParams(self):
         """Boolean, whether lattice parameters should be used for processing"""
         return self._procWithLatticeParams
+
+    @property
+    def scanIdMap(self):
+        """Dict[str,str] scan.id_:GoniostatTranslation.id_"""
+        return self._scanIdMap
+
+    @property
+    def centrings(self):
+        """set(GoniostatTranslation)
+
+        New GoniostatTranslations acquired during acquisition"""
+        return self._centrings
 
 
 # Complex payloads
@@ -998,7 +1018,7 @@ class Sweep(IdentifiedElement):
 
     def get_initial_settings(self):
         """Get dictionary of rotation and translation motor settings for start of sweep"""
-        result = dict(self.goniostatSweepSetting.axisSettings)
+        result = self.goniostatSweepSetting.get_motor_settings()
         result[self.goniostatSweepSetting.scanAxis] = self.start
         #
         return result
@@ -1055,7 +1075,7 @@ class GeometricStrategy(IdentifiedElement, Payload):
 
     def __init__(
         self,
-        isInterleaved,
+        # isInterleaved,
         isUserModifiable,
         defaultDetectorSetting,
         defaultBeamSetting,
@@ -1069,7 +1089,7 @@ class GeometricStrategy(IdentifiedElement, Payload):
 
         super().__init__(id_=id_)
 
-        self._isInterleaved = isInterleaved
+        # self._isInterleaved = isInterleaved
         self._isUserModifiable = isUserModifiable
         self._defaultDetectorSetting = defaultDetectorSetting
         self._defaultBeamSetting = defaultBeamSetting
@@ -1086,9 +1106,9 @@ class GeometricStrategy(IdentifiedElement, Payload):
         self._sweepOffset = sweepOffset
         self._sweepRepeat = sweepRepeat
 
-    @property
-    def isInterleaved(self):
-        return self._isInterleaved
+    # @property
+    # def isInterleaved(self):
+    #     return self._isInterleaved
 
     @property
     def sweepRepeat(self):
@@ -1292,7 +1312,7 @@ class SampleCentred(Payload):
         else:
             # Ths trick assumes that characterisation and diffractcal
             # use one, the first, wavelength and default interleave order
-            # Which is true. Not the ideal place to put this code
+            # Which is true. Not the ideal place to put this code,
             # but it works.
             self._wavelengths = tuple((data_model.wavelengths[0],))
             if data_model.wftype != "diffractcal":
