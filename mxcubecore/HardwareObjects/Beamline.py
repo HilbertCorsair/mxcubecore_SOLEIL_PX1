@@ -425,8 +425,6 @@ class Beamline(ConfiguredObject):
 
     __content_roles.append("detector")
 
-
-
     @property
     def environment(self):
         """Environment specifique PX1"""
@@ -434,7 +432,6 @@ class Beamline(ConfiguredObject):
         return self._objects.get("environment")
 
     __content_roles.append("environment")
-
 
 
     @property
