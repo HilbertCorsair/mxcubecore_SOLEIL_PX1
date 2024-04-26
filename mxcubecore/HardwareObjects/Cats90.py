@@ -23,16 +23,17 @@ from __future__ import print_function
 import time
 import PyTango
 import logging
+import gevent
 
 from mxcubecore.HardwareObjects.abstract.AbstractSampleChanger import (
     Container,
-    Sample,
+    #Sample,
     SampleChanger,
     SampleChangerState,
-    argin,
-    gevent,
-    has_been_loaded,
-    new_loaded,
+    #argin,
+    #gevent,
+    #has_been_loaded,
+    #new_loaded,
 )
 
 __author__ = "Michael Hellmig, Jie Nan, Bixente Rey"
@@ -195,6 +196,8 @@ class Cats90(SampleChanger):
         # Create channels from XML
 
         self.cats_device = PyTango.DeviceProxy(self.get_property("tangoname"))
+        print(self.cats_device)
+        exit()
 
         no_of_lids = self.get_property("no_of_lids")
         if no_of_lids is None:

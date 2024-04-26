@@ -71,6 +71,7 @@ class EnvironemntState:
 
 
 class PX1Environment(Device):
+    print('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx Initianting PX1 ENV xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n')
     def __init__(self, name):
         Device.__init__(self, name)
         self.auth = None

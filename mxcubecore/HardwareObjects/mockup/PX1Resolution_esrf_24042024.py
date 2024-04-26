@@ -51,7 +51,7 @@ class PX1Resolution(AbstractResolution):
         self.currentDistance = self.distance_chan.get_value()
         self._nominal_value = self.resolution_chan.get_value()
 
-        #return AbstractResolution._init(self)
+        return AbstractResolution._init(self)
 
     def connect_notify(self, signal):
         if signal == "stateChanged":
@@ -148,7 +148,6 @@ class PX1Resolution(AbstractResolution):
         ) > 0.001:
             self.currentDistance = distance
             self.emit("distanceChanged", (distance,))
-
 
 
 

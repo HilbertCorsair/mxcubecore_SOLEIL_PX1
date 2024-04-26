@@ -34,13 +34,13 @@ from mxcubecore import HardwareRepository as HWR
 
 class SampleView(AbstractSampleView):
     def __init__(self, name):
-        AbstractSampleView.__init__(self, name)
+        super().__init__(name)
         self._shapes = {}
 
     def init(self):
-        super(SampleView, self).init()
-        print("\n----------------------------------\nINITIALIzING SampleView\n")
-        self._camera = self.get_object_by_role("camera")
+        self.camera = self.get_object_by_role("camera")
+        self.bear =  self.get_object_by_role("camera")
+
         self._ui_snapshot_cb = None
         self._last_oav_image = None
 

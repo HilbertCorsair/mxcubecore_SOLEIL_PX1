@@ -1,0 +1,19 @@
+<equipment class="DetectorMockup">
+    <object href="DetectorDistanceTest" role="detector_distance"/>
+    <tempThreshold>33.5</tempThreshold>
+    <humidityThreshold>27.0</humidityThreshold>
+    <tolerance>0.2</tolerance>
+    <type>eiger</type>
+    <model>9M</model>
+    <manufacturer>DECTRIS</manufacturer>
+    <px>0.075</px>
+    <py>0.075</py>
+    <width>3110</width>
+    <height>3269</height>
+    <hasShutterless>True</hasShutterless>
+    <fileSuffix>h5</fileSuffix>
+    <default_exposure_time>0.004300</default_exposure_time>
+    <minimum_exposure_time>0.004202</minimum_exposure_time>
+    <exposure_time_limits>[0.004202, 60000]</exposure_time_limits>
+    <roi_mode_list>["9M", "4M"]</roi_mode_list>
+</equipment>

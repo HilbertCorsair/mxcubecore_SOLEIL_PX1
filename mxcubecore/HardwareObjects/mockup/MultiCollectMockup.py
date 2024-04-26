@@ -33,13 +33,14 @@ class MultiCollectMockup(AbstractMultiCollect, HardwareObject):
             cryo_stream=HWR.beamline.cryo,
             energy=HWR.beamline.energy,
             resolution=HWR.beamline.resolution,
-            detector_distance=HWR.beamline.detector.distance,
+            detector_distance= HWR.beamline.detector.distance,
             transmission=HWR.beamline.transmission,
             undulators=HWR.beamline.undulators,
             flux=HWR.beamline.flux,
             detector=HWR.beamline.detector,
             beam_info=HWR.beamline.beam,
         )
+
         self.emit("collectConnected", (True,))
         self.emit("collectReady", (True,))
 

@@ -65,8 +65,8 @@ class AbstractActuator(HardwareObject):
         if limits:
             try:
                 self._nominal_limits = tuple(literal_eval(limits))
-            except TypeError:
-                print("Invalid limits")
+            except TypeError as te:
+                print("\nInvalid limits: ", te, "\n")
         self.username = self.get_property("username")
 
     @abc.abstractmethod

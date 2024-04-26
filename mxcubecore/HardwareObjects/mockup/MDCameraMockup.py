@@ -15,7 +15,7 @@ SLOW_INTERVAL = 1000
 
 class MDCameraMockup(BaseHardwareObjects.Device):
     def __init__(self, name):
-        BaseHardwareObjects.Device.__init__(self, name)
+       super().__init__(name)
 
     def _init(self):
         self._format = "MPEG1"
@@ -24,8 +24,10 @@ class MDCameraMockup(BaseHardwareObjects.Device):
         self.badimg = 0
         self.pollInterval = 500
         self.connected = False
+
         self.image_name = self.get_property("image_name")
         self.image = HWR.get_hardware_repository().find_in_repository(self.image_name)
+
         self.set_is_ready(True)
         self._video_stream_process = None
 
@@ -38,7 +40,7 @@ class MDCameraMockup(BaseHardwareObjects.Device):
 
     def udiffVersionChanged(self, value):
         if value == "MD2_2":
-            print(("start polling MD camera with poll interval=", self.pollInterval))
+            print(("st art polling MD camera with poll interval=", self.pollInterval))
         else:
             print(
                 "stop polling the camera. This microdiff version does not support a camera"

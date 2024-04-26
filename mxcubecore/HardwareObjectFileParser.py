@@ -25,7 +25,7 @@ __license__ = "LGPLv3+"
 import logging
 import xml.sax
 from xml.sax.handler import ContentHandler
-
+import sys
 from mxcubecore import BaseHardwareObjects
 
 

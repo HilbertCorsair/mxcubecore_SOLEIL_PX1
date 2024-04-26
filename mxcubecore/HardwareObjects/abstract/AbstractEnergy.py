@@ -91,6 +91,7 @@ class AbstractEnergy(AbstractActuator):
         self.set_value(self.calculate_energy(value), timeout=timeout)
 
     def calculate_wavelength(self, energy=None):
+
         """Calculate wavelength from energy
         Args:
             energy(float): Energy [keV]
@@ -98,7 +99,6 @@ class AbstractEnergy(AbstractActuator):
             (float): wavelength [Å]
         """
         energy = energy or self.get_value()
-
         # TODO NBNB This is naughty. Coud  we not put the heuristic switch
         #  in the calling functions, to avoid surprises?
         #  rhfogh 20210826

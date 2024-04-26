@@ -1,3 +1,4 @@
+import sys
 import logging
 import math
 import gevent
@@ -172,11 +173,11 @@ class Energy(Equipment):
         current_en = self.get_value()
         pos = math.fabs(current_en - energy)
         if pos < 0.001:
-            logging.getLogger("user_level_log").info(
+            logging.getLogger("user_level_log").debug(
                 "Energy: already at %g, not moving", energy
             )
         else:
-            logging.getLogger("user_level_log").info(
+            logging.getLogger("user_level_log").debug(
                 "Energy: moving energy to %g", energy
             )
             if pos > 0.02:

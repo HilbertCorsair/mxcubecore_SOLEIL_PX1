@@ -335,11 +335,13 @@ class TangoChannel(ChannelObject):
 
     def get_value(self):
         if self.read_as_str:
+            print(f"READ AS STR--> {self.userName()} , {self.value}\n" )
             value = self.device.read_attribute(
                 self.attribute_name, PyTango.DeviceAttribute.ExtractAs.String
             ).value
         else:
             value = self.device.read_attribute(self.attribute_name).value
+            print(f"NOT READ AS STR--> {self.userName()} , {value}\n" )
 
         if isinstance(value, numpy.ndarray):
             if not numpy.array_equal(value, self.value):

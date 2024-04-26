@@ -82,10 +82,25 @@ class AbstractNState(AbstractActuator):
         try:
             values = ast.literal_eval(self.get_property("values"))
             values_dict = dict(**{item.name: item.value for item in self.VALUES})
-            values_dict.update(values)
+
+            values_dict.update(
+                    {
+                        "MOVING":"MOVING",
+                        "DISABLE":"DISABLE",
+                        "STANDBY": "STANDBY",
+                        "FAULT" :"FAULT",
+                    }
+            )
+            for key, val in dict(values).items():
+                if isinstance (val, (tuple, list)):
+                    values_dict.update({key: val[1]})
+                else:
+                    values_dict.update( {key : val} )
+
             self.VALUES = Enum("ValueEnum", values_dict)
         except (ValueError, TypeError):
-            pass
+            print ("\nBIG FAT ERROR IN ABSTRACT N STATE INITALIZE VALUES !!!\n")
+
 
     def value_to_enum(self, value):
         """Tranform a value to Enum

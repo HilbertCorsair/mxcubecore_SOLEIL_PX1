@@ -412,7 +412,6 @@ class __HardwareRepositoryClient:
         class_name = ""
         hwobj_instance = None
         xml_data = ""
-
         for xml_files_path in self.server_address:
             file_name = (
                 hwobj_name[1:] if hwobj_name.startswith(os.path.sep) else hwobj_name

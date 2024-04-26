@@ -24,21 +24,14 @@ from enum import Enum, unique
 import time
 import PyTango
 import logging
-from mxcubecore.HardwareObjects.abstract.sample_changer import (Sample, Container)
+from mxcubecore.HardwareObjects.abstract.sample_changer.Sample import Sample
+from mxcubecore.HardwareObjects.abstract.sample_changer.Container import Container
 from mxcubecore.HardwareObjects.abstract.AbstractSampleChanger import (
-    SampleChanger,
-    SampleChangerState
-)
+    SampleChanger, SampleChangerState
+    )
 from mxcubecore.BaseHardwareObjects import HardwareObjectState
 
-"""
-print(type(Container))
-print(dir(Container))
-exit()
-"""
-__author__ = "Michael Hellmig, Jie Nan, Bixente Rey"
 __credits__ = ["The MXCuBE collaboration"]
-
 __email__ = "txo@txolutions.com"
 
 #
@@ -77,7 +70,7 @@ def cats_basket_presence_void(value, basket=1):
     )
 
 
-class Basket(Container.Container):
+class Basket(Container):
     __TYPE__ = "Puck"
 
     def __init__(self, container , number, samples_num=10, name="Puck"):
@@ -88,7 +81,6 @@ class Basket(Container.Container):
         for i in range(samples_num):
             slot = Pin(self, number, i + 1)
             self._add_component(slot)
-
 
     @staticmethod
     def get_basket_address(basket_number):
@@ -108,15 +100,13 @@ class SpineBasket(Basket):
             container, Basket.get_basket_address(number), SAMPLES_SPINE, True
         )
 
-
 class UnipuckBasket(Basket):
     def __init__(self, container, number, name="UniPuck"):
         super(UnipuckBasket, self).__init__(
             container, Basket.get_basket_address(number), SAMPLES_UNIPUCK, True
         )
 
-
-class Pin(Container.Sample):
+class Pin(Sample):
     STD_HOLDERLENGTH = 22.0
 
     def __init__(self, basket, basket_no, sample_no):
@@ -137,25 +127,9 @@ class Pin(Container.Sample):
             return str(basket_number) + ":" + "%02d" % (sample_number)
         else:
             return ""
-@unique
-class CatsStates(Enum):
-    """Shutter states definitions."""
-    RUNNING = HardwareObjectState.READY, "RUNNING"
-    OF =HardwareObjectState.OFF, "DISABLE"
-    #RUNNING = HardwareObjectState.READY, "RUNNING"
-    MOVING = HardwareObjectState.BUSY, "MOVING"
-    DISABLE = HardwareObjectState.WARNING, "DISABLE"
-    #AUTOMATIC = HardwareObjectState.READY, "RUNNING"
-    UNKNOWN = HardwareObjectState.UNKNOWN, "RUNNING"
-    FAULT = HardwareObjectState.WARNING, "FAULT"
-    STANDBY = HardwareObjectState.WARNING, "STANDBY"
-
 
 
 class Cats90(SampleChanger):
-
-    SPECIFIC_STATES = CatsStates
-
     """
 
     Actual implementation of the CATS Sample Changer,
@@ -208,25 +182,14 @@ class Cats90(SampleChanger):
 
         # add support for CATS dewars with variable number of lids
 
-        # Create channels from XML
-
 
         self.cats_device = PyTango.DeviceProxy(self.get_property("cats"))
-        self.cats_cryotong = PyTango.DeviceProxy(self.get_property("tangoname"))
-
-        self.cats_list = dir(self.cats_device)
-        self.cryotong_list = dir(self.cats_cryotong)
-        self.cryotong_only = [e for e in self.cryotong_list if not e in self.cats_list]
-        for e in self.cryotong_only :
-            print (f"---------> {e}")
         no_of_lids = self.get_property("no_of_lids")
         if no_of_lids is None:
             self.number_of_lids = self.default_no_lids
         else:
             self.number_of_lids = int(no_of_lids)
 
-        #self.cats_cryotong.PowerON()
-        #self.cats_cryotong.DryAndSoak()
         # Create channels
         self._chnState = self.get_channel_object("_chnState", optional=True)
         if self._chnState is None:
@@ -241,8 +204,6 @@ class Cats90(SampleChanger):
             )
 
         self._chnStatus = self.get_channel_object("_chnStatus", optional=True)
-        print("Here is the powered state: -> ",self.cats_device.Powered)
-        #exit()
         if self._chnStatus is None:
             self._chnStatus = self.add_channel(
                 {
@@ -290,7 +251,6 @@ class Cats90(SampleChanger):
                 "PathSafe",
             )
         """
-
         self._chnNumLoadedSample = self.get_channel_object(
             "_chnNumLoadedSample", optional=True
         )
@@ -359,19 +319,6 @@ class Cats90(SampleChanger):
                 },
                 "di_AllLidsClosed",
             )
-
-        """
-        self._chnCurrentTool = self.get_channel_object("_chnCurrentTool", optional=True)
-        if self._chnCurrentTool is None:
-            self._chnCurrentTool = self.add_channel(
-                {
-                    "type": "tango",
-                    "name": "_chnCurrentTool",
-                    "tangoname": self.tangoname,
-                },
-                "Tool",
-            )
-        """
 
         # commands
         self._cmdLoad = self.get_command_object("_cmdLoad")
@@ -548,8 +495,7 @@ class Cats90(SampleChanger):
         self._chnLidLoadedSample.connect_signal("update", self.cats_loaded_lid_changed)
         self._chnNumLoadedSample.connect_signal("update", self.cats_loaded_num_changed)
         self._chnSampleBarcode.connect_signal("update", self.cats_barcode_changed)
-        self.SPECIFIC_STATES = CatsStates
-        #self._is_device_ready()
+        self._is_device_ready()
 
         # connect presence channels
         if self.basket_channels is not None:  # old device server
@@ -573,30 +519,17 @@ class Cats90(SampleChanger):
             pass
 
         self.update_info()
-        #self.update_state(self.get_state())
-        print("\n\nCats initiated\n")
-        print(f"The device ready : {self._is_device_ready()}")
-        print(f"Cats state is : {self.cats_state}\nState is : {self.state}\nGet state returns {self.get_state()}")
-        #print(dir(self))
-        print(self.STATES, type(self.STATES) )
-        print(self.cats_device.State())
-        print(self.get_state())
-        print(self._chnPowered.get_value() )
-        #for member  in self.SPECIFIC_STATES :
-        #    print (member.name, member.value)
-        #exit()
-
-    def get_state(self):
-        """Get the device state.
-        Returns:
-            (enum 'HardwareObjectState'): Device state.
-        """
-        try:
-            _state = self.cats_device.State()
-            return self.SPECIFIC_STATES[str(_state)].value[0]
-        except (AttributeError, KeyError) as err:
-            logging.error(f"Exception in get_state(): {err}")
-            return self.STATES.UNKNOWN
+#    def get_state(self):
+#        """Get the device state.
+#        Returns:
+#            (enum 'HardwareObjectState'): Device state.
+#        """
+#        try:
+#            _state = self.cats_device.State()
+#            return self.SPECIFIC_STATES[str(_state)].value[0]
+#        except (AttributeError, KeyError) as err:
+#            logging.error(f"Exception in get_state(): {err}")
+#            return self.STATES.UNKNOWN
 
 
     def connect_notify(self, signal):

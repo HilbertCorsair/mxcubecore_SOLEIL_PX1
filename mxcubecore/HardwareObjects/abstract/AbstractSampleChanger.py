@@ -337,7 +337,7 @@ class SampleChanger(Container, HardwareObject):
         """
         with Timeout(timeout, RuntimeError("Timeout waiting ready")):
             while not self.is_ready():
-                sleep(0.5)
+                sleep(0.05)
 
     def is_normal_state(self):
         """
@@ -409,7 +409,7 @@ class SampleChanger(Container, HardwareObject):
         with Timeout(timeout, RuntimeError("Timeout waiting end of task")):
 
             while not self.is_task_finished():
-                sleep(0.1)
+                sleep(0.05)
 
     def get_loaded_sample(self):
         """
@@ -466,11 +466,10 @@ class SampleChanger(Container, HardwareObject):
 
         loaded = self.get_loaded_sample()
         if loaded != former_loaded:
-            if (
-                (loaded is None)
-                or (former_loaded is None)
-                or (loaded.get_address() != former_loaded.get_address())
-            ):
+            check_1 = loaded is None
+            check_2 = former_loaded is None
+            check_3 = loaded.get_address() != former_loaded.get_address()
+            if [check_1, check_2, check_3].any() :
                 self._trigger_loaded_sample_changed_event(loaded)
 
         self._reset_dirty()
@@ -516,16 +515,17 @@ class SampleChanger(Container, HardwareObject):
         """
         if mode == SampleChangerMode.Unknown:
             return
-        if mode == self.get_state():
+        elif mode == self.get_state():
             return
-        if self.get_state() == SampleChangerState.Disabled:
+        elif self.get_state() == SampleChangerState.Disabled:
             self._set_state(SampleChangerState.Unknown)
             self.update_info()
         elif mode == SampleChangerMode.Disabled:
             self._set_state(SampleChangerState.Disabled)
-        return self._execute_task(
-            SampleChangerState.ChangingMode, wait, self._do_change_mode, mode
-        )
+        else :
+            return self._execute_task(
+                    SampleChangerState.ChangingMode, wait, self._do_change_mode, mode
+                    )
 
     @dtask
     def scan(self, component=None, recursive=False):

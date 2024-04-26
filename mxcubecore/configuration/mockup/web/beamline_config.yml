@@ -29,7 +29,8 @@ _objects:
     - energy: energy-mockup.xml
     - beam: beam-mockup.xml
     - flux: flux-mockup.xml
-    - detector: detector-mockup.xml
+    - detector: detector.xml
+#    - detector_distance: DetectorDistanceTest.xml
     - resolution: resolution-mockup.xml
     - hutch_interlock: door-interlock-mockup.xml
     - safety_shutter: safety-shutter-mockup.xml

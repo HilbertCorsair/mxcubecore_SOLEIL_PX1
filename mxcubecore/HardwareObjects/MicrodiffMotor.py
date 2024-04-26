@@ -166,7 +166,7 @@ class MicrodiffMotor(AbstractMotor):
         self.motorStateChanged(self.motorState)
 
     def motorStateChanged(self, state):
-        self.updateState()
+        self.update_state()
         if not isinstance(state, int):
             state = self.get_state()
         self.emit("stateChanged", (state,))
@@ -175,6 +175,8 @@ class MicrodiffMotor(AbstractMotor):
         state_value = self.state_attr.get_value()
         if state_value in MicrodiffMotor.EXPORTER_TO_MOTOR_STATE:
             self.motorState = MicrodiffMotor.EXPORTER_TO_MOTOR_STATE[state_value]
+	elif type(state_value) == str:
+		self.motorState = state_value
         else:
             self.motorState = MicrodiffMotor.TANGO_TO_MOTOR_STATE[state_value.name]
         return self.motorState
@@ -214,8 +216,9 @@ class MicrodiffMotor(AbstractMotor):
         return self.get_max_speed_cmd(self.actuator_name)
 
     def motor_positions_changed(self, absolute_position, private={}):
-        if None not in (absolute_position, self.position):
-            if abs(absolute_position - self.position) <= self.motor_resolution:
+	logging.debug("motor_position_changed self.actuator_name %s absolute_position %s" % (self.actuator_name, absolute_position))
+	if None not in (absolute_position, self.position):
+		if abs(absolute_position - self.position) <= self.motor_resolution:
                 return
         self.position = absolute_position
         self.emit("valueChanged", (self.position,))
