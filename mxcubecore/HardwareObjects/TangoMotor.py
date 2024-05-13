@@ -225,7 +225,7 @@ class TangoMotor(AbstractMotor):
         self.log.debug(" reading motor state for %s is %s" % (self.name(), str(motor_state)))
         self.motor_state_changed(motor_state)
 
-    def Pupdate_value(self, value=None): # Already inherited from HO
+    def update_value(self, value=None): # Already inherited from HO
         """Updates motor position"""
         if value is None:
             value = self.get_value()

@@ -133,7 +133,7 @@ class TangoMotor(AbstractMotor):
         self.motor_state_changed()
         self.update_value()
 
-    def connectNotify(self, signal):
+    def PconnectNotify(self, signal): #Not to be used !
         """
         :param signal: signal
         :type signal: signal
@@ -217,20 +217,14 @@ class TangoMotor(AbstractMotor):
                 self.cmd_on()
         # ensure that the state is updated at least once after the polling time
         # in case we miss the state update
-        gevent.spawn(self._update_state)
+        #gevent.spawn(self._update_state)
 
     def _update_state(self):
         gevent.sleep(0.5)
         motor_state = self.chan_state.get_value()
         self.log.debug(" reading motor state for %s is %s" % (self.name(), str(motor_state)))
         self.motor_state_changed(motor_state)
-            
-    def update_value(self, value=None):
-        """Updates motor position"""
-        if value is None:
-            value = self.get_value()
-        self.latest_value = value 
-        super(TangoMotor, self).update_value(value)
+
 
     def get_motor_mnemonic(self):
         """

@@ -37,6 +37,7 @@ class RedisMpegVideo(HardwareObject):
         self._mpeg_scale = self.get_property("mpeg_scale", 1)
         self._image_size = (self.get_width(), self.get_height())
         self._host = self.get_property("host")
+        self._cam_type = self.get_property("cam_type")
 
     def get_width(self):
         return 1024
@@ -88,6 +89,8 @@ class RedisMpegVideo(HardwareObject):
                     port,
                     "-q",
                     str(self._quality),
+                    "-ct",
+                    str(self._cam_type),
                     "-s",
                     self._current_stream_size,
                     "-of",
