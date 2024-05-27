@@ -46,8 +46,13 @@ class SampleView(AbstractSampleView):
 
         self.hide_grid_threshold = self.get_property("hide_grid_threshold", 5)
         for motor_name, motor_ho in HWR.beamline.diffractometer.get_motors().items():
+            print (f"Connecting and updating position off: {motor_name}")
             if motor_ho:
-                motor_ho.connect("stateChanged", self._update_shape_positions)
+                try:
+                    motor_ho.connect("stateChanged", self._update_shape_positions)
+                except Exception as e :
+                    print (f"Failed for {motor_name}: {e}")
+
 
     def _update_shape_positions(self, *args, **kwargs):
         shapes_updated = False
@@ -102,7 +107,9 @@ class SampleView(AbstractSampleView):
         if overlay:
             img = self._ui_snapshot_cb(path, bw)
         else:
-            self.camera.take_snapshot(path, bw)
+            #self.camera.take_snapshot(path, bw)
+
+            self.bear.take_snapshot(path, bw)
 
         self._last_oav_image = path
 

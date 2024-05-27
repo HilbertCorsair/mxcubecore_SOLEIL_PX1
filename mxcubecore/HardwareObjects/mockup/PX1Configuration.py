@@ -1,20 +1,20 @@
 
 import os
 
-from HardwareRepository import HardwareRepository
-from HardwareRepository.BaseHardwareObjects import Device
+#from HardwareRepository import HardwareRepository
+from mxcubecore.BaseHardwareObjects import HardwareObject
 
-class PX1Configuration(Device):
+class PX1Configuration(HardwareObject):
 
     def init(self):
-        self.use_edna_value = self.getProperty("use_edna")
-        self.pin_length = self.getProperty("pin_length")
+        self.use_edna_value = self.get_property("use_edna")
+        self.pin_length = self.get_property("pin_length")
 
-        self.centring_points = self.getProperty("centring_points")
-        self.centring_phi_incr = self.getProperty("centring_phi_increment")
-        self.centring_sample_type = self.getProperty("centring_sample_type")
+        self.centring_points = self.get_property("centring_points")
+        self.centring_phi_incr = self.get_property("centring_phi_increment")
+        self.centring_sample_type = self.get_property("centring_sample_type")
 
-        print "LocalConfiguration has value sample_type=%s" % self.centring_sample_type
+        print ("LocalConfiguration has value sample_type=%s" % self.centring_sample_type)
 
     def getUseEDNA(self):
         return self.use_edna_value
@@ -61,18 +61,16 @@ if __name__ == '__main__':
 
     env = hwr.getHardwareObject("/px1configuration")
 
-    print "PX1 Configuration "
+    print(("PX1 Configuration "))
     use_edna = env.getUseEDNA()
-    print "    use_edna %s / (type: %s)" % (use_edna, type(use_edna))
-    print "    pin_length", env.getPinLength()
-    print "    centring"
-    print "       nb points", env.getCentringPoints()
-    print "       phi incr", env.getCentringPhiIncrement()
-    print "       sample type", env.getCentringSampleType()
+    print("    use_edna %s / (type: %s)" % (use_edna, type(use_edna)))
+    print("    pin_length", env.getPinLength())
+    print("    centring")
+    print("       nb points", env.getCentringPoints())
+    print("       phi incr", env.getCentringPhiIncrement())
+    print("       sample type", env.getCentringSampleType())
     env.setUseEDNA("False")
     env.setPinLength("10")
-    print "    use_edna %s " % env.getUseEDNA()
-    print "    pin_length", env.getPinLength()
+    print("    use_edna %s " % env.getUseEDNA() )
+    print("    pin_length", env.getPinLength() )
     #env.save()
-
-

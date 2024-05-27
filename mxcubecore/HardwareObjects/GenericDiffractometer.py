@@ -419,6 +419,8 @@ class GenericDiffractometer(HardwareObject):
                         self.emit_diffractometer_moved,
                     )
                 elif motor_name == "zoom":
+                    print('Found ZOOM')
+                    exit()
                     self.connect(
                         temp_motor_hwobj,
                         "predefinedPositionChanged",
@@ -465,15 +467,16 @@ class GenericDiffractometer(HardwareObject):
                     self.motor_hwobj_dict["sampy"]
                 )
         except Exception:
-            pass  # used the default value
+            print("HEY ! Execptoin encountered in GenericDiffracto;eter line 452 : Using defqul values> ")  # used the default value
 
         try:
             self.delay_state_polling = self.get_property("delay_state_polling")
-        except Exception:
-            pass
+        except Exception as e:
+            print("YO ! Execptoin encountered in GenericDiffracto;eter line 473 self.get_property(delay_state_polling) :\n{e}\nUsing defqul values> ")  # used the default value
 
         # Other parameters ---------------------------------------------------
         try:
+
             self.zoom_centre = eval(self.get_property("zoom_centre"))
         except Exception:
             self.zoom_centre = {"x": 0, "y": 0}
@@ -762,6 +765,7 @@ class GenericDiffractometer(HardwareObject):
         """
         Descript. :
         """
+        print(f"This is ~~~~~ GENEGIC DEFRACTOMETER ~~~~~~\nReporting pixels per mm Y : {self.pixels_per_mm_y}\n")
 
         self.current_motor_positions["beam_x"] = (
             self.beam_position[0] - self.zoom_centre["x"]
@@ -1334,6 +1338,7 @@ class GenericDiffractometer(HardwareObject):
 
     def update_zoom_calibration(self):
         """ """
+        print(f"~~~~~ GENERIC DIFRACTO ~~~~~~~~~\ncoqx cqm y : {self.channel_dict['CoaxCamScaleX'].get_value()}  /\n")
         self.pixels_per_mm_x = 1.0 / self.channel_dict["CoaxCamScaleX"].get_value()
         self.pixels_per_mm_y = 1.0 / self.channel_dict["CoaxCamScaleY"].get_value()
         self.emit("pixelsPerMmChanged", ((self.pixels_per_mm_x, self.pixels_per_mm_y)))

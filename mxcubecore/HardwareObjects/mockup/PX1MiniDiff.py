@@ -31,15 +31,15 @@ class PX1MiniDiff(GenericDiffractometer):
                       "omega_ref" : 0}
 
     def init(self):
-        self.smargon = self.getObjectByRole("smargon")
+        self.smargon = self.get_object_by_role("smargon")
         self.smargon_state = None
         self.connect(self.smargon, "stateChanged", self.smargon_state_changed)
 
         self.chip_mode = False
 
-        self.lightarm_hwobj = self.getObjectByRole('lightarm')
-        self.px1conf_ho = self.getObjectByRole('px1configuration')
-        self.px1env_ho = self.getObjectByRole('px1environment')
+        self.lightarm_hwobj = self.get_object_by_role('lightarm')
+        self.px1conf_ho = self.get_object_by_role('px1configuration')
+        self.px1env_ho = self.get_object_by_role('px1environment')
 
         self.pixels_per_mm_x = 0
         self.pixels_per_mm_y = 0
@@ -57,7 +57,7 @@ class PX1MiniDiff(GenericDiffractometer):
 
     def set_chip_mode(self, flag):
         self.chip_mode = flag
- 
+
     def in_chip_mode(self):
         return self.chip_mode
 
@@ -68,7 +68,7 @@ class PX1MiniDiff(GenericDiffractometer):
         if env_state != "ON" and not self.px1env_ho.isPhaseCentring():
             self.px1env_ho.gotoCentringPhase()
             gevent.sleep(0.1)
-	    
+
         if not self.px1env_ho.isPhaseCentring():
             t0 = time.time()
             while True:
@@ -112,10 +112,15 @@ class PX1MiniDiff(GenericDiffractometer):
 
         #self.smargon_state = str(self.smargon_state_ch.getValue())
         #return self.smargon_state == "STANDBY"
-        
+
     def get_pixels_per_mm(self):
-        self.update_zoom_calibration()
-        return GenericDiffractometer.get_pixels_per_mm(self)
+        x= float(self.get_object_by_role("zoom").positions['Zoom 1']['pixelsPerMmY'])
+        y= float(self.get_object_by_role("zoom").positions['Zoom 1']['pixelsPerMmZ'])
+
+        self.pixels_per_mm_x = x
+
+        self.pixels_per_mm_y = y
+        #/return GenericDiffractometer.get_pixels_per_mm(self)
 
     def update_zoom_calibration(self):
         self._update_zoom_calibration()
@@ -128,14 +133,14 @@ class PX1MiniDiff(GenericDiffractometer):
         if 'zoom' not in self.motor_hwobj_dict:
             # not initialized yet
             return
-
         zoom_motor = self.motor_hwobj_dict['zoom']
+        self.get_pixels_per_mm()
 
-        props = zoom_motor.getCurrentPositionProperties()
+        props = zoom_motor.get_current_position_properties()
 
         if props is None:
             logging.getLogger("HWR").debug("PX1MiniDiff. no valid zoom position. calibration is invalid")
-            return 
+            return
 
         if 'pixelsPerMmZ' in props.keys() and 'pixelsPerMmY' in props.keys():
             self.pixels_per_mm_x = float(props['pixelsPerMmY'])
@@ -154,7 +159,7 @@ class PX1MiniDiff(GenericDiffractometer):
         if 'beamPositionX' in props.keys() and 'beamPositionY' in props.keys():
             self.beam_xc = float(props['beamPositionX'])
             self.beam_yc = float(props['beamPositionY'])
-            
+
 
     def px1_manual_centring(self, sample_info=None, wait_result=None):
         """
@@ -241,7 +246,7 @@ class PX1MiniDiff(GenericDiffractometer):
 
                 self.emit_progress_message("Moving sample to centred position...")
                 self.emit_centring_moving()
-                
+
                 try:
                     #if omega_pos:
                     #   logging.getLogger("HWR").info(" Moving Omega to %.3f" % omega_pos)
@@ -263,7 +268,7 @@ class PX1MiniDiff(GenericDiffractometer):
                 self.emit_progress_message("")
                 self.ready_event.set()
 
-                
+
 
     def move_to_beam(self, x,y, omega=None):
 
@@ -273,7 +278,7 @@ class PX1MiniDiff(GenericDiffractometer):
         mot_x = self.motor_hwobj_dict.get("sampx")
         mot_phiy = self.motor_hwobj_dict.get("phiy")
 
-        dx = (x-self.beam_xc) / self.pixels_per_mm_x 
+        dx = (x-self.beam_xc) / self.pixels_per_mm_x
         dy = (y-self.beam_yc) / self.pixels_per_mm_y
 
         d_sy = math.cos(math.radians(phi_angle)) * dy
@@ -298,7 +303,7 @@ class PX1MiniDiff(GenericDiffractometer):
              self.move_motors, motors_positions)
 
         self.move_to_motors_positions_procedure.link(self.move_motors_done)
-        
+
         if wait:
             self.wait_device_ready(10)
 
@@ -314,7 +319,7 @@ class PX1MiniDiff(GenericDiffractometer):
         """
         Moves diffractometer motors to the requested positions
 
-        :param motors_dict: dictionary with motor names or hwobj 
+        :param motors_dict: dictionary with motor names or hwobj
                             and target values.
         :type motors_dict: dict
         """
@@ -371,8 +376,8 @@ class PX1MiniDiff(GenericDiffractometer):
         sampy_pos = self.motor_hwobj_dict['sampy'].getPosition()
         phiy_pos = self.motor_hwobj_dict['phiy'].getPosition()
 
-        sampx = sampx_c -sampx_pos 
-        sampy = sampy_c -sampy_pos 
+        sampx = sampx_c -sampx_pos
+        sampy = sampy_c -sampy_pos
         phiy = (phiy_c - phiy_pos)
 
         cosphi = math.cos(math.radians(phi_angle))
@@ -381,14 +386,14 @@ class PX1MiniDiff(GenericDiffractometer):
         dx = sampx * cosphi - sampy * sinphi
         dy = sampx * sinphi + sampy * cosphi
 
-        x = beam_x - (phiy * self.pixels_per_mm_x) 
+        x = beam_x - (phiy * self.pixels_per_mm_x)
         y = beam_y + dy * self.pixels_per_mm_y
 
         return x, y
 
     def get_centred_point_from_coord(self, x, y, return_by_names=None):
 
-        dx = (x - self.beam_xc) / self.pixels_per_mm_x 
+        dx = (x - self.beam_xc) / self.pixels_per_mm_x
         dy = (y - self.beam_yc) / self.pixels_per_mm_y
 
         motor_pos = self.get_motor_positions()
@@ -411,8 +416,8 @@ class PX1MiniDiff(GenericDiffractometer):
         dsampx = dx * cosphi + dy * sinphi
         dsampy = -dx * sinphi + dy * cosphi
 
-        #dsampx, dsampy = np.dot( np.array([0,dy]), inv_matrix ) 
-     
+        #dsampx, dsampy = np.dot( np.array([0,dy]), inv_matrix )
+
         sampx += dsampx
         sampy += dsampy
 
@@ -491,7 +496,7 @@ class PX1MiniDiff(GenericDiffractometer):
 ### end autocentring methods
 
 def test_hwo(hwo):
-    print "Current positions are:"
+    print ("Current positions are:")
     current_pos = hwo.get_motor_positions()
     for motor in current_pos.keys():
-        print "% 10s" % motor, current_pos[motor]
+        print ("% 10s" % motor, current_pos[motor])

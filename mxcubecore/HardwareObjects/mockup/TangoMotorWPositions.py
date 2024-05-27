@@ -7,7 +7,7 @@ class TangoMotorWPositions(TangoMotor):
     """Used soley for zoom to specify fixed zoom positions"""
 
     def __init__(self, name):
-        TangoMotor.__init__(self, name)
+        super().__init__(name)
 
     def _init(self):
 
@@ -39,16 +39,23 @@ class TangoMotorWPositions(TangoMotor):
 
 
         self.position_names = list(self.positions.keys())
-        #self.position_names.sort(key = self.cmp_positions )
-
         #print(self.position_names)
         #exit()
+        #self.position_names.sort(key = self.cmp_positions )
+        print("\n---|ZooM InitiateD|--- !\n")
 
     def position_do_changed(self):
         self.check_predefined()
 
     def cmp_positions(self, x, y):
-        return int(round(self.positions[x]['offset'] - self.positions[y]['offset']))
+        print(f"In TMWP x is {x} and y is {y}")
+        try :
+            i = int(round(self.positions[x]['offset'] - self.positions[y]['offset']))
+        except :
+            print("PROBLEM!!!")
+            i = 1
+
+        return i
 
     def check_predefined(self):
         name, pos, valid = self.get_current_name()

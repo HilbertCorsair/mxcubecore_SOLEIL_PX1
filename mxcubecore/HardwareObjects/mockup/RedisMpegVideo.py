@@ -37,7 +37,7 @@ class RedisMpegVideo(HardwareObject):
         self._mpeg_scale = self.get_property("mpeg_scale", 1)
         self._image_size = (self.get_width(), self.get_height())
         self._host = self.get_property("host")
-        self._cam_type = self.get_property("cam_type")
+        # self._cam_type = self.get_property("cam_type")
 
     def get_width(self):
         return 1024
@@ -82,15 +82,15 @@ class RedisMpegVideo(HardwareObject):
                 [
                     "video-streamer",
                     "-uri",
-                    self._host,
+                    "test", #self._host,
                     "-hs",
                     "localhost",
                     "-p",
-                    port,
+                    4242, #port,
                     "-q",
                     str(self._quality),
-                    "-ct",
-                    str(self._cam_type),
+                    #"-ct",
+                    #str(self._cam_type),
                     "-s",
                     self._current_stream_size,
                     "-of",
@@ -116,7 +116,7 @@ class RedisMpegVideo(HardwareObject):
 
             self._video_stream_process = None
 
-    def start_streaming(self, _format=None, size=(0, 0), port="4042"):
+    def start_streaming(self, _format=None, size=(0, 0), port="4242"):
         if _format:
             self._format = _format
 

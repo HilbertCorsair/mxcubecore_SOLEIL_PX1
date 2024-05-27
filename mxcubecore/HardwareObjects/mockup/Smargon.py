@@ -2,11 +2,11 @@
 import logging
 import time
 
-from HardwareRepository.BaseHardwareObjects import Device
+from mxcubecore.BaseHardwareObjects import HardwareObject
 from gevent import Timeout
 import gevent
 
-class Smargon(Device):
+class Smargon(HardwareObject):
 
     #default_polling = "events"
     default_polling = 100
@@ -19,7 +19,7 @@ class Smargon(Device):
         signals[motor_name] = '%sPositionChanged' % motor_name
 
     def __init__(self,name):
-        Device.__init__(self,name)
+        super().__init__(name)
 
         self.motor_channels = {}
         self.motor_positions = {}
@@ -43,43 +43,43 @@ class Smargon(Device):
 
     def _init(self):
 
-        self.device_name = self.getProperty("tangoname")
-        self.polling = self.getProperty("polling")
+        self.device_name = self.get_property("tangoname")
+        self.polling = self.get_property("polling")
 
         if self.polling is None:
             self.polling = self.default_polling
             logging.getLogger("HWR").debug("Smargon. using default polling to %s" % (self.polling))
 
-        self._state_chan = self.addChannel({
+        self._state_chan = self.add_channel({
              "type": "tango", "name": "_state_chan",
                     "tangoname": self.device_name, "polling": self.default_polling,
         }, "State")
 
-        self._freeze_chan = self.addChannel({
+        self._freeze_chan = self.add_channel({
              "type": "tango", "name": "_freeze_chan",
-                    "tangoname": self.device_name, 
+                    "tangoname": self.device_name,
         }, "freeze")
 
-        self._stop_cmd = self.addCommand({
+        self._stop_cmd = self.add_command({
             "type": "tango",
             "name": "_stop_cmd",
             "tangoname": self.device_name,
         }, "Stop")
 
-        
+
         for motor_name in self.motors:
             if motor_name == "omega":
-                chan = self.addChannel({ "type": "tango", "name": "_%s_chan" % motor_name,
+                chan = self.add_channel({ "type": "tango", "name": "_%s_chan" % motor_name,
                     "tangoname": self.device_name, "polling": self.default_polling,
                    }, motor_name)
             else:
-                chan = self.addChannel({ "type": "tango", "name": "_%s_chan" % motor_name,
+                chan = self.add_channel({ "type": "tango", "name": "_%s_chan" % motor_name,
                     "tangoname": self.device_name, "polling": self.default_polling,
                    }, motor_name)
             self.motor_channels[motor_name] = chan
-            chan.connectSignal("update", self.slots[motor_name])
+            chan.connect_signal("update", self.slots[motor_name])
 
-        self._state_chan.connectSignal("update", self.state_changed)
+        self._state_chan.connect_signal("update", self.state_changed)
 
     def connectNotify(self, signal):
         if signal == 'stateChanged':
@@ -88,12 +88,12 @@ class Smargon(Device):
             pass
         else:
             motor = self.get_motor_from_signal(signal)
-            pos = self.get_position(motor)  
+            pos = self.get_position(motor)
             self.slots[motor](pos)
 
     def state_changed(self, newvalue):
         newstate = str(newvalue)
-        
+
         self.emit('stateChanged', newstate)
         self.state = newstate
 
@@ -147,8 +147,8 @@ class Smargon(Device):
             self.motor_positions[motor_name] = newpos
             signal = self.signals[motor_name]
             self.emit(signal, newpos)
-            self.emit('stateChanged', self.state)
-        
+            self.emit('stateChanged', self._state)
+
     def get_motors(self):
         return self.motors
 
@@ -172,7 +172,7 @@ class Smargon(Device):
         motor_position = motor_chan.getValue()
         self.motor_positions[motor_name] = motor_position
         return motor_position
-        
+
     def move(self, motor_name, target_pos, backlash=None, wait=False):
         logging.getLogger("HWR").debug("Smargon.py - Moving motor %s to: %.3f" % (motor_name, target_pos))
         motor_chan = self.motor_channels[motor_name]
@@ -182,16 +182,16 @@ class Smargon(Device):
 
             return int(x/abs(x))
 
-        do_backlash = False 
+        do_backlash = False
 
         if backlash is not None:
              logging.getLogger("HWR").debug("Smargon.py - in move function found backlash value")
              current_pos = motor_chan.getValue()
              move_distance = target_pos - current_pos
- 
+
              if abs(move_distance) > 5e-3:
                  if sign(move_distance) != sign(backlash):
-                     do_backlash = True 
+                     do_backlash = True
                      final_pos = target_pos
                      target_pos -= backlash
                      self.backlash_pending[motor_name] = final_pos
@@ -199,14 +199,14 @@ class Smargon(Device):
                      logging.getLogger("HWR").debug("Smargon.py -   moving first to: %s then %s" % (target_pos, final_pos))
         _t0 = time.time()
         motor_chan.setValue(target_pos)
-        #logging.getLogger("HWR").debug("Smargon.py - Time to move motor %s: %.3f sec" % (motor_name, (time.time()-_t0)))                
+        #logging.getLogger("HWR").debug("Smargon.py - Time to move motor %s: %.3f sec" % (motor_name, (time.time()-_t0)))
         if do_backlash and not self.backlash_task_running:
             self.start_backlash_task()
 
-        if wait: 
+        if wait:
             self.wait_ready()
-        #logging.getLogger("HWR").debug("Smargon.py - Time to exit move motor %s" % (motor_name))                
-        logging.getLogger("HWR").debug("Smargon.py - with wait=%s Time to move motor %s: %.3f sec" % (wait, motor_name, (time.time()-_t0)))                
+        #logging.getLogger("HWR").debug("Smargon.py - Time to exit move motor %s" % (motor_name))
+        logging.getLogger("HWR").debug("Smargon.py - with wait=%s Time to move motor %s: %.3f sec" % (wait, motor_name, (time.time()-_t0)))
 
     def start_backlash_task(self):
         if not self.backlash_task_running:
@@ -221,7 +221,7 @@ class Smargon(Device):
         logging.getLogger("HWR").debug("waiting for motors to stop before applying backlash correction")
         self._wait_ready()
 
-        logging.getLogger("HWR").debug("motors are now stopped. starting pending backlash movements") 
+        logging.getLogger("HWR").debug("motors are now stopped. starting pending backlash movements")
         for motor_name, target_pos in self.backlash_pending.items():
             logging.getLogger("HWR").debug("   backlash finish. moving %s to %s" % (motor_name, target_pos))
             self.move(motor_name, target_pos, backlash=None, wait=False)
@@ -247,7 +247,7 @@ class Smargon(Device):
 
         self.set_freeze(False)
         self.wait_notready()
-            
+
         if wait:
             self.wait_ready()
 
@@ -280,10 +280,10 @@ class Smargon(Device):
 
     def set_freeze(self, onoff):
         logging.getLogger("HWR").debug( "Smargon. Setting freeze to: %s" % onoff)
-        self._freeze_chan.setValue(onoff) 
+        self._freeze_chan.setValue(onoff)
 
     def wait_notready(self, timeout=5):
-        t0 = time.time() 
+        t0 = time.time()
 
         while self.is_ready():
             if (time.time() - t0) > timeout:
@@ -291,9 +291,9 @@ class Smargon(Device):
             gevent.sleep(0.03)
 
     def wait_ready(self,timeout=20):
-        t0 = time.time() 
+        t0 = time.time()
 
-        while self.backlash_task_running: 
+        while self.backlash_task_running:
             logging.getLogger("HWR").debug("waiting for backlash correction to finish")
             if (time.time() - t0) > timeout:
                 raise Timeout
@@ -304,7 +304,7 @@ class Smargon(Device):
     def _wait_ready(self, timeout=20):
         #gevent.sleep(0.03)
 
-        t0 = time.time() 
+        t0 = time.time()
 
         while not self.is_ready():
             if (time.time() - t0) > timeout:
@@ -328,11 +328,11 @@ class Smargon(Device):
         return self.motor_limits[motor_name]
 
     def stop(self):
-        if self.backlash_task_running: 
-           self.backlash_task.kill(block=False) 
+        if self.backlash_task_running:
+           self.backlash_task.kill(block=False)
            self.backlash_task_running = False
         self._stop_cmd()
-  
+
 def test_hwo(hwo):
     t0 = time.time()
 
