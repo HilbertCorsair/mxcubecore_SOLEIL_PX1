@@ -65,9 +65,10 @@ class Smargon(HardwareObject):
             "name": "_stop_cmd",
             "tangoname": self.device_name,
         }, "Stop")
-
+        print(" ~~~~~ SMARGON INITIalizing ~~~~~~~~")
 
         for motor_name in self.motors:
+            print(f"SMARGON: {motor_name}")
             if motor_name == "omega":
                 chan = self.add_channel({ "type": "tango", "name": "_%s_chan" % motor_name,
                     "tangoname": self.device_name, "polling": self.default_polling,
@@ -78,18 +79,22 @@ class Smargon(HardwareObject):
                    }, motor_name)
             self.motor_channels[motor_name] = chan
             chan.connect_signal("update", self.slots[motor_name])
+            print(f'SMARGON l 81: {motor_name} position updated!')
 
         self._state_chan.connect_signal("update", self.state_changed)
 
     def connectNotify(self, signal):
         if signal == 'stateChanged':
-             self.state_changed(self.get_state())
+            print("SMARGON state changed !")
+            self.state_changed(self.get_state())
         elif signal in ['deviceReady', 'deviceNotReady']:
+            print ("SMARGON DOING NOTHING in conectNotify: ")
             pass
         else:
             motor = self.get_motor_from_signal(signal)
             pos = self.get_position(motor)
             self.slots[motor](pos)
+            print (f"Smargon ---> motor: {motor}, signal: {signal}")
 
     def state_changed(self, newvalue):
         newstate = str(newvalue)
@@ -313,17 +318,20 @@ class Smargon(HardwareObject):
             #logging.getLogger("HWR").debug("SMARGON wait" )
             gevent.sleep(0.03)
 
-    def is_ready(self):
+    def is_ready(self):q:ewq
+        print (f'SMARGON 322: {self.name()}, {Self.get_state()}')
         return self.get_state() == "STANDBY"
 
     def get_limits(self, motor_name, update=False):
         if not self.motor_limits or (update is True):
+            print(f"SMARGON l327: {motor_name}")
             for _motor_name in self.motor_channels:
                 chan = self.motor_channels[_motor_name]
                 info = chan.getInfo()
                 min_value = float(info.min_value)
                 max_value = float(info.max_value)
                 self.motor_limits[_motor_name] = [min_value, max_value]
+        print(f"SMARGON l334 retunning motor limits {self.motorlimits[motor_name]}")
 
         return self.motor_limits[motor_name]
 

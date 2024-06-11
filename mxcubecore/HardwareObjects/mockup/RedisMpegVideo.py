@@ -23,7 +23,7 @@ from mxcubecore.BaseHardwareObjects import HardwareObject
 class RedisMpegVideo(HardwareObject):
     def __init__(self, name):
         super().__init__(name)
-        self._format = "MPEG1"
+        self._format = "MJPEG"
         self._video_stream_process = None
         self._current_stream_size = "0, 0"
         self.stream_hash = str(uuid.uuid1())
@@ -37,12 +37,19 @@ class RedisMpegVideo(HardwareObject):
         self._mpeg_scale = self.get_property("mpeg_scale", 1)
         self._image_size = (self.get_width(), self.get_height())
         self._host = self.get_property("host")
+        self._port = self.get_property("port")
+
         # self._cam_type = self.get_property("cam_type")
+        #import pdb
+        #print("Check 1")
+        #pdb.set_trace()
 
     def get_width(self):
-        return 1024
+        w= int(self.get_property("width"))
+        return w
     def get_height(self):
-        return 1360
+        h= int(self.get_property("height"))
+        return h
 
     def get_quality(self):
         return self._quality_str
@@ -74,23 +81,23 @@ class RedisMpegVideo(HardwareObject):
         return video_sizes
 
     def start_video_stream_process(self, port):
+
         if (
             not self._video_stream_process
             or self._video_stream_process.poll() is not None
         ):
+
             self._video_stream_process = subprocess.Popen(
                 [
                     "video-streamer",
                     "-uri",
-                    "test", #self._host,
+                    "test",#self._host,
                     "-hs",
                     "localhost",
                     "-p",
-                    4242, #port,
+                    port,
                     "-q",
                     str(self._quality),
-                    #"-ct",
-                    #str(self._cam_type),
                     "-s",
                     self._current_stream_size,
                     "-of",
@@ -101,7 +108,6 @@ class RedisMpegVideo(HardwareObject):
                 ],
                 close_fds=True,
             )
-
             with open("/tmp/mxcube.pid", "a") as f:
                 f.write("%s " % self._video_stream_process.pid)
 
@@ -117,16 +123,23 @@ class RedisMpegVideo(HardwareObject):
             self._video_stream_process = None
 
     def start_streaming(self, _format=None, size=(0, 0), port="4242"):
+        _s = size
+
         if _format:
             self._format = _format
 
         if not size[0]:
-            _s = self.get_width(), self.get_height()
+            _s = (self.get_width(), self.get_height())
         else:
             _s = size
 
         self.set_stream_size(_s[0], _s[1])
-        self.start_video_stream_process(port)
+        try:
+            self.start_video_stream_process(port)
+        except:
+            print("Cannot start video streaming process !")
+            exit()
+
 
     def restart_streaming(self, size):
         self.stop_streaming()
