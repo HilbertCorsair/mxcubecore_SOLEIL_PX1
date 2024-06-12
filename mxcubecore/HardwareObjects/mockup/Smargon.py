@@ -318,8 +318,8 @@ class Smargon(HardwareObject):
             #logging.getLogger("HWR").debug("SMARGON wait" )
             gevent.sleep(0.03)
 
-    def is_ready(self):q:ewq
-        print (f'SMARGON 322: {self.name()}, {Self.get_state()}')
+    def is_ready(self):
+        print (f'SMARGON 322: {self.name()}, {self.get_state()}')
         return self.get_state() == "STANDBY"
 
     def get_limits(self, motor_name, update=False):
