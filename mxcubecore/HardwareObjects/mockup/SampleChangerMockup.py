@@ -38,7 +38,6 @@ class SampleChangerMockup(AbstractSampleChanger.SampleChanger):
         AbstractSampleChanger.SampleChanger.init(self)
         print(">>>>>>>>>>>>>> Sample Changer <<<<<<<<<<<<<<<< \n","MOCKUP", "\n\n\n")
         print(str(self.get_state()) , "\n\n\n")
-        exit()
 
 
         self.log_filename = self.get_property("log_filename")

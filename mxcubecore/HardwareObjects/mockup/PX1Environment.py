@@ -6,7 +6,7 @@ import gevent
 
 from mxcubecore.Command.Tango import DeviceProxy
 
-from mxcubecore.BaseHardwareObjects import Device
+from mxcubecore.BaseHardwareObjects import HardwareObject
 from mxcubecore.TaskUtils import task
 
 
@@ -70,10 +70,10 @@ class EnvironemntState:
         return SampleChangerState.statedesc.get(state, "Unknown")
 
 
-class PX1Environment(Device):
+class PX1Environment(HardwareObject):
     print('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx Initianting PX1 ENV xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n')
     def __init__(self, name):
-        Device.__init__(self, name)
+        super().__init__(name)
         self.auth = None
         self.device = None
 

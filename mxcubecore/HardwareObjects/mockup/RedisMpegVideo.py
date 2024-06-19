@@ -90,7 +90,7 @@ class RedisMpegVideo(HardwareObject):
             self._video_stream_process = subprocess.Popen(
                 [
                     "video-streamer",
-                    "-uri",
+                    "-tu",
                     "test",#self._host,
                     "-hs",
                     "localhost",
