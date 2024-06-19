@@ -31,14 +31,15 @@ import logging
 import traceback
 import h5py
 import numpy as np
+import psutil
+import subprocess
+import time
 
 
 from mxcubecore.HardwareObjects.abstract.AbstractCollect import AbstractCollect
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.TaskUtils import task
 from mxcubecore.Command.Tango import DeviceProxy
-
-import triggerUtils
 
 FILE_TIMEOUT = 5
 
@@ -381,6 +382,18 @@ class P11Collect(AbstractCollect):
             self.log.debug("#COLLECT# Starting detector")
             HWR.beamline.detector.start_acquisition()
 
+            # Check whether the live view monitoring is on. Restart if needed.
+            process_name = os.getenv("MXCUBE_LIVEVIEW_NAME")
+            command = [os.getenv("MXCUBE_LIVEVIEW")]
+            if self.is_process_running(process_name) and self.is_process_running(
+                "adxv"
+            ):
+                print(f"{process_name} is already running.")
+            else:
+                os.system(f"killall -9 {process_name}")
+                print(f"{process_name} is not running. Starting...")
+                self.start_process(command)
+
             if collection_type == "Characterization":
                 self.log.debug("STARTING CHARACTERISATION")
                 self.collect_characterisation(
@@ -389,14 +402,17 @@ class P11Collect(AbstractCollect):
             else:
                 self.log.debug("STARTING STANDARD COLLECTION")
                 self.collect_std_collection(start_angle, stop_angle)
-                self.generate_xds_template()
 
         except RuntimeError:
             self.log.error(traceback.format_exc())
         finally:
             self.add_h5_info(self.latest_h5_filename)
             self.acquisition_cleanup()
-            self.log.debug("STARTING PROCESSING")
+
+        # Show the latest image after collection
+        latest_image = HWR.beamline.detector.get_eiger_name_pattern()
+        latest_image = f"/gpfs{latest_image}_master.h5"
+        self.adxv_notify(latest_image)
 
     def collect_std_collection(self, start_angle, stop_angle):
         """
@@ -499,6 +515,21 @@ class P11Collect(AbstractCollect):
             logging.getLogger("HWR").exception("")
         else:
             pass
+
+    def is_process_running(self, process_name):
+        for proc in psutil.process_iter():
+            if proc.name() == process_name:
+                return True
+        return False
+
+    def start_process(self, command):
+        subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            close_fds=True,
+        )
 
     def acquisition_cleanup(self):
         """
@@ -662,7 +693,6 @@ class P11Collect(AbstractCollect):
         else:
             return -1
 
-    # TODO: Move to Maxwell completely
     def generate_xds_template(self):
         """
         The function generates an XDS template by executing a command on a remote server.
@@ -713,8 +743,7 @@ class P11Collect(AbstractCollect):
         processing. It is an integer value that represents the number of frames to be processed
         :return: The function does not return any value.
         """
-        self.log.debug("Writing HDF% file header final information")
-        self.add_h5_info(self.latest_h5_filename)
+
         self.log.debug("Triggering auto processing")
 
         dc_pars = self.current_dc_parameters
@@ -729,15 +758,6 @@ class P11Collect(AbstractCollect):
                 "==== AUTOPROCESSING CHARACTERISATION IN PROGRESS =========="
             )
 
-            # creation will fail if beamtime folder, slurm reservation or
-            # bl-fs mount on the compute nodes can not be found
-            try:
-                btHelper = triggerUtils.Trigger()
-            except RuntimeError:
-                self.log.debug(sys.exc_info())
-                self.log.error("Cannot trigger auto processing")
-                return
-
             resolution = self.get_resolution()
             frames = self.latest_frames
 
@@ -745,7 +765,7 @@ class P11Collect(AbstractCollect):
             # AG: Image dir at this point is located locally. This path is not seen on the MAXWELL. Path needs to be converted.
             # /gpfs/current/ to  get_beamline_metadata()[2]
             image_dir = image_dir_local.replace(
-                "/gpfs/current", triggerUtils.get_beamtime_metadata()[2]
+                "/gpfs/current", HWR.beamline.session.get_beamtime_metadata()[2]
             )
             process_dir = image_dir.replace("/raw/", "/processed/")
             process_dir_local = image_dir_local.replace("/raw/", "/processed/")
@@ -756,7 +776,7 @@ class P11Collect(AbstractCollect):
                 '============MOSFLM======== mosflm_path_local="%s"' % mosflm_path_local
             )
 
-            ssh = btHelper.get_ssh_command()
+            ssh = HWR.beamline.session.get_ssh_command()
 
             try:
                 self.mkdir_with_mode(mosflm_path_local, mode=0o777)
@@ -781,12 +801,12 @@ class P11Collect(AbstractCollect):
                 self.log.debug(sys.exc_info(), err_msg)
 
             # create call
-            ssh = btHelper.get_ssh_command()
-            sbatch = btHelper.get_sbatch_command(
+            ssh = HWR.beamline.session.get_ssh_command()
+            sbatch = HWR.beamline.session.get_sbatch_command(
                 jobname_prefix="mosflm",
-                job_dependency="singleton",
                 logfile_path=mosflm_path.replace(
-                    triggerUtils.get_beamtime_metadata()[2], "/beamline/p11/current"
+                    HWR.beamline.session.get_beamtime_metadata()[2],
+                    "/beamline/p11/current",
                 )
                 + "/mosflm.log",
             )
@@ -798,7 +818,8 @@ class P11Collect(AbstractCollect):
                 imagepath=image_dir,
                 filename=filename,
                 processpath=mosflm_path.replace(
-                    triggerUtils.get_beamtime_metadata()[2], "/beamline/p11/current"
+                    HWR.beamline.session.get_beamtime_metadata()[2],
+                    "/beamline/p11/current",
                 ),
                 frames=frames,
                 res=resolution,
@@ -823,20 +844,13 @@ class P11Collect(AbstractCollect):
                     "==== AUTOPROCESSING STANDARD PROCESSING IS IN PROGRESS =========="
                 )
 
-                try:
-                    btHelper = triggerUtils.Trigger()
-                except RuntimeError:
-                    self.log.debug(sys.exc_info())
-                    self.log.error("Cannot trigger auto processing")
-                    return
-
                 resolution = self.get_resolution()
                 frames = self.latest_frames
 
                 image_dir_local, filename = os.path.split(self.latest_h5_filename)
 
                 image_dir = image_dir_local.replace(
-                    "/gpfs/current", triggerUtils.get_beamtime_metadata()[2]
+                    "/gpfs/current", HWR.beamline.session.get_beamtime_metadata()[2]
                 )
                 process_dir = image_dir.replace("/raw/", "/processed/")
                 process_dir_local = image_dir_local.replace("/raw/", "/processed/")
@@ -873,12 +887,12 @@ class P11Collect(AbstractCollect):
                     self.log.debug(sys.exc_info())
 
                 # create call
-                ssh = btHelper.get_ssh_command()
-                sbatch = btHelper.get_sbatch_command(
+                ssh = HWR.beamline.session.get_ssh_command()
+                sbatch = HWR.beamline.session.get_sbatch_command(
                     jobname_prefix="xdsapp",
-                    job_dependency="",
                     logfile_path=xdsapp_path.replace(
-                        triggerUtils.get_beamtime_metadata()[2], "/beamline/p11/current"
+                        HWR.beamline.session.get_beamtime_metadata()[2],
+                        "/beamline/p11/current",
                     )
                     + "/xdsapp.log",
                 )
@@ -886,7 +900,8 @@ class P11Collect(AbstractCollect):
                 self.log.debug(
                     "=============== XDSAPP ================"
                     + xdsapp_path.replace(
-                        triggerUtils.get_beamtime_metadata()[2], "/beamline/p11/current"
+                        HWR.beamline.session.get_beamtime_metadata()[2],
+                        "/beamline/p11/current",
                     )
                 )
                 cmd = (
@@ -895,7 +910,8 @@ class P11Collect(AbstractCollect):
                 ).format(
                     imagepath=image_dir + "/" + filename,
                     processpath=xdsapp_path.replace(
-                        triggerUtils.get_beamtime_metadata()[2], "/beamline/p11/current"
+                        HWR.beamline.session.get_beamtime_metadata()[2],
+                        "/beamline/p11/current",
                     ),
                     res=resolution,
                 )
