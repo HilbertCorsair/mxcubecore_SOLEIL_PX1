@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mxcubecore"
-version = "1.76.0"
+version = "1.107.0"
 license = "LGPL-3.0-or-later"
 description = "Core libraries for the MXCuBE application"
 authors = ["The MXCuBE collaboration <mxcube@esrf.fr>"]
@@ -45,7 +45,7 @@ gipc = "^1.4.0"
 py4j = "0.10.9.7"
 f90nml = "1.4.3"
 lucid3 = "^3.0.0"
-PyTango = { version = "^9.3.6", optional = true }
+PyTango = { version = "^9.3.6"}
 python-ldap = "^3.4.0"
 requests = "^2.31.0"
 colorama = "^0.4.6"
@@ -139,7 +139,6 @@ force-exclude = '''
 #
   | deprecated/HardwareObjects/SpecScan.py
   | deprecated/HardwareObjects/mockup/MultiCollectMockup.py
-  | mxcubecore/Command/Tango.py
   | mxcubecore/HardwareObjects/ALBA/ALBAEpsActuator.py
   | mxcubecore/HardwareObjects/ALBA/ALBAFastShutter.py
   | deprecated/HardwareObjects/Server/__init__.py
@@ -240,7 +239,6 @@ force-exclude = '''
   | mxcubecore/HardwareObjects/mockup/PlateManipulatorMockup.py
   | mxcubecore/model/crystal_symmetry.py
   | mxcubecore/HardwareObjects/XSDataMXCuBEv1_4.py
-  | mxcubecore/model/queue_model_objects.py
   | mxcubecore/HardwareObjects/XSDataMXv1.py
 )
 '''

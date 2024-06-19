@@ -29,12 +29,27 @@ import logging
 
 from mxcubecore.model import queue_model_enumerables
 
+try:
+    from mxcubecore.model import crystal_symmetry
+    from ruamel.yaml import YAML
+
+    # If you want to write out copies of the file, use typ="rt" instead
+    # pure=True uses yaml version 1.2, with fewere gotchas for strange type conversions
+    yaml = YAML(typ="safe", pure=True)
+    # The following are not needed for load, but define the default style.
+    yaml.default_flow_style = False
+    yaml.indent(mapping=4, sequence=4, offset=2)
+except Exception:
+    logging.getLogger("HWR").warning(
+        "Cannot import dependenices needed for GPHL workflows - GPhL workflows might not work"
+    )
+
 # This module is used as a self contained entity by the BES
 # workflows, so we need to make sure that this module can be
 # imported eventhough HardwareRepository is not avilable.
 try:
     from mxcubecore import HardwareRepository as HWR
-except ImportError as ex:
+except ImportError:
     logging.getLogger("HWR").exception("Could not import HardwareRepository")
 
 
@@ -344,7 +359,7 @@ class Sample(TaskNode):
         else:
             self.set_name(self.loc_str)
 
-    def init_from_lims_object(self, lims_sample):
+    def init_from_lims_object(self, lims_sample):  # noqa: C901
         if hasattr(lims_sample, "cellA"):
             self.crystals[0].cell_a = lims_sample.cellA
             self.processing_parameters.cell_a = lims_sample.cellA
@@ -428,12 +443,10 @@ class Sample(TaskNode):
         if hasattr(lims_sample, "containerSampleChangerLocation") and hasattr(
             lims_sample, "sampleLocation"
         ):
-
             if (
                 lims_sample.containerSampleChangerLocation
                 and lims_sample.sampleLocation
             ):
-
                 self.lims_sample_location = int(lims_sample.sampleLocation)
                 self.lims_container_location = int(
                     lims_sample.containerSampleChangerLocation
@@ -485,6 +498,7 @@ class Sample(TaskNode):
         self.crystals[0].cell_c = p.get("cellC", "")
         self.crystals[0].cell_gamma = p.get("cellGamma", "")
         self.crystals[0].protein_acronym = p.get("proteinAcronym", "")
+        self.crystals[0].crystal_uuid = p.get("crystalUUID", "")
 
     def get_processing_parameters(self):
         processing_params = ProcessingParameters()
@@ -631,7 +645,6 @@ class DataCollection(TaskNode):
         DataCollection.processing_methods = processing_methods
 
     def as_dict(self):
-
         acq = self.acquisitions[0]
         path_template = acq.path_template
         parameters = acq.acquisition_parameters
@@ -1462,7 +1475,6 @@ class Acquisition(object):
             self.acquisition_parameters.num_images
             + self.acquisition_parameters.first_image,
         ):
-
             path = os.path.join(
                 self.path_template.get_archive_directory(),
                 self.path_template.get_image_file_name(suffix="thumb.jpeg") % i,
@@ -1603,7 +1615,6 @@ class PathTemplate(object):
             logging.getLogger("HWR").debug(
                 "PathTemplate (DESY) - (to be defined) directory is %s" % self.directory
             )
-            #archive_directory = self.directory
             archive_directory = HWR.beamline.session.get_archive_directory()
         elif PathTemplate.synchrotron_name == "ALBA":
             logging.getLogger("HWR").debug(
@@ -1660,7 +1671,6 @@ class PathTemplate(object):
             if self.start_num < (
                 rh_pt.start_num + rh_pt.num_files
             ) and rh_pt.start_num < (self.start_num + self.num_files):
-
                 result = True
 
         return result
@@ -1670,7 +1680,6 @@ class PathTemplate(object):
         file_name_template = self.get_image_file_name()
 
         for i in range(self.start_num, self.start_num + self.num_files):
-
             file_locations.append(os.path.join(self.directory, file_name_template % i))
 
         return file_locations
@@ -1687,7 +1696,6 @@ class PathTemplate(object):
                 and path_template.num_files + path_template.start_num
                 <= self.num_files + self.start_num
             ):
-
                 result = True
         else:
             result = False
@@ -1847,6 +1855,7 @@ class Crystal(object):
         self.cell_c = 0
         self.cell_gamma = 0
         self.protein_acronym = ""
+        self.crystal_uuid = ""
 
         # MAD energies
         self.energy_scan_result = EnergyScanResult()
@@ -2043,7 +2052,7 @@ class GphlWorkflow(TaskNode):
         bl_defaults = HWR.beamline.get_default_acquisition_parameters().as_dict()
         exposure_time = self.exposure_time or bl_defaults.get("exp_time", 0)
         self.exposure_time = max(
-            exposure_time, HWR.beamline.detector.get_exposure_time_limits()[0]
+            exposure_time, HWR.beamline.detector.get_exposure_time_limits()[0] or 0
         )
         self.image_width = self.image_width or bl_defaults.get("osc_range", 0.1)
 
@@ -2087,7 +2096,7 @@ class GphlWorkflow(TaskNode):
             if hasattr(self, dict_item[0]):
                 setattr(self, dict_item[0], dict_item[1])
 
-    def set_pre_strategy_params(
+    def set_pre_strategy_params(  # noqa: C901
         self,
         space_group="",
         crystal_classes=(),
@@ -2118,7 +2127,6 @@ class GphlWorkflow(TaskNode):
         """
 
         from mxcubecore.HardwareObjects.Gphl import GphlMessages
-        from mxcubecore.model import crystal_symmetry
 
         if space_group:
             self.space_group = space_group
@@ -2305,18 +2313,16 @@ class GphlWorkflow(TaskNode):
         """
 
         from mxcubecore.HardwareObjects.Gphl import GphlMessages
-        import ruamel.yaml as yaml
 
         if self.automation_mode == "TEST_FROM_FILE":
             fname = os.getenv("GPHL_TEST_INPUT")
             if os.path.isfile(fname):
-                with open(fname, "r") as fp0:
+                with open(fname, "r", encoding="utf-8") as fp0:
                     task = yaml.load(fp0)["task"]
                     print(task)
                     params.update(task["parameters"])
             else:
                 print("WARNING no GPHL_TEST_INPUT found. test using default values")
-
 
         # Set attributes directly from params
         self.strategy_settings = HWR.beamline.gphl_workflow.workflow_strategies.get(
@@ -2474,6 +2480,7 @@ class GphlWorkflow(TaskNode):
                 self._cell_parameters = tuple(float(x) for x in value)
             else:
                 raise ValueError("invalid value for cell_parameters: %s" % str(value))
+
     @property
     def total_strategy_length(self):
         """Total strategy length for a single repetition
@@ -2484,7 +2491,6 @@ class GphlWorkflow(TaskNode):
             result *= len(energy_tags)
         #
         return result
-
 
     def calc_maximum_dose(self, energy=None, exposure_time=None, image_width=None):
         """Dose at transmission=100 for given energy, exposure time and image width
@@ -2499,30 +2505,22 @@ class GphlWorkflow(TaskNode):
         Returns:
             float: Maximum dose in MGy
         """
-        energy = (
-            energy
-            or HWR.beamline.energy.calculate_energy(self.wavelengths[0].wavelength)
+        energy = energy or HWR.beamline.energy.calculate_energy(
+            self.wavelengths[0].wavelength
         )
         dose_rate = HWR.beamline.gphl_workflow.maximum_dose_rate(energy)
         exposure_time = exposure_time or self.exposure_time
-        image_width = image_width  or self.image_width
+        image_width = image_width or self.image_width
         total_strategy_length = self.strategy_length * len(self.wavelengths)
-        if (dose_rate and exposure_time and image_width and total_strategy_length):
-            return (dose_rate * total_strategy_length * exposure_time / image_width)
+        if dose_rate and exposure_time and image_width and total_strategy_length:
+            return dose_rate * total_strategy_length * exposure_time / image_width
         msg = (
             "WARNING: Dose could not be calculated from:\n"
             " energy:%s keV, total_strategy_length:%s deg, exposure_time:%s s, "
             "image_width:%s deg, dose_rate: %s"
         )
         raise UserWarning(
-            msg
-            % (
-                energy,
-                total_strategy_length,
-                exposure_time,
-                image_width,
-                dose_rate
-            )
+            msg % (energy, total_strategy_length, exposure_time, image_width, dose_rate)
         )
         return 0
 

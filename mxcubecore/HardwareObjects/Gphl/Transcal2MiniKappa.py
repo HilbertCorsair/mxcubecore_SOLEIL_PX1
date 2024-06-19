@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 # encoding: utf-8
-# 
+#
 """
 License:
 
@@ -44,7 +44,7 @@ minikappa_xml_template = """<device class="MiniKappaCorrection">
 
 transcal_nml_template = """&SDCP_INSTRUMENT_LIST
 TRANS_CALIBRATION_NAME='transcal_p14'
-TRANS_HOME= %s, %s, -%s
+TRANS_HOME= %s, %s, %s
 TRANS_CROSS_SEC_OF_SOC=%s, %s, %s
 /"""
 
@@ -175,20 +175,18 @@ def make_home_data(
     phidir = np.array(phidir)
     phipos = np.array(phipos)
     aval = kappadir.dot(phidir)
-    bvec = kappapos - phipos
+    bvec = phipos - kappapos
     kappahome = (
-        -kappapos + (aval * bvec.dot(phidir) - bvec.dot(kappadir)) * kappadir
+        kappapos + (aval * bvec.dot(phidir) - bvec.dot(kappadir)) * kappadir
         / (aval * aval - 1)
     )
     phihome = (
-        -phipos - (aval * bvec.dot(kappadir) - bvec.dot(phidir)) * phidir
+        phipos - (aval * bvec.dot(kappadir) - bvec.dot(phidir)) * phidir
         / (aval * aval - 1)
     )
     home_position = 0.5 * (kappahome + phihome)
-    # For some reason the original formula gave the wrong sign
     # # (http://confluence.globalphasing.com/display/SDCP/EMBL+MiniKappaCorrection)
-    home_position = - home_position
-    cross_sec_of_soc = 0.5 * (kappahome - phihome)
+    cross_sec_of_soc = 0.5 * (phihome - kappahome)
 
     # Reshuffle home and cross_sec_of_soc to lab vector order
     goniostat_order = ("sampx", "sampy", "phiy")
@@ -242,10 +240,10 @@ Conversion between GPhL recentring data and MiniKappaCorrection recentring data
 The source option ('gphl' or 'minikappa') determines the direction of conversion.
 The default source is 'minikappa'
 
-Starting from GPhL you need an up-to-date transcal.nml file, a matching 
+Starting from GPhL you need an up-to-date transcal.nml file, a matching
 instrumentation.nml file, and preferably an up-to-date diffractcal.nml file.
 
-Starting from the minikappa correction you need an instrumentation.nml file and 
+Starting from the minikappa correction you need an instrumentation.nml file and
 a minikappa-correction-xml file
         """
     )

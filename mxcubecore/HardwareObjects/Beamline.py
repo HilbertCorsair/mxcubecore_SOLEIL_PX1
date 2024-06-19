@@ -240,7 +240,6 @@ class Beamline(ConfiguredObject):
 
         return _path
 
-
     # Signal handling functions:
     def emit(self, signal: Union[str, object, Any], *args) -> None:
         """Emit signal. Accepts both multiple args and a single tuple of args.
@@ -290,7 +289,6 @@ class Beamline(ConfiguredObject):
         return self._objects.get("machine_info")
 
     __content_roles.append("machine_info")
-
 
     @property
     def authenticator(self):
@@ -470,9 +468,35 @@ class Beamline(ConfiguredObject):
     __content_roles.append("sample_changer_maintenance")
 
     @property
+    def harvester(self):
+        """Harvester Hardware object
+        can be a sample or plate holder
+
+        Returns:
+            Optional[AbstractHarvester]:
+        """
+        return self._objects.get("harvester")
+
+    __content_roles.append("harvester")
+
+    @property
+    def harvester_maintenance(self):
+        """harvester maintenance Hardware object
+
+        Returns:
+            Optional[Harvester]:
+        """
+        return self._objects.get("harvester_maintenance")
+
+    __content_roles.append("harvester_maintenance")
+
+    @property
     def plate_manipulator(self):
-        """Plate Manuipulator Hardware object
-        NBNB TODO REMOVE THIS and treat as an alternative sample changer instead.
+        """**DEPRECATED**
+        Plate Manipulator Hardware object
+        NBNB TODO REMOVE THIS From qt version usage and
+        and call HWR.beamline.sample_changer instead as plate_manipulator being
+        treated as an alternative sample changer.
 
         Returns:
             Optional[AbstractSampleChanger]:
@@ -785,10 +809,6 @@ class Beamline(ConfiguredObject):
 
         acq_parameters = queue_model_objects.AcquisitionParameters()
 
-        #logging.getLogger("HWR").debug(f"""
-            #Beamline object. Getting acquisition parameters for acquisition type {acquisition_type}
-        #""")
-
         params = self.default_acquisition_parameters["default"].copy()
         if acquisition_type != "default":
             dd0 = self.default_acquisition_parameters.get(acquisition_type)
@@ -800,10 +820,6 @@ class Beamline(ConfiguredObject):
             else:
 
                 params.update(dd0)
-
-        #logging.getLogger("HWR").debug(f"""
-              #params are {params}
-        #""")
 
         for tag, val in params.items():
             setattr(acq_parameters, tag, val)
