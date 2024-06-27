@@ -3,6 +3,11 @@ import logging
 import time
 
 from mxcubecore.BaseHardwareObjects import HardwareObject
+from mxcubecore.HardwareObjects.mockup.TangoMotor import TangoMotor
+
+
+# from mxcubecore.HardwareObjects.abstract.AbstractMotor import AbstractMotor
+
 from gevent import Timeout
 import gevent
 
@@ -24,6 +29,7 @@ class Smargon(HardwareObject):
         self.motor_channels = {}
         self.motor_positions = {}
         self.motor_limits = {}
+        self.state = None
 
         self.backlash_pending = {}
         self.backlash_task_running = False
@@ -41,7 +47,7 @@ class Smargon(HardwareObject):
            'velocity': self.velocity_position_changed,
         }
 
-    def _init(self):
+    def init(self):
 
         self.device_name = self.get_property("tangoname")
         self.polling = self.get_property("polling")
@@ -68,7 +74,6 @@ class Smargon(HardwareObject):
         print(" ~~~~~ SMARGON INITIalizing ~~~~~~~~")
 
         for motor_name in self.motors:
-            print(f"SMARGON: {motor_name}")
             if motor_name == "omega":
                 chan = self.add_channel({ "type": "tango", "name": "_%s_chan" % motor_name,
                     "tangoname": self.device_name, "polling": self.default_polling,
@@ -167,14 +172,14 @@ class Smargon(HardwareObject):
         return None
 
     def get_state(self):
-        state = str( self._state_chan.getValue() )
+        state = str(self._state_chan.get_value())
         if state != self.state:
             self.state_changed(state)
         return state
 
     def get_position(self, motor_name):
         motor_chan = self.motor_channels[motor_name]
-        motor_position = motor_chan.getValue()
+        motor_position = motor_chan.get_value()
         self.motor_positions[motor_name] = motor_position
         return motor_position
 
@@ -191,7 +196,7 @@ class Smargon(HardwareObject):
 
         if backlash is not None:
              logging.getLogger("HWR").debug("Smargon.py - in move function found backlash value")
-             current_pos = motor_chan.getValue()
+             current_pos = motor_chan.get_value()
              move_distance = target_pos - current_pos
 
              if abs(move_distance) > 5e-3:
@@ -203,7 +208,7 @@ class Smargon(HardwareObject):
                      logging.getLogger("HWR").debug("Smargon.py - Applying backlash for motor %s" % motor_name)
                      logging.getLogger("HWR").debug("Smargon.py -   moving first to: %s then %s" % (target_pos, final_pos))
         _t0 = time.time()
-        motor_chan.setValue(target_pos)
+        motor_chan.set_value(target_pos)
         #logging.getLogger("HWR").debug("Smargon.py - Time to move motor %s: %.3f sec" % (motor_name, (time.time()-_t0)))
         if do_backlash and not self.backlash_task_running:
             self.start_backlash_task()
@@ -268,7 +273,7 @@ class Smargon(HardwareObject):
                 logging.getLogger("HWR").debug( "Smargon.move_XYZ Setting %s -> %s to: %.4f" % \
                             (motor_name, motor_translation[motor_name], target_pos))
                 #self.move(motor_name, target_pos, wait=False)
-                self.motor_channels[motor_translation[motor_name]].setValue(target_pos)
+                self.motor_channels[motor_translation[motor_name]].set_value(target_pos)
         except:
             import traceback
             logging.getLogger("HWR").error("Smargon: Error moving motor %s" % motor_name)
@@ -285,7 +290,7 @@ class Smargon(HardwareObject):
 
     def set_freeze(self, onoff):
         logging.getLogger("HWR").debug( "Smargon. Setting freeze to: %s" % onoff)
-        self._freeze_chan.setValue(onoff)
+        self._freeze_chan.set_value(onoff)
 
     def wait_notready(self, timeout=5):
         t0 = time.time()

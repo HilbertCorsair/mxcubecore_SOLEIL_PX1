@@ -3,7 +3,10 @@ import logging
 import gevent
 import time
 
-from GenericDiffractometer import GenericDiffractometer
+from mxcubecore.HardwareObjects.GenericDiffractometer import (
+    GenericDiffractometer,
+)
+
 import sample_centring
 import numpy as np
 import math

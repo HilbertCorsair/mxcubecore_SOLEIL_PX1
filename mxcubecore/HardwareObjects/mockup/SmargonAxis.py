@@ -1,14 +1,16 @@
 import logging
 import time
 import gevent
-from mxcubecore.BaseHardwareObjects import HardwareObject
-from mxcubecore.Command.Tango import TangoCommand
+# from mxcubecore.BaseHardwareObjects import HardwareObject
+from mxcubecore.HardwareObjects.abstract.AbstractMotor import AbstractMotor
+from mxcubecore.HardwareObjects.mockup.TangoMotor import TangoMotor
 
-import numpy
+from mxcubecore.HardwareObjects.mockup.Smargon import Smargon
+from mxcubecore.Command.Tango import TangoCommand
 
 log = logging.getLogger("HWR")
 
-class SmargonAxis(HardwareObject):
+class SmargonAxis(AbstractMotor, Smargon):
 
     MOVESTARTED    = 0
     NOTINITIALIZED = 0
@@ -57,11 +59,11 @@ class SmargonAxis(HardwareObject):
     #        self.current_position = value
     #        self.emit('positionChanged', (value,))
 
-    def isReady(self):
+    def is_ready(self):
         prtint('Checking rediness .... ')
         return self.state == 'STANDBY'
 
-    def connectNotify(self, signal):
+    def connect_notify(self, signal):
         if signal == 'hardwareObjectName,stateChanged':
             self.state = self.smargon.get_state(self.motor_name)
             self.state_changed(self.state_to_num())
@@ -78,7 +80,8 @@ class SmargonAxis(HardwareObject):
     def state_changed(self, state):
         self.state = state
         print(f"S.gonAxis l80 motor - {self.motor_name} - state changed to -> {state}")
-        self.emit('stateChanged', (self.state_to_num()))
+
+        self.emit('stateChanged', (self.state_to_num() ) )
 
     def state_to_num(self, state=None):
 
@@ -87,21 +90,17 @@ class SmargonAxis(HardwareObject):
 
         return self.state_dict.get(state,0)
 
-    def getState(self):
-        state = self.smargon.get_state()
-        self.state = state
-        return self.state_to_num()
 
-    def getLimits(self):
+    def get_limits(self):
         if self.limits:
             return map(float,self.limits.split(","))
 
         return self.smargon.get_limits(self.motor_name)
 
-    def getMotorMnemonic(self):
+    def get_motor_mnemonic(self):
         return self.name()
 
-    def motorIsMoving(self):
+    def is_moving(self):
         print (f'Checking if Motor {self.name()} is in motion !')
         state = self.smargon.get_state()
         self.state = state
@@ -187,6 +186,6 @@ class SmargonAxis(HardwareObject):
         self.smargon.stop()
 
 def test_hwo(hwo):
-    print( hwo.getMotorMnemonic())
+    print( hwo.get_motor_mnemonic())
     print( hwo.getPosition())
     print( hwo.getLimits())

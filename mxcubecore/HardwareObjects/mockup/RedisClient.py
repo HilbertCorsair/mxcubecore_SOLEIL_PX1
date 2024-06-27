@@ -226,9 +226,6 @@ class RedisClient(HardwareObject, RedisStreamer):
                 #exit()
 
     def start_streaming(self):
-        import pdb
-        pdb.set_trace()
-
         self.output_thread = threading.Thread(target=self.handle_output)
         self.output_thread.start()
 

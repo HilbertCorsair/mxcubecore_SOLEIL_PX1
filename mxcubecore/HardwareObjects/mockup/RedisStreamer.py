@@ -67,8 +67,6 @@ class RedisStreamer(Camera):
         super().__init__( device_uri, sleep_time, debug)
 
         self.redis = self._connect()
-        import pdb
-        pdb.set_trace()
         self._last_frame_number = -1
 
 
