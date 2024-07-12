@@ -82,7 +82,7 @@ class QueueManager(HardwareObject, QueueEntryContainer):
         :raises: RuntimeError, if the queue is already running when called
         """
         if self._running:
-            raise RuntimeError("Can't call excute on a queue that is already running")
+            raise RuntimeError("Can't call execute on a queue that is already running")
 
         if not self.is_disabled():
             # If no entry is passed run all entries in the queue
@@ -185,13 +185,11 @@ class QueueManager(HardwareObject, QueueEntryContainer):
         if not entry.is_enabled() or self._is_stopped:
             return
 
-        status = "Successful"
         self.emit("queue_entry_execute_started", (entry,))
         self.set_current_entry(entry)
         self._current_queue_entries.append(entry)
 
         logging.getLogger("queue_exec").info("Executing: " + str(entry))
-        # logging.getLogger('queue_exec').info('Using model: ' + str(entry.get_data_model()))
 
         if self.is_paused():
             logging.getLogger("user_level_log").info("Queue paused, waiting ...")
@@ -220,7 +218,7 @@ class QueueManager(HardwareObject, QueueEntryContainer):
                 entry.status = QUEUE_ENTRY_STATUS.SUCCESS
                 self.emit("queue_entry_execute_finished", (entry, "Successful"))
                 self.emit("statusMessage", ("status", "", "ready"))
-        except base_queue_entry.QueueSkippEntryException as ex:
+        except base_queue_entry.QueueSkipEntryException as ex:
             logging.getLogger("HWR").warning(
                 "encountered Exception (continuing):\n%s" % ex.stack_trace or ex.message
             )
@@ -230,7 +228,7 @@ class QueueManager(HardwareObject, QueueEntryContainer):
         except base_queue_entry.QueueAbortedException as ex:
             # Queue entry was aborted in a controlled, way.
             # or in the exception case:
-            # Definetly not good state, but call post_execute
+            # Definitely not good state, but call post_execute
             # anyway, there might be code that cleans up things
             # done in _pre_execute or before the exception in _execute.
             logging.getLogger("HWR").warning(

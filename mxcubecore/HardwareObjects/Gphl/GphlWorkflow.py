@@ -724,7 +724,10 @@ class GphlWorkflow(HardwareObjectYaml):
         self._queue_entry = queue_entry
         data_model = queue_entry.get_data_model()
 
-        self._workflow_queue = gevent.queue.Queue()
+        if HWR.beamline.gphl_connection is None:
+            raise RuntimeError(
+                "Cannot execute workflow - GphlWorkflowConnection not found"
+            )
         HWR.beamline.gphl_connection.open_connection()
 
         if data_model.wftype == "transcal":
@@ -745,7 +748,7 @@ class GphlWorkflow(HardwareObjectYaml):
         else:
             params = self.query_pre_strategy_params()
             if params is StopIteration:
-                self.workflow_failed()
+                self.workflow_aborted()
                 return
         use_preset_spotdir = self.settings.get("use_preset_spotdir")
         if use_preset_spotdir:
@@ -760,7 +763,6 @@ class GphlWorkflow(HardwareObjectYaml):
                 raise ValueError(
                     "use_preset_spotdir was set for non-emulation sample"
                 )
-
 
         cell_tags = (
             "cell_a",
@@ -786,15 +788,14 @@ class GphlWorkflow(HardwareObjectYaml):
         else:
             # Set detector distance and resolution
             distance = data_model.detector_setting.axisSettings["Distance"]
-            HWR.beamline.detector.distance.set_value(distance, timeout=30)
-        # self.test_dialog()
+            HWR.beamline.detector.distance.set_value(distance, timeout=50)
+
+        self._workflow_queue = gevent.queue.Queue()
 
     def execute(self):
 
-        if HWR.beamline.gphl_connection is None:
-            raise RuntimeError(
-                "Cannot execute workflow - GphlWorkflowConnection not found"
-            )
+        if self._workflow_queue is None:
+            return
 
         # Fork off workflow server process
         HWR.beamline.gphl_connection.start_workflow(
@@ -870,7 +871,6 @@ class GphlWorkflow(HardwareObjectYaml):
         self._workflow_queue = None
         if HWR.beamline.gphl_connection is not None:
             HWR.beamline.gphl_connection.workflow_ended()
-            # HWR.beamline.gphl_connection.close_connection()
 
     def update_state(self, state=None):
         """
@@ -889,7 +889,8 @@ class GphlWorkflow(HardwareObjectYaml):
     def workflow_aborted(self, payload=None, correlation_id=None):
         logging.getLogger("user_level_log").warning("GΦL Workflow aborted.")
         self.update_specific_state(self.SPECIFIC_STATES.ABORTED)
-        self._workflow_queue.put_nowait(StopIteration)
+        if self._workflow_queue:
+            self._workflow_queue.put_nowait(StopIteration)
 
     def workflow_completed(self, payload=None, correlation_id=None):
         logging.getLogger("user_level_log").info("GΦL Workflow completed.")
@@ -934,6 +935,8 @@ class GphlWorkflow(HardwareObjectYaml):
 
         # Number of decimals for rounding use_dose values
         use_dose_decimals = 4
+        # Number of decimals for rounding exposure times
+        exposure_time_decimals = 6
 
         data_model = self._queue_entry.get_data_model()
         initial_energy = HWR.beamline.energy.calculate_energy(
@@ -1252,7 +1255,7 @@ class GphlWorkflow(HardwareObjectYaml):
                     "exposure_time": {
                         "ui:options": {
                             "update_on_change": True,
-                            "decimals": 4,
+                            "decimals": exposure_time_decimals,
                         }
                     },
                     "use_dose": {
@@ -1441,10 +1444,10 @@ class GphlWorkflow(HardwareObjectYaml):
                 transmission = parameters.get("transmission")
                 maximum_dose = gphl_workflow_model.calc_maximum_dose(
                     image_width=image_width,
-                )
+                ) or 0
                 if transmission:
                     new_dose = maximum_dose * transmission / 100
-                else:
+                elif maximum_dose:
                     new_dose = parameters.get(
                         "use_dose", gphl_workflow_model.recommended_dose_budget()
                     )
@@ -1459,6 +1462,13 @@ class GphlWorkflow(HardwareObjectYaml):
                     else:
                         transmission = 100 * new_dose / maximum_dose
                     parameters["transmission"] = transmission
+
+                else:
+                    # We should not be here, but if we cannot calculate flux, ...
+                    new_dose = 0
+                    parameters["transmission"] = (
+                        HWR.beamline.transmission.get_value()
+                    )
         else:
             # set gphl_workflow_model.transmission (initial value for interactive mode)
             use_dose = gphl_workflow_model.recommended_dose_budget()
@@ -1470,7 +1480,10 @@ class GphlWorkflow(HardwareObjectYaml):
             # Need setting before query
             gphl_workflow_model.image_width = default_image_width
             maximum_dose = gphl_workflow_model.calc_maximum_dose()
-            transmission = 100 * use_dose / maximum_dose
+            if maximum_dose:
+                transmission = 100 * use_dose / maximum_dose
+            else:
+                transmission = HWR.beamline.transmission.get_value()
             if transmission > 100:
                 if gphl_workflow_model.characterisation_done or wftype == "diffractcal":
                     # We are not in characterisation.
@@ -1876,6 +1889,7 @@ class GphlWorkflow(HardwareObjectYaml):
         last_orientation = ()
         maxdev = -1
         snapshotted_rotation_ids = set()
+        scan_numbers = {}
         for scan in scans:
             sweep = scan.sweep
             acq = queue_model_objects.Acquisition()
@@ -1941,9 +1955,15 @@ class GphlWorkflow(HardwareObjectYaml):
                 )
             ss0 = filename_params.get("run")
             path_template.run_number = int(ss0) if ss0 else 1
-            path_template.base_prefix = filename_params.get("prefix", "")
             path_template.start_num = acq_parameters.first_image
             path_template.num_files = acq_parameters.num_images
+            prefix = filename_params.get("prefix", "")
+            if path_template.suffix.endswith("h5"):
+                # Add scan number to prefix for interleaved hdf5 files (only)
+                # NBNB Tempoary fix, pending solution to hdf5 interleaving problem
+                scan_numbers[prefix] = scan_no = scan_numbers.get(prefix, 0) + 1
+                prefix += "_s%s" % scan_no
+            path_template.base_prefix = prefix
 
             key = (
                 path_template.base_prefix,
@@ -2069,8 +2089,6 @@ class GphlWorkflow(HardwareObjectYaml):
         if data_model.automation_mode:
 
             # Handle resolution
-            if not data_model.aimed_resolution:
-                raise ValueError("aimed_resolution must be set in automation mode")
             # Resets detector_setting to match aimed_resolution
             data_model.detector_setting = None
             # NB resets detector_setting
@@ -2617,15 +2635,16 @@ class GphlWorkflow(HardwareObjectYaml):
             float: Maximum dose rate in MGy/s
         """
         energy = energy or HWR.beamline.energy.get_value()
-        flux_density = HWR.beamline.flux.get_average_flux_density(transmission=100.0)
-        if flux_density:
-            return (
-                flux_density
-                * HWR.beamline.flux.get_dose_rate_per_photon_per_mmsq(energy)
-                * 1.0e-6  # convert to MGy
-            )
-        else:
-            return 0
+        flux = HWR.beamline.flux
+        if flux:
+            flux_density = flux.get_average_flux_density(transmission=100.0)
+            if flux_density:
+                return (
+                    flux_density
+                    * flux.get_dose_rate_per_photon_per_mmsq(energy)
+                    * 1.0e-6  # convert to MGy
+                )
+        return 0
 
 
     def get_emulation_samples(self):
@@ -3002,7 +3021,7 @@ class GphlWorkflow(HardwareObjectYaml):
                     max_exposure = exposure_limits[1]
                     if max_exposure and new_exposure_time > max_exposure:
                         # exposure_time over max; set dose to highest achievable dose
-                        new_exposure_time = max_exposure
+                        new_exposure_time = max_exposure * 0.99999
                     new_experiment_time = (
                         experiment_time * new_exposure_time / exposure_time
                     )
@@ -3022,6 +3041,7 @@ class GphlWorkflow(HardwareObjectYaml):
                     min_exposure = exposure_limits[0]
                     if min_exposure and new_exposure_time < min_exposure:
                         # exposure_time below min; reduce new transmission to match
+                        new_exposure_time *= 1.001
                         new_transmission = (
                             transmission * new_exposure_time / min_exposure
                         )
