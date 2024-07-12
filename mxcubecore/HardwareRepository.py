@@ -49,11 +49,11 @@ if TYPE_CHECKING:
     from mxcubecore.BaseHardwareObjects import HardwareObject
 
 # If you want to write out copies of the file, use typ="rt" instead
-# pure=True uses yaml version 1.2, with fewere gotchas for strange type conversions
+# pure=True uses yaml version 1.2, with fewer gotchas for strange type conversions
 yaml = YAML(typ="safe", pure=True)
 # The following are not needed for load, but define the default style.
 yaml.default_flow_style = False
-yaml.indent(mapping=4, sequence=4, offset=2)
+yaml.indent(mapping=2, sequence=4, offset=2)
 
 
 __copyright__ = """ Copyright © 2010 - 2020 by MXCuBE Collaboration """
@@ -109,7 +109,7 @@ def load_from_yaml(configuration_file, role, _container=None, _table=None):
             if _container:
                 msg0 = "No '_initialise_class' tag"
             else:
-                # at top lavel we want to get the actual error
+                # at top level we want to get the actual error
                 raise ValueError(
                     "%s file lacks  '_initialise_class' tag" % configuration_file
                 )
@@ -120,7 +120,7 @@ def load_from_yaml(configuration_file, role, _container=None, _table=None):
             if _container:
                 msg0 = "No 'class' tag"
             else:
-                # at top lavel we want to get the actual error
+                # at top level we want to get the actual error
                 raise ValueError("%s file lacks  'class' tag" % configuration_file)
 
     if not msg0:
@@ -287,7 +287,7 @@ def init_hardware_repository(configuration_path):
         )
     if not configuration_path:
         logging.getLogger("HWR").error(
-            "Unable to initialize hardware repository. No cofiguration path passed."
+            "Unable to initialize hardware repository. No configuration path passed."
         )
         return
 
@@ -331,7 +331,7 @@ def get_hardware_repository():
 class __HardwareRepositoryClient:
     """Hardware Repository class
 
-    Warning -- should not be instanciated directly ;
+    Warning -- should not be instantiated directly ;
     call the module's level get_hardware_repository() function instead
     """
 

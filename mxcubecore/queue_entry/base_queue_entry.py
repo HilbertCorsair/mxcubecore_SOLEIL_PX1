@@ -17,9 +17,9 @@
 #  along with MXCuBE. If not, see <http://www.gnu.org/licenses/>.
 
 """
-All queue entries inherits the baseclass BaseQueueEntry which inturn
+All queue entries inherits the baseclass BaseQueueEntry which in turn
 inherits QueueEntryContainer. This makes it possible to arrange and
-execute queue entries in a hierarchical maner.
+execute queue entries in a hierarchical manner.
 """
 
 import logging
@@ -62,7 +62,7 @@ class QueueAbortedException(QueueExecutionException):
     pass
 
 
-class QueueSkippEntryException(QueueExecutionException):
+class QueueSkipEntryException(QueueExecutionException):
     pass
 
 
@@ -367,7 +367,7 @@ class TaskGroupQueueEntry(BaseQueueEntry):
         self.interleave_task = None
         self.interleave_items = None
         self.interleave_sw_list = None
-        self.interleave_stoped = None
+        self.interleave_stopped = None
 
     def execute(self):
         BaseQueueEntry.execute(self)
@@ -537,7 +537,7 @@ class TaskGroupQueueEntry(BaseQueueEntry):
 
         self._queue_controller.emit("queue_interleaved_started")
         for item_index, item in enumerate(self.interleave_sw_list):
-            if not self.interleave_stoped:
+            if not self.interleave_stopped:
                 self.get_view().setText(
                     1,
                     "Subwedge %d:%d)"
@@ -611,7 +611,7 @@ class TaskGroupQueueEntry(BaseQueueEntry):
 
                 self._queue_controller.emit("queue_interleaved_sw_done", (sig_data,))
 
-        if not self.interleave_stoped:
+        if not self.interleave_stopped:
             logging.getLogger("queue_exec").info(
                 "%s collection finished" % method_type.title()
             )
@@ -629,7 +629,7 @@ class TaskGroupQueueEntry(BaseQueueEntry):
     def stop(self):
         BaseQueueEntry.stop(self)
         if self.interleave_task:
-            self.interleave_stoped = True
+            self.interleave_stopped = True
             self.interleave_task.kill()
         self.get_view().setText(1, "Interleave stoped")
 
@@ -687,7 +687,7 @@ class SampleQueueEntry(BaseQueueEntry):
                         )
                         log.error(msg)
                         self.status = QUEUE_ENTRY_STATUS.FAILED
-                        if isinstance(e, QueueSkippEntryException):
+                        if isinstance(e, QueueSkipEntryException):
                             raise
                         else:
                             raise QueueExecutionException(str(e), self)
@@ -695,7 +695,7 @@ class SampleQueueEntry(BaseQueueEntry):
                     log.info("Sample already mounted")
             else:
                 msg = (
-                    "SampleQueuItemPolicy does not have any "
+                    "SampleQueueItemPolicy does not have any "
                     + "sample changer hardware object, cannot "
                     + "mount sample"
                 )
@@ -806,7 +806,7 @@ def mount_sample(view, data_model, centring_done_cb, async_result):
                 # This is to preserve backward compatibility (load_sample was supposed to return None);
                 # if sample could not be loaded, but no exception is raised, let's skip
                 # the sample
-                raise QueueSkippEntryException(
+                raise QueueSkipEntryException(
                     "Sample changer could not load sample", ""
                 )
 
@@ -823,7 +823,7 @@ def mount_sample(view, data_model, centring_done_cb, async_result):
         # Disables all related collections
         view.setOn(False)
         view.setText(1, "Sample not loaded")
-        raise QueueSkippEntryException("Sample not loaded", "")
+        raise QueueSkipEntryException("Sample not loaded", "")
     else:
         view.setText(1, "Sample loaded")
         dm = HWR.beamline.diffractometer
@@ -863,7 +863,7 @@ def mount_sample(view, data_model, centring_done_cb, async_result):
                 else:
                     view.setText(1, "Centring failed !")
                     if centring_method == CENTRING_METHOD.FULLY_AUTOMATIC:
-                        raise QueueSkippEntryException(
+                        raise QueueSkipEntryException(
                             "Could not center sample, skipping", ""
                         )
                     else:
