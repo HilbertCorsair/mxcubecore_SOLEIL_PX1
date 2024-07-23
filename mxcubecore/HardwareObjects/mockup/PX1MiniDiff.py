@@ -111,14 +111,17 @@ class PX1MiniDiff(GenericDiffractometer):
                 self.emit("minidiffStateChanged",(value,))
 
     def is_ready(self):
-        return self.smargon.get_state() == "STANDBY"
+        val = str(self.smargon._state_chan.get_value())
+        print(f"Got the state value from SMARGON and it is : {val}")
+
+        return val == "STANDBY"
 
         #self.smargon_state = str(self.smargon_state_ch.getValue())
         #return self.smargon_state == "STANDBY"
 
     def get_pixels_per_mm(self):
-        x= float(self.get_object_by_role("zoom").positions['Zoom 1']['pixelsPerMmY'])
-        y= float(self.get_object_by_role("zoom").positions['Zoom 1']['pixelsPerMmZ'])
+        x= float(self.get_object_by_role("zoom").positions['Zoom 1']['calibrationData']['pixelsPerMmY'])
+        y= float(self.get_object_by_role("zoom").positions['Zoom 1']['calibrationData']['pixelsPerMmZ'])
 
         self.pixels_per_mm_x = x
 

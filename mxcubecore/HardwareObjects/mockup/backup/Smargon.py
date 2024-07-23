@@ -1,28 +1,39 @@
+
 import logging
 import time
+
 from mxcubecore.BaseHardwareObjects import HardwareObject
+from mxcubecore.HardwareObjects.mockup.TangoMotor import TangoMotor
+
+
 # from mxcubecore.HardwareObjects.abstract.AbstractMotor import AbstractMotor
-#from gevent import Timeout
+
+from gevent import Timeout
 import gevent
 
 class Smargon(HardwareObject):
+
+    #default_polling = "events"
     default_polling = 100
     position_threshold = 0.001
+
     motors = ['chi','omega','phi','xOffset','yOffset','zOffset','x','y','z', 'velocity']
-    signals = {motor : f'{motor}PositionChanged' for motor in motors}
+
+    signals = {}
+    for motor_name in motors:
+        signals[motor_name] = '%sPositionChanged' % motor_name
 
     def __init__(self,name):
         super().__init__(name)
+
         self.motor_channels = {}
         self.motor_positions = {}
         self.motor_limits = {}
         self.state = None
+
         self.backlash_pending = {}
         self.backlash_task_running = False
-        self._state_chan = None
-        self._reeze_chan = None
-        self._stop_cmd = None
-        self.polling = None
+
         self.slots = {
            'phi': self.phi_position_changed,
            'chi': self.chi_position_changed,
@@ -35,42 +46,79 @@ class Smargon(HardwareObject):
            'z': self.z_position_changed,
            'velocity': self.velocity_position_changed,
         }
+        #super().init()
+        self.check_polling()
+        self.update_motors()
 
     def init(self):
-        self.device_name = self.get_property("tangoname")
-        self.polling = self.get_property("polling") or self.default_polling
-        self._state_chan = self.add_channel({
-             "type": "tango", "name": "_state_chan",
-                    "tangoname": self.device_name, "polling": self.default_polling,
+        print("init() does nothig for smargon")
+
+    @property
+    def device_name(self):
+        return self.get_property("tangoname")
+
+    @property
+    def polling(self):
+        return self.get_property("polling")
+
+    def check_polling (self):
+        if self.polling is None:
+            self.polling = self.default_polling
+            logging.getLogger("HWR").debug("Smargon. using default polling to %s" % (self.polling))
+        else :
+
+            logging.getLogger("HWR").debug("Smargon. polling  set to %s" % (self.polling))
+
+
+    @property
+    def _state_chan (self):
+        return self.add_channel({
+            "type": "tango",
+            "name": "_state_chan",
+            "tangoname": self.device_name,
+            "polling": self.default_polling,
         }, "State")
 
-        self._freeze_chan = self.add_channel({
-             "type": "tango", "name": "_freeze_chan",
-                    "tangoname": self.device_name,
+    @property
+    def _freeze_chan (self):
+        return self.add_channel({
+            "type": "tango",
+            "name": "_freeze_chan",
+            "tangoname": self.device_name,
         }, "freeze")
 
-        self._stop_cmd = self.add_command({
+    @property
+    def _stop_cmd(self):
+        return self.add_command({
             "type": "tango",
             "name": "_stop_cmd",
             "tangoname": self.device_name,
         }, "Stop")
 
-        print(" ~~~~~ SMARGON INITIalizing ~~~~~~~~")
+
+    print(" ~~~~~ SMARGON INITIalizing ~~~~~~~~")
+
+    def update_motors (self):
 
         for motor_name in self.motors:
-            chan = self.add_channel({
-                "type": "tango",
-                "name": f"_{motor_name}_chan",
-                "tangoname": self.device_name,
-                "polling": self.default_polling,
-            }, motor_name)
+            if motor_name == "omega":
+                chan = self.add_channel({ "type": "tango", "name": "_%s_chan" % motor_name,
+                    "tangoname": self.device_name, "polling": self.default_polling,
+                   }, motor_name)
+            else:
+                chan = self.add_channel({ "type": "tango", "name": "_%s_chan" % motor_name,
+                    "tangoname": self.device_name, "polling": self.default_polling,
+                   }, motor_name)
+
+            import pdb
+            pdb.set_trace()
+
             self.motor_channels[motor_name] = chan
-            chan.connect_signal("update",self.slots[motor_name])
-            print(f'SMARGON l 71: {motor_name} position updated!')
+            chan.connect_signal("update", self.slots[motor_name])
+            print(f'SMARGON l 81: {motor_name} position updated!')
 
         self._state_chan.connect_signal("update", self.state_changed)
-        self.gather_motor_limits()
-    """
+
     def connectNotify(self, signal):
         if signal == 'stateChanged':
             print("SMARGON state changed !")
@@ -83,20 +131,10 @@ class Smargon(HardwareObject):
             pos = self.get_position(motor)
             self.slots[motor](pos)
             print (f"Smargon ---> motor: {motor}, signal: {signal}")
-    """
-
-
-    def get_state(self):
-       # if self._state_chan is None:
-       #     self.init()
-
-        state = str(self.smargon._state_chan.get_value())
-        if state != self.state:
-            self.state_changed(state)
-        return state
 
     def state_changed(self, newvalue):
         newstate = str(newvalue)
+
         self.emit('stateChanged', newstate)
         self.state = newstate
 
@@ -159,22 +197,17 @@ class Smargon(HardwareObject):
         return self.signals[motor_name]
 
     def get_motor_from_signal(self, signal_name):
-        return next((motor for motor, signal in self.signas.items() if signal == signal_name),None)
-    """
         for motor in self.signals:
             if self.signals[motor] == signal_name:
                 return motor
         return None
-    import pdb
-    pdb.set_trace()
 
     def get_state(self):
-        print("------------- IN SMARGON GET STATE----------------------------")
         state = str(self._state_chan.get_value())
         if state != self.state:
             self.state_changed(state)
         return state
-    """
+
     def get_position(self, motor_name):
         motor_chan = self.motor_channels[motor_name]
         motor_position = motor_chan.get_value()
@@ -325,24 +358,16 @@ class Smargon(HardwareObject):
         print (f'SMARGON 322: {self.name()}, {self.get_state()}')
         return self.get_state() == "STANDBY"
 
-    def gather_motor_limits(self):
-        for _motor_name in self.motor_channels:
-            chan = self.motor_channels[_motor_name]
-            info = chan.get_info()
-            min_value = float(info.min_value)
-            max_value = float(info.max_value)
-            self.motor_limits[_motor_name] = (min_value, max_value)
-        print("Smargon just gathered all motor limits")
-
     def get_limits(self, motor_name, update=False):
-        if not self.motor_limits or update :
+        if not self.motor_limits or (update is True):
             print(f"SMARGON l327: {motor_name}")
             for _motor_name in self.motor_channels:
                 chan = self.motor_channels[_motor_name]
-                info = chan.get_info()
+                info = chan.getInfo()
                 min_value = float(info.min_value)
                 max_value = float(info.max_value)
-                self.motor_limits[_motor_name] = (min_value, max_value)
+                self.motor_limits[_motor_name] = [min_value, max_value]
+        print(f"SMARGON l334 retunning motor limits {self.motorlimits[motor_name]}")
 
         return self.motor_limits[motor_name]
 

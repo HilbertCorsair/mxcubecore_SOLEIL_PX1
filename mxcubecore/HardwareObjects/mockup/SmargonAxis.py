@@ -90,10 +90,13 @@ class SmargonAxis(AbstractMotor, Smargon):
 
         return self.state_dict.get(state,0)
 
+    def get_value (self):
+        return self.smargon.motor_chanels[self.motorname].get_valeu()
 
     def get_limits(self):
         if self.limits:
-            return map(float,self.limits.split(","))
+            vals = map(float,self.limits.split(","))
+            return tuple(vals)
 
         return self.smargon.get_limits(self.motor_name)
 

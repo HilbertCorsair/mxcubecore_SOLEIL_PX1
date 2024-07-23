@@ -24,6 +24,7 @@ class PX1MiniDiff(GenericDiffractometer):
     ]
 
     def init(self):
+
         self.smargon = self.get_object_by_role("smargon")
         self.connect(self.smargon, "stateChanged", self.smargon_state_changed)
 
@@ -43,6 +44,7 @@ class PX1MiniDiff(GenericDiffractometer):
             GenericDiffractometer.CENTRING_METHOD_AUTO: self.start_automatic_centring,
             GenericDiffractometer.CENTRING_METHOD_MOVE_TO_BEAM: self.start_move_to_beam,
         }
+
 
     def prepare_centring(self, timeout=20):
         self.px1env_ho.gotoSampleViewPhase()
@@ -107,6 +109,7 @@ class PX1MiniDiff(GenericDiffractometer):
 
     def px1_manual_centring(self, sample_info=None, wait_result=None):
         """ """
+
         self.emit_progress_message("Manual 3 click centring...")
         logging.getLogger("HWR").debug(
             "   starting manual 3 click centring. phiy is %s" % str(self.centring_phiy)

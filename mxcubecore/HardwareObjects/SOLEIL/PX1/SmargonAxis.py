@@ -12,7 +12,7 @@ import numpy
 log = logging.getLogger("HWR")
 
 class SmargonAxis(Equipment):
-    
+
     MOVESTARTED    = 0
     NOTINITIALIZED = 0
     UNUSABLE       = 0
@@ -47,11 +47,11 @@ class SmargonAxis(Equipment):
         self.velocity_default = self.smargon.getProperty("velocity_default")
         self.velocity_slow = self.smargon.getProperty("velocity_slow")
 
-        self.signal_name = self.smargon.get_signal_name(self.motor_name) 
+        self.signal_name = self.smargon.get_signal_name(self.motor_name)
 
         self.connect(self.smargon, self.signal_name, self.position_changed)
         self.connect(self.smargon, "stateChanged", self.state_changed)
-        
+
     #def position_changed(self, value):
     #    if value != self.current_position:
     #        self.current_position = value
@@ -59,7 +59,7 @@ class SmargonAxis(Equipment):
 
     def isReady(self):
         return self.state == 'STANDBY'
-        
+
     def connectNotify(self, signal):
         if signal == 'hardwareObjectName,stateChanged':
             self.state = self.smargon.get_state(self.motor_name)
@@ -69,11 +69,11 @@ class SmargonAxis(Equipment):
             #self.current_position = self.zero_neg(pos)
             self.position_changed(pos)
         #self.setIsReady(True)
-    
+
     def state_changed(self, state):
         self.state = state
         self.emit('stateChanged', (self.state_to_num()))
-        
+
     def state_to_num(self, state=None):
 
         if state is None:
@@ -85,13 +85,13 @@ class SmargonAxis(Equipment):
         state = self.smargon.get_state()
         self.state = state
         return self.state_to_num()
-    
+
     def getLimits(self):
         if self.limits:
             return map(float,self.limits.split(","))
 
         return self.smargon.get_limits(self.motor_name)
-        
+
     def getMotorMnemonic(self):
         return self.name()
 
@@ -120,7 +120,7 @@ class SmargonAxis(Equipment):
         if pos != self.current_position:
             self.current_position = pos
             # self.position_changed(pos)
- 
+
         return pos
 
     def syncMove(self, position):
@@ -174,9 +174,8 @@ class SmargonAxis(Equipment):
 
     def stop(self):
         self.smargon.stop()
-    
+
 def test_hwo(hwo):
     print hwo.getMotorMnemonic()
     print hwo.getPosition()
     print hwo.getLimits()
-

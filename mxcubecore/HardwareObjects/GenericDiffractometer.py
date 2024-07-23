@@ -213,6 +213,7 @@ class GenericDiffractometer(HardwareObject):
         "kappa_phi",
         "beam_x",
         "beam_y",
+        "zoom",
     ]
 
     STATE_CHANGED_EVENT = "stateChanged"
@@ -419,8 +420,6 @@ class GenericDiffractometer(HardwareObject):
                         self.emit_diffractometer_moved,
                     )
                 elif motor_name == "zoom":
-                    print('Found ZOOM')
-                    exit()
                     self.connect(
                         temp_motor_hwobj,
                         "predefinedPositionChanged",
