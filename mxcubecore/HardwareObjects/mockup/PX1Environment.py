@@ -3,10 +3,10 @@
 import time
 import logging
 import gevent
-
+from mxcubecore.HardwareObjects.abstract.AbstractMotor import AbstractMotor
 from mxcubecore.Command.Tango import DeviceProxy
 
-from mxcubecore.BaseHardwareObjects import HardwareObject
+#from mxcubecore.BaseHardwareObjects import HardwareObject
 from mxcubecore.TaskUtils import task
 
 
@@ -70,7 +70,7 @@ class EnvironemntState:
         return SampleChangerState.statedesc.get(state, "Unknown")
 
 
-class PX1Environment(HardwareObject):
+class PX1Environment(AbstractMotor):
     print('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx Initianting PX1 ENV xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n')
     def __init__(self, name):
         super().__init__(name)
@@ -83,7 +83,7 @@ class PX1Environment(HardwareObject):
 
         try:
             self.state_chan = self.get_channel_object("State")
-            self.state_chan.connect_signal("update", self.stateChanged)
+            self._update_state()#state_chan.connect_signal("update", self.stateChanged)
 
         except KeyError:
             logging.getLogger().warning("%s: cannot report State", self.name())
@@ -95,7 +95,7 @@ class PX1Environment(HardwareObject):
 
         except KeyError:
             logging.getLogger().warning("%s: cannot report State", self.name())
-
+        """
         try:
             self.usingCapillaryChannel = self.get_channel_object("usingCapillary")
             self.setUsingCapillary(True)
@@ -106,9 +106,9 @@ class PX1Environment(HardwareObject):
             self.beamstopPositionChannel = self.get_channel_object("beamstopPosition")
         except Exception:
             self.beamstopPositionChannel = None
-
+        """
         if self.device is not None:
-            self.set_is_ready(True)
+            self._update_state()
 
             self.cmds = {
                 EnvironmentPhase.TRANSFER: self.device.GoToTransfertPhase,
@@ -119,19 +119,43 @@ class PX1Environment(HardwareObject):
                 EnvironmentPhase.FLUOX: self.device.GoToFluoXPhase,
                 EnvironmentPhase.MANUALTRANSFER: self.device.GoToManualTransfertPhase,
                 EnvironmentPhase.VISUSAMPLE: self.device.GoToVisuSamplePhase,
-            }
+        }
 
     # ---- begin state handling
     #
-    def stateChanged(self, value):
-        self.emit("StateChanged", (value,))
+    def motstate_to_state(self, motstate):
+        motstate = str(motstate)
+        if motstate == "ON":
+            state = self.STATES.READY
+        elif motstate == "MOVING":
+            state = self.STATES.BUSY
+        elif motstate == "FAULT":
+            state = self.SATTES.FAULT
+        elif motstate == "OFF":
+            state = self.SATTES.OFF
+        else :
+            state = self.STATES.UNKNOWN
+        return state
+
+    def _update_state(self):
+        gevent.sleep(0.1)
+        motor_state = self.state_chan.get_value()
+        self.log.debug(f"reading motor state for {self.name} is {str(motor_state)}")
+        self.motor_state_changed(motor_state)
+
+
+
+    def motor_state_changed(self, state = None):
+        if not state:
+            state = self.state_chan.get_value()
+        self.update_state(self.motstate_to_state(state))
 
     def get_state(self):
         state = str(self.state_chan.get_value())
         return state
 
-    def isBusy(self, timeout=None):
-        state = self.stateChan.get_value()
+    def is_busy(self, timeout=None):
+        state = self.state_chan.get_value()
         return state not in [EnvironmentState.ON]
 
     def wait_ready(self, timeout=None):
@@ -145,7 +169,7 @@ class PX1Environment(HardwareObject):
         with gevent.Timeout(timeout, Exception("Timeout waiting for device ready")):
             waiting = True
             while waiting:
-                state = self.readState()
+                state = self.state_chan.get_value()
                 if state in states:
                     waiting = False
                 gevent.sleep(0.05)
@@ -304,7 +328,7 @@ class PX1Environment(HardwareObject):
             )
             self.auth = value
             self.emit("operationPermitted", value)
-
+"""
     def getUsingCapillary(self):
         if self.usingCapillaryChannel is not None:
             return self.usingCapillaryChannel.get_value()
@@ -330,7 +354,7 @@ class PX1Environment(HardwareObject):
     def _setBeamstopPosition(self):
         if self.beamstopPositionChannel is not None:
             self.beamstopPositionChannel.set_value(self.beamstop_position)
-
+"""
 
 def test_hwo(hwo):
     t0 = time.time()

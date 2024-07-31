@@ -766,6 +766,7 @@ class GenericDiffractometer(HardwareObject):
         """
         print(f"This is ~~~~~ GENEGIC DEFRACTOMETER ~~~~~~\nReporting pixels per mm Y : {self.pixels_per_mm_y}\n")
 
+
         self.current_motor_positions["beam_x"] = (
             self.beam_position[0] - self.zoom_centre["x"]
         ) / self.pixels_per_mm_y
@@ -805,7 +806,6 @@ class GenericDiffractometer(HardwareObject):
     def get_phase_list(self):
         """
         Returns list of available phases
-
         :returns: list with str
         """
         return self.phase_list

@@ -34,7 +34,7 @@ class TangoMotor(AbstractMotor):
     default_polling = 500
 
     def __init__(self, name):
-        AbstractMotor.__init__(self, name)
+        super().__init__(name)
 
         self.chan_position = None
         self.chan_state = None

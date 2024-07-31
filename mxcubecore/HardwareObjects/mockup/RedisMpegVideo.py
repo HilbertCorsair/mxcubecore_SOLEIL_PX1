@@ -88,10 +88,10 @@ class RedisMpegVideo(HardwareObject):
         ):
 
             self._video_stream_process = subprocess.Popen(
-                [
+                [  
                     "video-streamer",
-                    "-tu",
-                    "test",#self._host,
+                    "-uri",
+                    self.get_property("cam_type").strip(),
                     "-hs",
                     "localhost",
                     "-p",
@@ -104,7 +104,7 @@ class RedisMpegVideo(HardwareObject):
                     self._format,
                     "-id",
                     self.stream_hash,
-                    "-d",
+                    # "-d",
                 ],
                 close_fds=True,
             )
@@ -122,11 +122,14 @@ class RedisMpegVideo(HardwareObject):
 
             self._video_stream_process = None
 
-    def start_streaming(self, _format=None, size=(0, 0), port="4242"):
+    def start_streaming(self, _format=None, size=(0, 0), port=None):
         _s = size
 
         if _format:
             self._format = _format
+        
+        if port:
+            self._port = port
 
         if not size[0]:
             _s = (self.get_width(), self.get_height())
@@ -135,9 +138,9 @@ class RedisMpegVideo(HardwareObject):
 
         self.set_stream_size(_s[0], _s[1])
         try:
-            self.start_video_stream_process(port)
-        except:
-            print("Cannot start video streaming process !")
+            self.start_video_stream_process(str(self._port))
+        except Exception as e:
+            print(f"Cannot start video streaming process ! {e}")
             exit()
 
 

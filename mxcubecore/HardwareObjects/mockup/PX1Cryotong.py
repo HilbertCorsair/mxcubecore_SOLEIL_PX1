@@ -77,9 +77,9 @@ class PX1Cryotong(Cats90):
             {"type": "tango", "name": "_cmdDrySoak", "cats": self.get_property("cats")},
             "DryAndSoak",
         )
-        #print(self.get_state() )
-        #exit()
-    print("\nPX1CRYOTONG INITIATED\n")
+
+        print("\nPX1CRYOTONG INITIATED\n")
+
     # ## CRYOTONG SPECIFIC METHODS ###
 
     def _software_authorization(self, value):

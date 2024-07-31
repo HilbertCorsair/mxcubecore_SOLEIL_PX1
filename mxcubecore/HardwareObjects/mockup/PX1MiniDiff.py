@@ -15,18 +15,6 @@ log = logging.getLogger("HWR")
 
 class PX1MiniDiff(GenericDiffractometer):
 
-    CENTRING_MOTORS_NAME = ["phi",
-                   "phiz",
-                   "phiy",
-                   "sampx",
-                   "sampy",
-                   "kappa",
-                   "kappa_phi",
-                   "beam_x",
-                   "beam_y",
-                   "zoom"]
-    #               "beam_y"]
-
     default_arrow_step = 0.1   # 100 microns default for arrow movements. otherwise configure in zoom.xml with arrowStep
 
     grid_direction = {"fast": (1, 0),
@@ -34,7 +22,9 @@ class PX1MiniDiff(GenericDiffractometer):
                       "omega_ref" : 0}
 
     def init(self):
+        self.zoom = self.get_object_by_role("zoom")
         self.smargon = self.get_object_by_role("smargon")
+
         self.smargon_state = None
         self.connect(self.smargon, "stateChanged", self.smargon_state_changed)
 
@@ -126,13 +116,17 @@ class PX1MiniDiff(GenericDiffractometer):
         self.pixels_per_mm_x = x
 
         self.pixels_per_mm_y = y
-        #/return GenericDiffractometer.get_pixels_per_mm(self)
+        return GenericDiffractometer.get_pixels_per_mm(self)
 
     def update_zoom_calibration(self):
         self._update_zoom_calibration()
         if 0 not in [self.pixels_per_mm_x, self.pixels_per_mm_y]:
             self.emit("pixelsPerMmChanged", ((self.pixels_per_mm_x, self.pixels_per_mm_y),))
 
+    def update_pixels_per_mm(self):
+        self.uprate_zoom_calibration() 
+
+        
     def _update_zoom_calibration(self):
         """
         """
