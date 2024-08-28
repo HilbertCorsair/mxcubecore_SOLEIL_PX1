@@ -74,6 +74,10 @@ class AbstractSampleView(HardwareObject):
             (AbstractCamera): Camera hardware object.
         """
         return self._camera
+    
+    @camera.setter
+    def camera(self, cam_obj):
+        self._camera = cam_obj
 
     @property
     def shapes(self):

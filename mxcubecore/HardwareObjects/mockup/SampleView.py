@@ -38,9 +38,10 @@ class SampleView(AbstractSampleView):
         self._shapes = {}
 
     def init(self):
-        self.camera = self.get_object_by_role("camera")
-        self.bear =  self.get_object_by_role("camera")
-
+        self.__class__.camera.fset(self, self.get_object_by_role("camera"))
+        #self.camera = self.get_object_by_role("camera")
+        #self.bear  =  self.get_object_by_role("camera")
+     
         self._ui_snapshot_cb = None
         self._last_oav_image = None
 
@@ -109,11 +110,11 @@ class SampleView(AbstractSampleView):
         else:
             #self.camera.take_snapshot(path, bw)
 
-            self.bear.take_snapshot(path, bw)
+            self.camera.take_snapshot(path, bw)
 
         self._last_oav_image = path
 
-    def get_last_image_path():
+    def get_last_image_path(self):
         return self._last_oav_image
 
     def add_shape(self, shape):

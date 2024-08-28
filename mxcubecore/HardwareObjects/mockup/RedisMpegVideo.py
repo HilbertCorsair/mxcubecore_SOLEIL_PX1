@@ -23,7 +23,6 @@ from mxcubecore.BaseHardwareObjects import HardwareObject
 class RedisMpegVideo(HardwareObject):
     def __init__(self, name):
         super().__init__(name)
-        self._format = "MJPEG"
         self._video_stream_process = None
         self._current_stream_size = "0, 0"
         self.stream_hash = str(uuid.uuid1())
@@ -37,12 +36,32 @@ class RedisMpegVideo(HardwareObject):
         self._mpeg_scale = self.get_property("mpeg_scale", 1)
         self._image_size = (self.get_width(), self.get_height())
         self._host = self.get_property("host")
-        self._port = self.get_property("port")
+        self._port = str(self.get_property("port"))
+        self._format = self.get_property("format")
+
 
         # self._cam_type = self.get_property("cam_type")
         #import pdb
         #print("Check 1")
         #pdb.set_trace()
+    
+    @property
+    def format(self):
+        return self._format
+    
+    @format.setter
+    def format(self, format):
+        self._format = format
+    
+    @property
+    def port(self):
+        return self._port
+    
+    @port.setter
+    def port(self, p):
+        self._port = str(p)
+
+
 
     def get_width(self):
         w= int(self.get_property("width"))
@@ -80,28 +99,34 @@ class RedisMpegVideo(HardwareObject):
 
         return video_sizes
 
-    def start_video_stream_process(self, port):
+    def start_video_stream_process(self, p):
+        print(f"STARTING ! Video stream on port: {self.port} in format: {self.format}")
 
+        # first get the format from the xml file since it is MJPEG by default
         if (
             not self._video_stream_process
-            or self._video_stream_process.poll() is not None
-        ):
+            or self._video_stream_process.poll() is not None ):
+            #print ("~~~ Video Streamer ~~~")
+            #print(f"Type of camerra: {self.get_property("cam_type").strip()}\nURI : {self._host}\nport: {self._port}")
+            #exit()
 
             self._video_stream_process = subprocess.Popen(
                 [  
                     "video-streamer",
                     "-uri",
+                    self._host,
+                    "-ct",
                     self.get_property("cam_type").strip(),
                     "-hs",
                     "localhost",
                     "-p",
-                    port,
+                    self.port,
                     "-q",
                     str(self._quality),
                     "-s",
                     self._current_stream_size,
                     "-of",
-                    self._format,
+                    self.format,
                     "-id",
                     self.stream_hash,
                     # "-d",
@@ -122,14 +147,14 @@ class RedisMpegVideo(HardwareObject):
 
             self._video_stream_process = None
 
-    def start_streaming(self, _format=None, size=(0, 0), port=None):
+    def start_streaming(self, _format=None, size=(0, 0), _port=None):
         _s = size
-
+     
         if _format:
-            self._format = _format
+            self.format = _format
         
-        if port:
-            self._port = port
+        if _port:
+            self.port = _port
 
         if not size[0]:
             _s = (self.get_width(), self.get_height())
@@ -138,7 +163,7 @@ class RedisMpegVideo(HardwareObject):
 
         self.set_stream_size(_s[0], _s[1])
         try:
-            self.start_video_stream_process(str(self._port))
+            self.start_video_stream_process(str(self.port))
         except Exception as e:
             print(f"Cannot start video streaming process ! {e}")
             exit()
@@ -146,4 +171,4 @@ class RedisMpegVideo(HardwareObject):
 
     def restart_streaming(self, size):
         self.stop_streaming()
-        self.start_streaming(self._format)
+        self.start_streaming(self.format, size)
