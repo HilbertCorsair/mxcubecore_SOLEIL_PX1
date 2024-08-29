@@ -227,6 +227,7 @@ class TangoChannel(ChannelObject):
     def init_device(self):
         try:
             self.device = DeviceProxy(self.device_name)
+
         except PyTango.DevFailed as traceback:
             self.imported = False
             last_error = traceback[-1]
@@ -244,15 +245,20 @@ class TangoChannel(ChannelObject):
                 self.device.set_timeout_millis(self.timeout)
 
                 # check that the attribute exists (to avoid Abort in PyTango grrr)
+
                 if not self.attribute_name.lower() in [
                     attr.name.lower() for attr in self.device.attribute_list_query()
                 ]:
-                    logging.getLogger("HWR").error(
-                        "no attribute %s in Tango device %s",
-                        self.attribute_name,
-                        self.device_name,
-                    )
-                    self.device = None
+                    # Hack for translating the position attribute to current zoom in case of using the new discrete zoom motor
+                    if self.device_name == "i10-c-cx1/ex/zoom_pos" and self.attribute_name == "position":
+                        self.attribute_name == "current_zoom"
+                    else :
+                        logging.getLogger("HWR").error(
+                            "no attribute %s in Tango device %s",
+                            self.attribute_name,
+                            self.device_name,
+                        )
+                        self.device = None
 
     def push_event(self, event):
         # logging.getLogger("HWR").debug("%s | attr_value=%s, event.errors=%s, quality=%s", self.name(), event.attr_value, event.errors,event.attr_value is None and "N/A" or event.attr_value.quality)

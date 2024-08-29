@@ -213,12 +213,16 @@ def load_from_yaml(configuration_file, role, _container=None, _table=None):
         # that should not remain as attributes
         # load them into a pre-defined attribute called '_tmp'
         for key, val in configuration.items():
+
             if hasattr(result, key):
                 setattr(result, key, val)
             else:
-                logging.getLogger("HWR").error(
-                    "%s has no attribute '%s'", class_name, key
-                )
+                if not val:
+                    pass
+                else:
+                    logging.getLogger("HWR").error(
+                        f" l220 HR.py: {class_name} has no attribute {key}"
+                    )
 
     if not msg0:
         if _container:
@@ -472,7 +476,7 @@ class __HardwareRepositoryClient:
                         class_name = str(hwobj_instance.__module__)
                     except Exception:
                         logging.getLogger("HWR").exception(
-                            'Cannot initialize Hardware Object "%s"', hwobj_name
+                            '\n! Cannot initialize Hardware Object "%s"', hwobj_name
                         )
                         self.invalid_hardware_objects.add(hwobj_instance.name())
                         hwobj_instance = None
