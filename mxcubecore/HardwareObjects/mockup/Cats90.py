@@ -1193,7 +1193,7 @@ class Cats90(SampleChanger):
         if dev_state == PyTango.DevState.ALARM:
             _state = SampleChangerState.Alarm
         elif not powered:
-            print(dir(SampleChangerState))
+            #print(dir(SampleChangerState))
             #exit()
 
             _state = SampleChangerState.Ready

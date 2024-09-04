@@ -196,9 +196,7 @@ class Cats90(SampleChanger):
         # Create channels from XML
 
         self.cats_device = PyTango.DeviceProxy(self.get_property("tangoname"))
-        print(self.cats_device)
-        exit()
-
+        
         no_of_lids = self.get_property("no_of_lids")
         if no_of_lids is None:
             self.number_of_lids = self.default_no_lids
