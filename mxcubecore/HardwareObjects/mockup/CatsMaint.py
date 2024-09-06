@@ -14,7 +14,7 @@ Vicente Rey - add support for ISARA Model
 import logging
 
 from mxcubecore.TaskUtils import task
-from mxcubecore.BaseHardwareObjects import Equipment
+from mxcubecore.BaseHardwareObjects import HardwareObject
 
 import gevent
 import time
@@ -47,7 +47,7 @@ TOOL_TO_STR = {
 }
 
 
-class CatsMaint(Equipment):
+class CatsMaint(HardwareObject):
 
     __TYPE__ = "CATS"
     NO_OF_LIDS = 3
@@ -73,6 +73,8 @@ class CatsMaint(Equipment):
 
     def init(self):
 
+
+        # Check if both devices are realy needed
         self.cats_device = DeviceProxy(self.tangoname)
         self.cats_cats = DeviceProxy(self.cats)
 
@@ -646,7 +648,7 @@ class CatsMaint(Equipment):
         self._barcode = value
         self.emit("barcodeChanged", (value,))
 
-    def _update_state(self, value):
+    def _update_state(self,value):
         self._state = value
         self._update_global_state()
 
@@ -690,27 +692,20 @@ class CatsMaint(Equipment):
             a message describing current state information
             as a string
         """
-        _ready = str(self._state) in ("READY", "ON")
-        #self._update_state("READY")
-        #print(self.get_state())
-        #print(self._state)
-        #exit()
+        # !!! hack 
+        _ready = self.is_ready()#str(self._state) in ("READY", "ON")
 
         if self._running:
             state_str = "MOVING"
-            print("on the move")
-            #exit()
+            print("CatsMaint on the move")
         elif not (self._powered) and _ready:
-            print("Disabled")
-            #exit()
+            print("CatsMaint Disabled")
             state_str = "DISABLED"
-        elif self.is_ready:
-            print('I am ready ')
-            #exit()
+        elif _ready:
+            print('CatsMaint ready !')
             state_str = "READY"
         else:
-            print("None of the above ")
-            #exit()
+            print("CatsMAint is in None of the above states!")
             state_str = str(self._state)
 
         state_dict = {

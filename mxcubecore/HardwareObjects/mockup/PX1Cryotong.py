@@ -282,7 +282,6 @@ class PX1Cryotong(Cats90):
         if self._chnHomeOpened.get_value() is False:
             return True
 
-        #
         self._cmdDrySoak()
 
         time.sleep(3)
