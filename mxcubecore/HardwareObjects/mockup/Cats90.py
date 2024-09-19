@@ -183,8 +183,13 @@ class Cats90(SampleChanger):
         # add support for CATS dewars with variable number of lids
 
 
-        self.cats_device = PyTango.DeviceProxy(self.get_property("cats"))
+        self.cats_device = PyTango.DeviceProxy(self.get_property("tangoname"))
+        self.cats_name = self.get_property("cats")
         no_of_lids = self.get_property("no_of_lids")
+        self.cats_cats = PyTango.DeviceProxy(self.get_property("cats"))
+
+
+
         if no_of_lids is None:
             self.number_of_lids = self.default_no_lids
         else:
@@ -197,7 +202,7 @@ class Cats90(SampleChanger):
                 {
                     "type": "tango",
                     "name": "_chnState",
-                    "tangoname": self.cats_device,
+                    "tangoname": self.tangoname,
                     "polling": 300,
                 },
                 "State",
@@ -209,7 +214,7 @@ class Cats90(SampleChanger):
                 {
                     "type": "tango",
                     "name": "_chnStatus",
-                    "tangoname": self.cats_device,
+                    "tangoname": self.tangoname,
                     "polling": 300,
                 },
                 "Status",
@@ -221,7 +226,7 @@ class Cats90(SampleChanger):
                 {
                     "type": "tango",
                     "name": "_chnPowered",
-                    "tangoname": self.cats_device,
+                    "tangoname": self.cats_name,
                     "polling": 300,
                 },
                 "Powered",
@@ -233,7 +238,7 @@ class Cats90(SampleChanger):
                 {
                     "type": "tango",
                     "name": "_chnPathRunning",
-                    "tangoname": self.cats_device,
+                    "tangoname": self.tangoname,
                     "polling": 1000,
                 },
                 "PathRunning",
@@ -287,7 +292,7 @@ class Cats90(SampleChanger):
                 {
                     "type": "tango",
                     "name": "_chnSampleBarcode",
-                    "tangoname": self.tangoname,
+                    "tangoname": self.cats_name,
                     "polling": 1000,
                 },
                 "Barcode",
@@ -366,7 +371,7 @@ class Cats90(SampleChanger):
                 {
                     "type": "tango",
                     "name": "_cmdLoadBarcode",
-                    "tangoname": self.tangoname,
+                    "tangoname": self.cats_name,
                 },
                 "put_bcrd",
             )
@@ -377,7 +382,7 @@ class Cats90(SampleChanger):
                 {
                     "type": "tango",
                     "name": "_cmdChainedLoadBarcode",
-                    "tangoname": self.tangoname,
+                    "tangoname": self.cats_name,
                 },
                 "getput_bcrd",
             )
@@ -530,6 +535,10 @@ class Cats90(SampleChanger):
 #        except (AttributeError, KeyError) as err:
 #            logging.error(f"Exception in get_state(): {err}")
 #            return self.STATES.UNKNOWN
+    def is_string_true (self, string):
+        i = str (string) in ["True","true"]
+        return i 
+
 
 
     def connect_notify(self, signal):
@@ -1135,9 +1144,9 @@ class Cats90(SampleChanger):
         """
         self.cats_running = self._chnPathRunning.get_value()
         self.cats_powered = self._chnPowered.get_value()
-        self.cats_lids_closed = self._chnAllLidsClosed.get_value()
+        self.cats_lids_closed = False if isinstance (self._chnAllLidsClosed.get_value(), int) else True
         self.cats_status = self._chnStatus.get_value()
-        self.cats_state = self._device_chnState.get_value()
+        self.cats_state = self._chnState.get_value()
 
     def _update_state(self):
 
@@ -1164,7 +1173,10 @@ class Cats90(SampleChanger):
         """
         _state = self._chnState.get_value()
         _powered = self._chnPowered.get_value()
-        _lids_closed = self._chnAllLidsClosed.get_value()
+
+        # Hack that avoids nueric value interference 
+        _lids_closed = False if isinstance(self._chnAllLidsClosed.get_value(), int) else True
+        
         _has_loaded = self.has_loaded_sample()
         _on_diff = self._chnSampleIsDetected.get_value()
 
@@ -1190,23 +1202,59 @@ class Cats90(SampleChanger):
 
     def _decide_state(self, dev_state, powered, lids_closed, has_loaded, on_diff):
 
+        # Hack that deals with inconsitent value types comming from CanalObject.get_value() 
+        powered = powered if isinstance(powered, bool) else self.is_string_true(self.cats_cats.Powered) # CATS has the Powerd attribute not CATScryotong
+        lids_closed = lids_closed if isinstance(lids_closed, bool) else self.is_string_true( self.cats_device.isLidClosed) # CatsCryotong
+        """
+        c = 0
+        while c <= 15:
+            print(f'\nCATS90 deciding state (args) called in read state with args: \n- state: {dev_state}\n- powered: {powered}\n- lids: {lids_closed} --> decides nothing\n- loaded: {has_loaded}\n- on_diff: {on_diff}\n')
+            state_dict = {'power': powered, 'lids':lids_closed }
+            for k,v in state_dict.items():
+                if not isinstance(v, bool):
+                    print(f'-{k} --> {v} !')
+                    if k == "power":
+                        print(f"Fetching Powered from source -- {self.cats_cats.Powered}")
+                    else:
+                        print(f"Fetching Lids from source -- {self.cats_device.isLidClosed}")
+                                  
+
+            if not isinstance (powered, bool):
+                print(f"!! _powerd is {powered} from {type(self)} but is_powered ---> {self.is_powered()}")
+                
+                if not isinstance(self.cats_cats.Powered, bool):
+                    print("WTF ?!")
+
+            c+=1
+            time.sleep(1)
+        """
+
+
         if dev_state == PyTango.DevState.ALARM:
             _state = SampleChangerState.Alarm
-        elif not powered:
+
+            print("C1")
+        elif not powered or dev_state == PyTango.DevState.STANDBY:
+
             #print(dir(SampleChangerState))
             #exit()
-
+            #print("C2")
             _state = SampleChangerState.Ready
         elif dev_state == PyTango.DevState.RUNNING:
             if self.state not in [
                 SampleChangerState.Loading,
                 SampleChangerState.Unloading,
             ]:
+                print("C3")
                 _state = SampleChangerState.Moving
             else:
                 _state = self.state
+                print("C4")
+
         elif dev_state == PyTango.DevState.UNKNOWN:
             _state = SampleChangerState.Unknown
+            print("C5")
+
         elif has_loaded ^ on_diff:
             # go to Unknown state if a sample is detected on the gonio but not registered in the internal database
             # or registered but not on the gonio anymore
@@ -1218,10 +1266,12 @@ class Cats90(SampleChanger):
         # elif not lids_closed:
         # _state = SampleChangerState.Charging
         elif dev_state == PyTango.DevState.ON:
+            print("C6")
             _state = SampleChangerState.Ready
         else:
             _state = SampleChangerState.Unknown
-
+            print("C7")
+        
         return _state
 
     def _is_device_busy(self, state=None):

@@ -3,11 +3,38 @@ import logging
 import gevent
 import subprocess
 import os
-
 from CatsMaint import CatsMaint
-from mxcubecore.HardwareObjects.abstract.AbstractSampleChanger import SampleChangerState
+from mxcubecore import HardwareRepository as HWR
+import time
+from enum import Enum
+from mxcubecore.BaseHardwareObjects import HardwareObjectState
 
 log = logging.getLogger("HWR")
+
+__copyright__ = """ Copyright © 2020 by the MXCuBE collaboration """
+__license__ = "LGPLv3+"
+
+
+class SpecficSates(Enum):
+    """Convert exporter states to HardwareObject amd Motor states"""
+
+    UNKNOWN = HardwareObjectState.UNKNOWN
+    STANDBY = HardwareObjectState.READY
+    DISABLE = HardwareObjectState.WARNING
+    ALARM = HardwareObjectState.WARNING
+    BUSY = HardwareObjectState.BUSY
+    MOVING = HardwareObjectState.BUSY
+    RUNNING = HardwareObjectState.BUSY
+    INITIALIZING = HardwareObjectState.BUSY
+    READY = HardwareObjectState.READY
+    ON = HardwareObjectState.READY
+    OFF = HardwareObjectState.READY
+    CLOSED = HardwareObjectState.READY
+    OPEN = HardwareObjectState.READY
+    FAULT = HardwareObjectState.FAULT
+    INVALID = HardwareObjectState.FAULT
+    OFFLINE = HardwareObjectState.FAULT
+
 
 class PX1CatsMaint(CatsMaint):
     def __init__(self,*args):
@@ -15,6 +42,7 @@ class PX1CatsMaint(CatsMaint):
         self.home_opened = None
         self.powered = False
         self.events = {}
+        self._SS = SpecficSates
 
     def init(self):
         CatsMaint.init(self)
@@ -25,27 +53,120 @@ class PX1CatsMaint(CatsMaint):
         self._chnHomeOpened = self.add_channel({ "type": "tango",
                 "name": "_chnHomeOpened", "tangoname": self.tangoname,
                 "polling": "events", }, "homeOpened")
-
+        
         self._chnSampleOnTool = self.get_channel_object('_chnSampleOnTool')
-
         self._chnGonioCollision = self.get_channel_object('_chnGonioCollision')
         self._chnDewarCollision = self.get_channel_object('_chnDewarCollision')
-
         self._chnGonioCollision.connect_signal("update", self.gonio_collision_changed) 
         self._chnDewarCollision.connect_signal("update", self.dewar_collision_changed) 
-
         self._chnHomeOpened.connect_signal("update", self.update_home_opened)
-
         self._cmdDrySoak = self.add_command({ "type": "tango",
                 "name": "_cmdDrySoak", "tangoname": self.tangoname, }, "DryAndSoak")
-
         self._cmdReset = self.add_command({"type": "tango",
                 "name": "_cmdReset", "tangoname": self.tangoname, }, "ResetError")
-
         self.cats_hwo = self.get_object_by_role("sample_changer")
-
         self.regulation_mode = self.get_property("regulation")
-   
+        self._soaking = self.cats_device.Position == 'Soak'
+        
+        self._tango_state_name = self._chnState.get_value().name
+        self._update_state(self._SS[self._tango_state_name].value)
+        self._update_running_state(self.is_string_true(self.cats_device.pathRunning))# self._chnPathRunning.get_value())
+        
+        self._update_powered_state(self.cats_cats.Powered)
+        self._update_regulation_state(self.is_string_true(self.cats_cats.LN2Regulating))
+        
+       
+
+    def send_command (self, cmd_name, args = None):
+        
+
+
+        print (f'BEFORE COMMAND:\n---Power state: {self._powered}')
+
+      
+
+        cmds_menu= {"powerOn" :  self.cats_device.PowerON, 
+                    "powerOff":  self.cats_device.PowerOFF, 
+                    "home": self.cats_device.HomeOpen,
+                    "openlid1" : self.cats_device.OpenLid,
+                    "closelid1" : self.cats_device.CloseLid, 
+                    "dry": self._cmdDrySoak,
+                    "soak" : self.cats_device.Soak, 
+                    "clear_memory" : self.cats_device.ClearMemory, 
+                    "reset": self.cats_device.ResetError,
+                    "back" : None,
+                    "safe" : self.cats_device.Safe, 
+                    "abort" : self.cats_device.Abort, 
+                    }
+        
+
+        
+  
+
+        cmd = cmds_menu.get(cmd_name, None)
+        cmd()
+
+        time.sleep(3)
+
+        self._update_global_state()
+        #self._update_lid1_state(not(self.is_string_true(self.cats_device.isLidClosed)))
+        
+        
+        #self._update_global_state()
+
+
+        print(f"STATES afetr send_command in PX1CatsMaint: \n>Powered {self._powered}\n>State: --- comes_from---> {self._state.name} \n" )
+    
+    def is_string_true (self, string):
+        i = str(string) in ["True","true"]
+        return i 
+    
+    def get_global_state(self):
+        
+       
+        _ready = self._state.name in ("READY", "ON", "STANDBY", "OFF")
+        gtg = _ready and self.is_string_true(self.cats_cats.Powered)
+         
+
+        state_dict = {
+            "toolopen": self.is_string_true(self.cats_device.toolOpen),
+            "powered": self.is_string_true(self.cats_cats.Powered),
+            "running": self.is_string_true(self.cats_device.pathRunning),
+            "regulating": self.is_string_true(self.cats_cats.LN2Regulating),
+            "lid1": self.is_string_true(self.cats_device.isLidClosed), #True if lid is closed
+            "state": self._state.name,
+            "homeopen":self.is_string_true( self.cats_device.homeOpened),
+        }
+        print(f"PX1CatsMaint State dict : \n{state_dict}\n{_ready} comes from ---> {self._state.name}")
+
+        #state_dict =  {k: self.is_string_true(v) for k, v in state_dict.items() if not  k in ["state", "regulating"]  }
+        nr_gtg = (not state_dict["running"]) and gtg
+        
+
+        if not isinstance(state_dict["regulating"], bool):
+            print(f"Caution! regulating is not a boolean--- {state_dict['regulating']} getting val from source ...")
+            state_dict["regulating"] = self.is_string_true(self.cats_cats.LN2Regulating)
+        
+        
+        cmd_state = {
+            "powerOn": (not state_dict["powered"] ) and _ready, #(not self._powered) and _ready,
+            "powerOff":  state_dict["powered"] and _ready ,     #self._powered and _ready,
+            "regulon":  (not self._regulating) and _ready,
+            "openlid1":   state_dict["lid1"] and (not self.cats_device.Position == 'Soak')and  gtg,
+            "closelid1": ( not (state_dict["lid1"] or self.cats_device.Position == 'Soak')) and gtg,
+            "dry":  nr_gtg,
+            "soak": not self.cats_device.Position == 'Soak' and nr_gtg,
+            "home": nr_gtg,
+            "back": nr_gtg, 
+            "safe": nr_gtg,
+            "clear_memory": False,
+            "reset": True,
+            "abort": True,
+        }
+
+        message = self._message
+        return state_dict, cmd_state, message
+    
 
     def is_gonio_collision(self):
         return self._chnGonioCollision.get_value()
@@ -53,12 +174,7 @@ class PX1CatsMaint(CatsMaint):
     def update_home_opened(self, value):
         if value != self.home_opened:
             self.home_opened = value 
-            self._updateGlobalState()
-
-    def get_global_state(self):
-        state_dict, cmd_state, message = CatsMaint.get_global_state(self)
-        state_dict['homeopen'] = self.home_opened
-        return state_dict, cmd_state, message 
+            self._update_global_state()
 
     def get_loaded_state(self):
         lid_loaded = self._chnLidLoadedSample.get_value()
@@ -186,38 +302,24 @@ class PX1CatsMaint(CatsMaint):
         self.caller.new_debug_msg("debug collision finished with error")
   
   
-    def _doHomeOpen(self, unload=False):
-
-        logging.getLogger("HWR").debug("Running the home command (home/open) now. Unload first=%s" % unload)
-
-        if unload :
+    def _do_home_open(self, unload=False):
+        if unload and self.loaded:
             logging.getLogger("HWR").debug("Unloading sample first")
-            self.cats_hwo.unload(wait=True)
-            #gevent.sleep(3)
-            #trial = 0
-            #while True:
-            ##    gevent.sleep(0.3)
-            #    if self.cats_hwo._isDeviceBusy():
-            #        trial = 0
-            #        continue
-            #    
-            #    state = SampleChangerState.tostring( self.cats_hwo._readState() )
-            #    logging.getLogger("HWR").debug("cats not busy. maybe transient. wait a bit more. state is: %s" % str(state))
-            #    trial += 1
-#
-#                if trial == 3:
-#                    logging.getLogger("HWR").debug("cats not busy for 3 times. Must be true")
-#                    break
+            self.cats_hwo._do_unload()
+            time.sleep(3)
+            while HWR.beamline.sample_changer._is_device_busy():
+                time.sleep(0.3)
 
         logging.getLogger("HWR").debug("Running the home command (home/open) now")
         self._cmdHome()
 
-    def _doDrySoak(self):
+    def _do_dry_soak(self):
         self._cmdDrySoak()
 
-    def _doReset(self):
-        logging.getLogger("HWR").debug('PX1CatsMaint: executing the _doReset function')
+    def _do_reset(self):
+        logging.getLogger("HWR").debug("PX1CatsMaint: executing the _do_reset function")
         self._cmdReset()
+
 
     def is_regulation_disabled(self):
         try:

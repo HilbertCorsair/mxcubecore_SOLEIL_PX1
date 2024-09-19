@@ -165,9 +165,7 @@ class Smargon(HardwareObject):
             if self.signals[motor] == signal_name:
                 return motor
         return None
-    import pdb
-    pdb.set_trace()
-
+    
     def get_state(self):
         print("------------- IN SMARGON GET STATE----------------------------")
         state = str(self._state_chan.get_value())

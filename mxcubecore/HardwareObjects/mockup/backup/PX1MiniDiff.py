@@ -61,8 +61,6 @@ class PX1MiniDiff(GenericDiffractometer):
                  self.px1_automatic_centring,
              GenericDiffractometer.CENTRING_METHOD_MOVE_TO_BEAM: \
                  self.start_move_to_beam}
-    import pdb
-    pdb.set_trace()
 
     def set_chip_mode(self, flag):
         self.chip_mode = flag

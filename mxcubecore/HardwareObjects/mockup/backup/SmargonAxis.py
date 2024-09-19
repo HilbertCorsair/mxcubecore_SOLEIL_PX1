@@ -95,9 +95,6 @@ class Smargon(HardwareObject):
                 chan = self.add_channel({ "type": "tango", "name": "_%s_chan" % motor_name,
                     "tangoname": self.device_name, "polling": self.default_polling,
                    }, motor_name)
-            import pdb
-            pdb.set_trace()
-
             self.motor_channels[motor_name] = chan
             chan.connect_signal("update", self.slots[motor_name])
             print(f'SMARGON l 81: {motor_name} position updated!')

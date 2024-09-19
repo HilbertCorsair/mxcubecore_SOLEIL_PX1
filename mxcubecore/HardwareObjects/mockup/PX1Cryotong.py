@@ -2,6 +2,8 @@ from __future__ import print_function
 import logging
 import gevent
 import time
+from mxcubecore.HardwareObjects.abstract import AbstractSampleChanger
+from mxcubecore.HardwareObjects.abstract.sample_changer import Container
 
 from mxcubecore.Command.Tango import DeviceProxy
 
@@ -17,7 +19,7 @@ from PX1Environment import EnvironmentPhase
 
 class PX1Cryotong(Cats90):
 
-    __TYPE__ = "CATS"
+    __TYPE__ = "Cryotong"
 
     default_no_lids = 1
     baskets_per_lid = 3
@@ -27,6 +29,8 @@ class PX1Cryotong(Cats90):
     def __init__(self, *args, **kwargs):
 
         super(PX1Cryotong, self).__init__(*args, **kwargs)
+        # Generates a list of baskets
+        self.components = [ Container.Basket(self, i +1, 16) for i in range(16) ]
 
         self._safeNeeded = None
         self._homeOpened = None
@@ -77,6 +81,26 @@ class PX1Cryotong(Cats90):
             {"type": "tango", "name": "_cmdDrySoak", "cats": self.get_property("cats")},
             "DryAndSoak",
         )
+        
+        self.no_of_samples_in_basket = self.get_property(
+            "no_of_samples_in_basket", 16
+        )
+
+        for i in range(self.no_of_baskets):
+            basket = Container.Basket(
+                self, i + 1, samples_num=self.no_of_samples_in_basket
+            )
+            self._add_component(basket)
+        
+        
+        
+
+        
+
+        self._init_sc_contents()
+        self._do_update_state()
+        #import pdb
+        #pdb.set_trace()
 
         print("\nPX1CRYOTONG INITIATED\n")
 
@@ -276,6 +300,58 @@ class PX1Cryotong(Cats90):
             return False
 
         return True
+    
+
+    def _init_sc_contents(self):
+        """
+        Initializes the sample changer content with default values.
+
+        :returns: None
+        :rtype: None
+        """
+        named_samples = {}
+        if self.has_object("test_sample_names"):
+            for tag, val in self["test_sample_names"].get_properties().items():
+                named_samples[val] = tag
+
+
+        #import pdb 
+        #pdb.set_trace()
+
+        for basket_index in range(self.no_of_baskets):
+            basket = self.components[basket_index]
+            datamatrix = None
+            present = True
+            scanned = False
+            basket._set_info(present, datamatrix, scanned)
+
+        sample_list = []
+        for basket_index in range(self.no_of_baskets):
+            for sample_index in range(16):
+                sample_list.append(
+                    (
+                        "",
+                        basket_index + 1,
+                        sample_index + 1,
+                        1,
+                        Container.Pin.STD_HOLDERLENGTH,
+                    )
+                )
+        
+        for spl in sample_list:
+            address = Container.Pin.get_sample_address(spl[1], spl[2])
+            sample = self.get_component_by_address(address)
+            sample_name = named_samples.get(address)
+            if sample_name is not None:
+                sample._name = sample_name
+            datamatrix = "matr%d_%d" % (spl[1], spl[2])
+            present = scanned = loaded = has_been_loaded = False
+            sample._set_info(present, datamatrix, scanned)
+            sample._set_loaded(loaded, has_been_loaded)
+            sample._set_holder_length(spl[4])
+
+        #self._set_state(AbstractSampleChanger.SampleChangerState.Ready)
+
 
     def check_drysoak(self):
         print("Checking drysoak")

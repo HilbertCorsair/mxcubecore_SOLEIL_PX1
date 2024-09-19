@@ -79,7 +79,7 @@ class SmargonAxis(AbstractMotor, Smargon):
 
     def state_changed(self, state):
         self.state = state
-        print(f"S.gonAxis l80 motor - {self.motor_name} - state changed to -> {state}")
+        #print(f"S.gonAxis l80 motor - {self.motor_name} - state changed to -> {state}")
 
         self.emit('stateChanged', (self.state_to_num() ) )
 
