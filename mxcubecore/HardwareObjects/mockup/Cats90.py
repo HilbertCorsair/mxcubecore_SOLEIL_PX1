@@ -1204,31 +1204,7 @@ class Cats90(SampleChanger):
 
         # Hack that deals with inconsitent value types comming from CanalObject.get_value() 
         powered = powered if isinstance(powered, bool) else self.is_string_true(self.cats_cats.Powered) # CATS has the Powerd attribute not CATScryotong
-        lids_closed = lids_closed if isinstance(lids_closed, bool) else self.is_string_true( self.cats_device.isLidClosed) # CatsCryotong
-        """
-        c = 0
-        while c <= 15:
-            print(f'\nCATS90 deciding state (args) called in read state with args: \n- state: {dev_state}\n- powered: {powered}\n- lids: {lids_closed} --> decides nothing\n- loaded: {has_loaded}\n- on_diff: {on_diff}\n')
-            state_dict = {'power': powered, 'lids':lids_closed }
-            for k,v in state_dict.items():
-                if not isinstance(v, bool):
-                    print(f'-{k} --> {v} !')
-                    if k == "power":
-                        print(f"Fetching Powered from source -- {self.cats_cats.Powered}")
-                    else:
-                        print(f"Fetching Lids from source -- {self.cats_device.isLidClosed}")
-                                  
-
-            if not isinstance (powered, bool):
-                print(f"!! _powerd is {powered} from {type(self)} but is_powered ---> {self.is_powered()}")
-                
-                if not isinstance(self.cats_cats.Powered, bool):
-                    print("WTF ?!")
-
-            c+=1
-            time.sleep(1)
-        """
-
+        lids_closed = lids_closed if isinstance(lids_closed, bool) else self.is_string_true( self.cats_device.isLidClosed) # lids closed is on the CatsCryotong device
 
         if dev_state == PyTango.DevState.ALARM:
             _state = SampleChangerState.Alarm
