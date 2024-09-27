@@ -64,8 +64,6 @@ class MicrodiffZoomMockup(AbstractNState):
 
         )
         print(f"Problem in MicrodiffZoomMockup.py : initializse_values() {values_dict}\n\n")
-        import pdb
-        pdb.set_trace()
 
         for key, val in values_dict.items():
             if isinstance (val, (tuple, list)):

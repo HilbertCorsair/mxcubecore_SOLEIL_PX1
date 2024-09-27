@@ -110,8 +110,6 @@ class Smargon(HardwareObject):
                     "tangoname": self.device_name, "polling": self.default_polling,
                    }, motor_name)
 
-            import pdb
-            pdb.set_trace()
 
             self.motor_channels[motor_name] = chan
             chan.connect_signal("update", self.slots[motor_name])

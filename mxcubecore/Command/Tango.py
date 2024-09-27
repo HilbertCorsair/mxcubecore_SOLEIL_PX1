@@ -351,7 +351,7 @@ class TangoChannel(ChannelObject):
             ).value
         else:
             value = self.device.read_attribute(self.attribute_name).value
-            print(f"NOT READ AS STR--> {self.userName()} , {value}\n" )
+            #print(f"NOT READ AS STR--> {self.userName()} , {value}\n" )
 
         if isinstance(value, numpy.ndarray):
             if not numpy.array_equal(value, self.value):

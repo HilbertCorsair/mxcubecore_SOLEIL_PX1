@@ -58,7 +58,7 @@ class CatsMaint(HardwareObject):
     """
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        HardwareObject.__init__(self, *args, **kwargs)
 
         self._state = None
         self._running = None

@@ -14,7 +14,7 @@ Vicente Rey - add support for ISARA Model
 import logging
 
 from mxcubecore.TaskUtils import task
-from mxcubecore.BaseHardwareObjects import Equipment
+from mxcubecore.BaseHardwareObjects import HardwareObject
 
 import gevent
 import time
@@ -47,10 +47,7 @@ TOOL_TO_STR = {
 }
 
 
-class CatsMaint(Equipment):
-
-    __TYPE__ = "CATS"
-    NO_OF_LIDS = 3
+class CatsMaint(HardwareObject):
 
     """
     Actual implementation of the CATS Sample Changer, MAINTENANCE COMMANDS ONLY
@@ -73,24 +70,22 @@ class CatsMaint(Equipment):
 
     def init(self):
 
+
+        # Check if both devices are realy needed
         self.cats_device = DeviceProxy(self.tangoname)
-        self.cats_cats = DeviceProxy(self.cats)
+        
+        self.cats_name = self.get_property("cats")
+        self.cats_cats = DeviceProxy(self.cats_name)
 
-        try:
-            self.cats_model = self.cats_device.read_attribute("CatsModel").value
-        except Exception:
-            self.cats_model = "CATS"
+        self.nb_of_lids = self.get_property("nb_of_lids")
 
-        if self.is_isara():
-            self.nb_of_lids = 1
-        else:
-            self.nb_of_lids = 3
+        self.cats_model = self.get_property('cm')
 
         self._chnState = self.add_channel(
             {
                 "type": "tango",
                 "name": "_chnState",
-                "tangoname": self.cats_cats,
+                "tangoname": self.tangoname,
                 "polling": 1000,
             },
             "State",
@@ -100,7 +95,7 @@ class CatsMaint(Equipment):
             {
                 "type": "tango",
                 "name": "_chnPathRunning",
-                "tangoname": self.cats_cats,
+                "tangoname": self.tangoname,
                 "polling": 1000,
             },
             "PathRunning",
@@ -109,7 +104,7 @@ class CatsMaint(Equipment):
             {
                 "type": "tango",
                 "name": "_chnPowered",
-                "tangoname": self.cats_cats,
+                "tangoname": self.cats_name,
                 "polling": 1000,
             },
             "Powered",
@@ -118,7 +113,7 @@ class CatsMaint(Equipment):
             {
                 "type": "tango",
                 "name": "_chnMessage",
-                "tangoname": self.cats_cats,
+                "tangoname": self.tangoname,
                 "polling": 1000,
             },
             "Message",
@@ -127,7 +122,7 @@ class CatsMaint(Equipment):
             {
                 "type": "tango",
                 "name": "_chnToolOpenClose",
-                "tangoname": self.cats_cats,
+                "tangoname": self.tangoname,
                 "polling": 1000,
             },
             "di_ToolOpen",
@@ -136,7 +131,7 @@ class CatsMaint(Equipment):
             {
                 "type": "tango",
                 "name": "_chnLN2Regulation",
-                "tangoname": self.cats_cats,
+                "tangoname": self.cats_name,
                 "polling": 1000,
             },
             "LN2Regulating",
@@ -145,7 +140,7 @@ class CatsMaint(Equipment):
             {
                 "type": "tango",
                 "name": "_chnBarcode",
-                "tangoname": self.cats_cats,
+                "tangoname": self.tangoname,
                 "polling": 1000,
             },
             "Barcode",
@@ -155,7 +150,7 @@ class CatsMaint(Equipment):
             {
                 "type": "tango",
                 "name": "_chnLid1State",
-                "tangoname": self.cats_cats,
+                "tangoname": self.tangoname,
                 "polling": 1000,
             },
             "di_Lid1Open",
@@ -167,7 +162,7 @@ class CatsMaint(Equipment):
                 {
                     "type": "tango",
                     "name": "_chnLid2State",
-                    "tangoname": self.cats_cats,
+                    "tangoname": self.tangoname,
                     "polling": 1000,
                 },
                 "di_Lid2Open",
@@ -179,7 +174,7 @@ class CatsMaint(Equipment):
                 {
                     "type": "tango",
                     "name": "_chnLid3State",
-                    "tangoname": self.cats_cats,
+                    "tangoname": self.tangoname,
                     "polling": 1000,
                 },
                 "di_Lid3Open",
@@ -189,125 +184,126 @@ class CatsMaint(Equipment):
         self._chnState.connect_signal("update", self._update_state)
         self._chnPathRunning.connect_signal("update", self._update_running_state)
         self._chnPowered.connect_signal("update", self._update_powered_state)
+
         self._chnToolOpenClose.connect_signal("update", self._update_tool_state)
         self._chnMessage.connect_signal("update", self._update_message)
         self._chnLN2Regulation.connect_signal("update", self._update_regulation_state)
-        self._chnBarcode.connect_signal("update", self._updateBarcode)
+        #self._chnBarcode.connect_signal("update", self._updateBarcode)
 
         self._chnCurrentTool = self.add_channel(
-            {"type": "tango", "name": "_chnCurrentTool", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_chnCurrentTool", "tangoname": self.tangoname},
             "Tool",
         )
-        #
+
         self._cmdPowerOn = self.add_command(
-            {"type": "tango", "name": "_cmdPowerOn", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdPowerOn", "tangoname": self.tangoname},
             "powerOn",
         )
         self._cmdPowerOff = self.add_command(
-            {"type": "tango", "name": "_cmdPowerOff", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdPowerOff", "tangoname": self.tangoname},
             "powerOff",
         )
         self._cmdOpenTool = self.add_command(
-            {"type": "tango", "name": "_cmdOpenTool", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdOpenTool", "tangoname": self.tangoname},
             "opentool",
         )
         self._cmdCloseTool = self.add_command(
-            {"type": "tango", "name": "_cmdCloseTool", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdCloseTool", "tangoname": self.tangoname},
             "closetool",
         )
         self._cmdMagnetOn = self.add_command(
-            {"type": "tango", "name": "_cmdMagnetOn", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdMagnetOn", "tangoname": self.tangoname},
             "magnetOn",
         )
         self._cmdMagnetOff = self.add_command(
-            {"type": "tango", "name": "_cmdMagnetOff", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdMagnetOff", "tangoname": self.tangoname},
             "magnetOff",
         )
 
         # LIDs
         self._cmdOpenLid1 = self.add_command(
-            {"type": "tango", "name": "_cmdOpenLid1", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdOpenLid1", "tangoname": self.tangoname},
             "openlid1",
         )
         self._cmdCloseLid1 = self.add_command(
-            {"type": "tango", "name": "_cmdCloseLid1", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdCloseLid1", "tangoname": self.tangoname},
             "closelid1",
         )
 
         if self.nb_of_lids > 1:
             self._cmdOpenLid2 = self.add_command(
-                {"type": "tango", "name": "_cmdOpenLid1", "tangoname": self.cats_cats},
+                {"type": "tango", "name": "_cmdOpenLid1", "tangoname": self.tangoname},
                 "openlid2",
             )
             self._cmdCloseLid2 = self.add_command(
-                {"type": "tango", "name": "_cmdCloseLid1", "tangoname": self.cats_cats},
+                {"type": "tango", "name": "_cmdCloseLid1", "tangoname": self.tangoname},
                 "closelid2",
             )
 
         if self.nb_of_lids > 2:
             self._cmdOpenLid3 = self.add_command(
-                {"type": "tango", "name": "_cmdOpenLid1", "tangoname": self.cats_cats},
+                {"type": "tango", "name": "_cmdOpenLid1", "tangoname": self.tangoname},
                 "openlid3",
             )
             self._cmdCloseLid3 = self.add_command(
-                {"type": "tango", "name": "_cmdCloseLid1", "tangoname": self.cats_cats},
+                {"type": "tango", "name": "_cmdCloseLid1", "tangoname": self.tangoname},
                 "closelid3",
             )
 
         self._cmdRegulOn = self.add_command(
-            {"type": "tango", "name": "_cmdRegulOn", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdRegulOn", "tangoname": self.tangoname},
             "regulon",
         )
         self._cmdRegulOff = self.add_command(
-            {"type": "tango", "name": "_cmdRegulOff", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdRegulOff", "tangoname": self.tangoname},
             "reguloff",
         )
 
         self._cmdToolOpen = self.add_command(
-            {"type": "tango", "name": "_cmdToolOpen", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdToolOpen", "tangoname": self.tangoname},
             "opentool",
         )
         self._cmdToolClose = self.add_command(
-            {"type": "tango", "name": "_cmdToolClose", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdToolClose", "tangoname": self.tangoname},
             "closetool",
         )
 
         # Paths
         self._cmdAbort = self.add_command(
-            {"type": "tango", "name": "_cmdAbort", "tangoname": self.cats_cats}, "abort"
+            {"type": "tango", "name": "_cmdAbort", "tangoname": self.tangoname}, "abort"
         )
         self._cmdDry = self.add_command(
-            {"type": "tango", "name": "_cmdDry", "tangoname": self.cats_cats}, "dry"
+            {"type": "tango", "name": "_cmdDry", "tangoname": self.tangoname}, "dry"
         )
         self._cmdSafe = self.add_command(
-            {"type": "tango", "name": "_cmdSafe", "tangoname": self.cats_cats}, "safe"
+            {"type": "tango", "name": "_cmdSafe", "tangoname": self.tangoname}, "safe"
         )
         self._cmdHome = self.add_command(
-            {"type": "tango", "name": "_cmdHome", "tangoname": self.cats_cats}, "home"
+            {"type": "tango", "name": "_cmdHome", "tangoname": self.tangoname}, "home"
         )
         self._cmdSoak = self.add_command(
-            {"type": "tango", "name": "_cmdSoak", "tangoname": self.cats_cats}, "soak"
+            {"type": "tango", "name": "_cmdSoak", "tangoname": self.tangoname}, "soak"
         )
         self._cmdBack = self.add_command(
-            {"type": "tango", "name": "_cmdBack", "tangoname": self.cats_cats}, "back"
+            {"type": "tango", "name": "_cmdBack", "tangoname": self.tangoname}, "back"
         )
         self._cmdCalibration = self.add_command(
-            {"type": "tango", "name": "_cmdCalibration", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdCalibration", "tangoname": self.tangoname},
             "toolcalibration",
         )
 
         self._cmdClearMemory = self.add_command(
-            {"type": "tango", "name": "_cmdClearMemory", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdClearMemory", "tangoname": self.tangoname},
             "clear_memory",
         )
         self._cmdReset = self.add_command(
-            {"type": "tango", "name": "_cmdReset", "tangoname": self.cats_cats}, "reset"
+            {"type": "tango", "name": "_cmdReset", "tangoname": self.tangoname}, "reset"
         )
         self._cmdResetParameters = self.add_command(
             {
                 "type": "tango",
                 "name": "_cmdResetParameters",
-                "tangoname": self.cats_cats,
+                "tangoname": self.tangoname,
             },
             "reset_parameters",
         )
@@ -316,26 +312,26 @@ class CatsMaint(Equipment):
             {
                 "type": "tango",
                 "name": "_cmdRecoverFailure",
-                "tangoname": self.cats_cats,
+                "tangoname": self.tangoname,
             },
             "recoverFailure",
         )
 
         self._cmdResetMotion = self.add_command(
-            {"type": "tango", "name": "_cmdResetMotion", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdResetMotion", "tangoname": self.tangoname},
             "resetmotion",
         )
 
         self._cmdSetOnDiff = self.add_command(
-            {"type": "tango", "name": "_cmdSetOnDiff", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdSetOnDiff", "tangoname": self.tangoname},
             "setondiff",
         )
         self._cmdSetOnTool = self.add_command(
-            {"type": "tango", "name": "_cmdSetOnTool", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdSetOnTool", "tangoname": self.tangoname},
             "settool",
         )
         self._cmdSetOnTool2 = self.add_command(
-            {"type": "tango", "name": "_cmdSetOnTool2", "tangoname": self.cats_cats},
+            {"type": "tango", "name": "_cmdSetOnTool2", "tangoname": self.tangoname},
             "settool2",
         )
 
@@ -359,7 +355,7 @@ class CatsMaint(Equipment):
         tool = TOOL_TO_STR.get(current_value, None)
 
         return tool
-
+    
     ################################################################################
 
     def back_traj(self):
@@ -646,12 +642,13 @@ class CatsMaint(Equipment):
         self._barcode = value
         self.emit("barcodeChanged", (value,))
 
-    def _update_state(self, value):
+    def _update_state(self,value):
         self._state = value
         self._update_global_state()
 
     def _update_lid1_state(self, value):
-        self._lid1state = value
+        print(f"LID 1 value is {value} of type {type(value)}")
+        self._lid1state = False if isinstance(value, int) else value
         self.emit("lid1StateChanged", (value,))
         self._update_global_state()
 
@@ -673,6 +670,7 @@ class CatsMaint(Equipment):
         self.emit("globalStateChanged", (state_dict, cmd_state, message))
 
     def get_global_state(self):
+        print("Getting global state from CatsMaint")
         """
         Update clients with a global state that
         contains different:
@@ -690,27 +688,15 @@ class CatsMaint(Equipment):
             a message describing current state information
             as a string
         """
-        _ready = str(self._state) in ("READY", "ON")
-        #self._update_state("READY")
-        #print(self.get_state())
-        #print(self._state)
-        #exit()
+        _ready = self.is_ready()#str(self._state) in ("READY", "ON")
 
         if self._running:
             state_str = "MOVING"
-            print("on the move")
-            #exit()
         elif not (self._powered) and _ready:
-            print("Disabled")
-            #exit()
             state_str = "DISABLED"
-        elif self.is_ready:
-            print('I am ready ')
-            #exit()
+        elif _ready:
             state_str = "READY"
         else:
-            print("None of the above ")
-            #exit()
             state_str = str(self._state)
 
         state_dict = {
@@ -745,6 +731,8 @@ class CatsMaint(Equipment):
         return state_dict, cmd_state, message
 
     def get_cmd_info(self):
+        print("Getting command info (CatsMaint)")
+
         """return information about existing commands for this object
         the information is organized as a list
         with each element contains
@@ -805,49 +793,28 @@ class CatsMaint(Equipment):
         ret = True
         return ret
 
-    def send_command(self, cmd_name, args=None):
-
-        #
-        lid = 1
-        toolcal = 0
-        tool = self.get_current_tool()
-
-        if cmd_name in ["dry", "safe", "home"]:
-            if tool is not None:
-                args = [tool]
-            else:
-                raise Exception("Cannot detect type of TOOL in Cats. Command ignored")
-
-        if cmd_name == "soak":
-            if tool in [TOOL_DOUBLE, TOOL_UNIPUCK]:
-                args = [str(tool), str(lid)]
-            else:
-                raise Exception("Can SOAK only when UNIPUCK tool is mounted")
-
-        if cmd_name == "back":
-            if tool is not None:
-                args = [tool, toolcal]
-            else:
-                raise Exception("Cannot detect type of TOOL in Cats. Command ignored")
-
-        cmd = getattr(self.cats_device, cmd_name)
-
+    def send_command (self, cmd_name, args = None):
+        cmds_menu= {"powerOn" :  self.cats_device.PowerON,
+                    "powerOff":  self.cats_device.PowerOFF,
+                    "home": self.cats_device.HomeOpen,
+                    "openlid1" : self.cats_device.OpenLid,
+                    "closelid1" : self.cats_device.CloseLid,
+                    "dry": self._cmdDrySoak,
+                    "soak" : self.cats_device.Soak,
+                    "clear_memory" : self.cats_device.ClearMemory,
+                    "reset": self.cats_device.ResetError,
+                    "back" : None,
+                    "safe" : self._cmdSafe,
+                    "abort" : self.cats_device.Abort,
+                    }
         try:
-            if args is not None:
-                if len(args) > 1:
-                    ret = cmd(map(str, args))
-                else:
-                    ret = cmd(*args)
-            else:
-                ret = cmd()
-            return ret
-        except Exception as exc:
-            import traceback
+            cmd = cmds_menu.get(cmd_name, None)
+            cmd()
+        except Exception as e:
+            logging.getLogger().error(f"Command: {cmd_name} not found! Consider adding it to cmds_menu\{e}")
 
-            traceback.print_exc()
-            msg = exc[0].desc
-            raise Exception(msg)
-
+        time.sleep(3)
+        self._update_global_state()
 
 def test_hwo(hwo):
     print((hwo.get_current_tool()))
