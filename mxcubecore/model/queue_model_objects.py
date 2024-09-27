@@ -579,28 +579,6 @@ class Basket(TaskNode):
 
 
 class DataCollection(TaskNode):
-    """
-    Adds the child node <child>. Raises the exception TypeError
-    if child is not of type TaskNode.
-
-    Moves the child (reparents it) if it already has a parent.
-
-    :param parent: Parent TaskNode object.
-    :type parent: TaskNode
-
-    :param acquisition_list: List of Acquisition objects.
-    :type acquisition_list: list
-
-    :crystal: Crystal object
-    :type crystal: Crystal
-
-    :param processing_paremeters: Parameters used by autoproessing software.
-    :type processing_parameters: ProcessingParameters
-
-    :returns: None
-    :rtype: None
-    """
-
     def __init__(
         self,
         acquisition_list=None,
@@ -1055,6 +1033,7 @@ class EnergyScan(TaskNode):
         self.comments = None
         self.set_requires_centring(True)
         self.centred_position = cpos
+        self.shape = None
 
         if not sample:
             self.sample = Sample()
@@ -1160,6 +1139,7 @@ class XRFSpectrum(TaskNode):
         self.set_requires_centring(True)
         self.centred_position = cpos
         self.adjust_transmission = True
+        self.shape = None
 
         if not sample:
             self.sample = Sample()

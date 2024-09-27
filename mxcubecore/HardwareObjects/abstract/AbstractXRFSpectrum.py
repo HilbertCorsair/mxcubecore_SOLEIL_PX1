@@ -59,10 +59,12 @@ class AbstractXRFSpectrum(HardwareObject):
         self.lims = None
         self.spectrum_info_dict = {}
         self.default_integration_time = None
+        self.cpos = None
 
     def init(self):
         """Initialisation"""
         self.default_integration_time = self.get_property("default_integration_time", 3)
+        self.file_suffix = self.get_property("file_suffix", "dat")
         self.lims = HWR.beamline.lims
         if not self.lims:
             logging.getLogger().warning("XRFSpectrum: no lims set")
@@ -75,8 +77,9 @@ class AbstractXRFSpectrum(HardwareObject):
         archive_dir=None,
         session_id=None,
         blsample_id=None,
+        cpos=None,
     ):
-        """Start the procedure. Called by the queu_model.
+        """Start the procedure. Called by the queue_model.
 
         Args:
             integration_time (float): Inregration time [s].
@@ -86,6 +89,7 @@ class AbstractXRFSpectrum(HardwareObject):
             session_id (int): Session ID number (from ISpyB)
             blsample_id (int): Sample ID number (from ISpyB)
         """
+        self.cpos = cpos
         self.spectrum_info_dict = {"sessionId": session_id, "blSampleId": blsample_id}
         integration_time = integration_time or self.default_integration_time
         self.spectrum_info_dict["exposureTime"] = integration_time
@@ -96,13 +100,15 @@ class AbstractXRFSpectrum(HardwareObject):
                 self.update_state(self.STATES.FAULT)
                 return False
             filename = self.get_filename(data_dir, prefix)
-            self.spectrum_info_dict["filename"] = filename + ".dat"
+            self.spectrum_info_dict["filename"] = filename + "." + self.file_suffix
         if archive_dir:
             if not self.create_directory(archive_dir):
                 self.update_state(self.STATES.FAULT)
                 return False
             filename = self.get_filename(archive_dir, prefix)
-            self.spectrum_info_dict["scanFileFullPath"] = filename + ".dat"
+            self.spectrum_info_dict["scanFileFullPath"] = (
+                filename + "." + self.file_suffix
+            )
             self.spectrum_info_dict["jpegScanFileFullPath"] = filename + ".png"
             self.spectrum_info_dict["annotatedPymcaXfeSpectrum"] = filename + ".html"
             self.spectrum_info_dict["fittedDataFileFullPath"] = filename + "_peaks.csv"
@@ -233,4 +239,4 @@ class AbstractXRFSpectrum(HardwareObject):
     def spectrum_store_lims(self):
         """Store the data in lims, according to the existing data model."""
         if self.spectrum_info_dict.get("sessionId"):
-            self.lims.storeXfeSpectrum(self.spectrum_info_dict)
+            self.lims.store_xfe_spectrum(self.spectrum_info_dict)

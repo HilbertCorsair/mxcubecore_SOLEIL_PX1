@@ -20,12 +20,12 @@ beamPosChanged
 
 import logging
 
-from mxcubecore.BaseHardwareObjects import Equipment
+from mxcubecore.BaseHardwareObjects import HardwareObject
 
 
-class PX1BeamInfo(Equipment):
+class PX1BeamInfo(HardwareObject):
     def __init__(self, *args):
-        Equipment.__init__(self, *args)
+        super().__init__(*args)
 
         self.beam_position = [None, None]
         self.beam_size = [100, 100]

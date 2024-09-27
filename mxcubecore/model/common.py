@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import Optional, Union
-from pydantic import BaseModel, Field
+from typing import Optional
+from pydantic.v1 import BaseModel, Field
 
 
 class CommonCollectionParamters(BaseModel):

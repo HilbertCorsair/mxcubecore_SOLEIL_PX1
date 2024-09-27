@@ -4,12 +4,12 @@ from PyTango.gevent import DeviceProxy
 import logging
 import math
 
-from mxcubecore.BaseHardwareObjects import Device
+from mxcubecore.BaseHardwareObjects import HardwareObject
 
 # from Command.Tango import TangoChannel
 
 
-class PX2Attenuator(Device):
+class PX2Attenuator(HardwareObject):
     stateAttenuator = {
         "ALARM": "error",
         "OFF": "error",
@@ -21,7 +21,7 @@ class PX2Attenuator(Device):
     }
 
     def __init__(self, name):
-        Device.__init__(self, name)
+        super().__init__(name)
 
         self.labels = []
         self.attno = 0
@@ -213,7 +213,8 @@ class PX2Attenuator(Device):
     def errorDeviceInstance(self, device):
         db = DeviceProxy("sys/database/dbds1")
         logging.getLogger().error(
-            "Check Instance of Device server %s" % db.Dbget_deviceInfo(device)[1][3]
+            "Check Instance of Device server %s"
+            % db.Dbget_deviceInfo(HardwareObject)[1][3]
         )
         self.sDisconnected()
 

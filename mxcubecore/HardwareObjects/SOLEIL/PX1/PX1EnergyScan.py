@@ -27,7 +27,7 @@ from mxcubecore.TaskUtils import task, cleanup
 from xabs_lib import McMaster
 from mxcubecore.Command.Tango import DeviceProxy
 
-from mxcubecore.BaseHardwareObjects import Equipment
+from mxcubecore.BaseHardwareObjects import HardwareObject
 from mxcubecore import HardwareRepository as HWR
 
 
@@ -46,7 +46,7 @@ class PX1EnergyScan(AbstractEnergyScan, Equipment):
 
     def __init__(self, name):
         AbstractEnergyScan.__init__(self)
-        Equipment.__init__(self, name)
+        super().__init__(name)
 
         self.scanning = False
         self.stopping = False
