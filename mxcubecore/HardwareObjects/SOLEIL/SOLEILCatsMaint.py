@@ -6,7 +6,7 @@ lid control, error-recovery commands, ...
 """
 import logging
 from mxcubecore.TaskUtils import task
-from mxcubecore.BaseHardwareObjects import Equipment
+from mxcubecore.BaseHardwareObjects import HardwareObject
 import gevent
 import time
 
@@ -20,7 +20,7 @@ __status__ = "Beta"
 TOOLS = {"FLANGE": 0, "CRYOTONG": 1, "ESRF": 2, "PLATE": 3}
 
 
-class SOLEILCatsMaint(Equipment):
+class SOLEILCatsMaint(HardwareObject):
 
     __TYPE__ = "CATS"
 
@@ -36,7 +36,7 @@ class SOLEILCatsMaint(Equipment):
 
     def __init__(self, *args, **kwargs):
         logging.info("CatsMaint: __init__")
-        Equipment.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def init(self):
         logging.info("CatsMaint: init")

@@ -28,14 +28,14 @@ PySignal simulator (TangoDS).
 
 Example Hardware Object XML file :
 ==================================
-<device class="ALBACalibration">
+<object class="ALBACalibration">
   <username>Calibration</username>
   <taurusname>bl13/ct/variables</taurusname>
   <channel type="sardana" name="calibx">OAV_PIXELSIZE_X</channel>
   <channel type="sardana" name="caliby">OAV_PIXELSIZE_Y</channel>
   <interval>200</interval>
   <threshold>0.001</threshold>
-</device>
+</object>
 """
 
 from mxcubecore import HardwareRepository as HWR
@@ -51,9 +51,9 @@ __email__ = "jandreu[at]cells.es"
 __status__ = "Draft"
 
 
-class ALBACalibration(BaseHardwareObjects.Device):
+class ALBACalibration(BaseHardwareObjects.HardwareObject):
     def __init__(self, name):
-        BaseHardwareObjects.Device.__init__(self, name)
+        super().__init__(name)
 
     def init(self):
 

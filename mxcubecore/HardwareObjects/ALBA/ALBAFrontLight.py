@@ -1,11 +1,11 @@
 from mxcubecore import HardwareRepository as HWR
-from mxcubecore.BaseHardwareObjects import Device
+from mxcubecore.BaseHardwareObjects import HardwareObject
 import logging
 
 
-class ALBAFrontLight(Device):
+class ALBAFrontLight(HardwareObject):
     def __init__(self, *args):
-        Device.__init__(self, *args)
+        super().__init__(*args)
         self.limits = [None, None]
 
         self.state = None

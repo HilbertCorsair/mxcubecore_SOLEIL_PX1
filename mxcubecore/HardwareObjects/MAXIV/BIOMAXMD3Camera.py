@@ -1,4 +1,4 @@
-from mxcubecore.BaseHardwareObjects import Device
+from mxcubecore.BaseHardwareObjects import HardwareObject
 import math
 import logging
 import time
@@ -13,7 +13,7 @@ class MD2TimeoutError(Exception):
     pass
 
 
-class BIOMAXMD3Camera(Device):
+class BIOMAXMD3Camera(HardwareObject):
     (NOTINITIALIZED, UNUSABLE, READY, MOVESTARTED, MOVING, ONLIMIT) = (0, 1, 2, 3, 4, 5)
     EXPORTER_TO_MOTOR_STATE = {
         "Invalid": NOTINITIALIZED,
@@ -28,7 +28,7 @@ class BIOMAXMD3Camera(Device):
     }
 
     def __init__(self, name):
-        Device.__init__(self, name)
+        super().__init__(name)
         self.set_is_ready(True)
 
     def init(self):

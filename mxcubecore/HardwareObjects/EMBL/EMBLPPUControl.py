@@ -1,19 +1,19 @@
 import logging
 
-from mxcubecore.BaseHardwareObjects import Device
+from mxcubecore.BaseHardwareObjects import HardwareObject
 
 
 __credits__ = ["EMBL Hamburg"]
 __category__ = "General"
 
 
-class EMBLPPUControl(Device):
+class EMBLPPUControl(HardwareObject):
     """
     Allows to restart processes on PPU
     """
 
     def __init__(self, name):
-        Device.__init__(self, name)
+        super().__init__(name)
 
         self.all_status = None
         self.status_result = None

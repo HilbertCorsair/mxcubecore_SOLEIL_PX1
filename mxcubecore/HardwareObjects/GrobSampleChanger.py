@@ -1,11 +1,11 @@
 """Sample Changer Hardware Object
 """
 import logging
-from mxcubecore.BaseHardwareObjects import Equipment
+from mxcubecore.BaseHardwareObjects import HardwareObject
 import gevent
 
 
-class GrobSampleChanger(Equipment):
+class GrobSampleChanger(HardwareObject):
     (FLAG_SC_IN_USE, FLAG_MINIDIFF_CAN_MOVE, FLAG_SC_CAN_LOAD, FLAG_SC_NEVER) = (
         1,
         2,
@@ -18,7 +18,7 @@ class GrobSampleChanger(Equipment):
     ALWAYS_ALLOW_MOUNTING = True
 
     def __init__(self, *args, **kwargs):
-        Equipment.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def init(self):
         self._procedure = ""

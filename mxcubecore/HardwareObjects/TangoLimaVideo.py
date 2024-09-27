@@ -2,13 +2,13 @@
 
 Example configuration:
 ----------------------
-<device class="TangoLimaVideo">
+<object class="TangoLimaVideo">
   <username>Prosilica 1350C</username>
   <tangoname>id23/limaccd/minidiff2</tangoname>
   <bpmname>id23/limabeamviewer/minidiff2</bpmname>
   <interval>15</interval>
   <video_mode>RGB24</video_mode>
-</device>
+</object>
 
 If video mode is not specified, BAYER_RG16 is used by default.
 """
@@ -51,9 +51,9 @@ def poll_image(lima_tango_device, video_mode, FORMATS):
     return img, width, height
 
 
-class TangoLimaVideo(BaseHardwareObjects.Device):
+class TangoLimaVideo(BaseHardwareObjects.HardwareObject):
     def __init__(self, name):
-        BaseHardwareObjects.Device.__init__(self, name)
+        super().__init__(name)
         self.__brightnessExists = False
         self.__contrastExists = False
         self.__gainExists = False

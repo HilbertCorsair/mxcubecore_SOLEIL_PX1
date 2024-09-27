@@ -4,7 +4,7 @@ CATS maintenance mockup.
 import logging
 
 from mxcubecore.TaskUtils import task
-from mxcubecore.BaseHardwareObjects import Equipment
+from mxcubecore.BaseHardwareObjects import HardwareObject
 
 import gevent
 import time
@@ -33,7 +33,7 @@ TOOL_TO_STR = {
 }
 
 
-class CatsMaintMockup(Equipment):
+class CatsMaintMockup(HardwareObject):
 
     __TYPE__ = "CATS"
     NO_OF_LIDS = 3
@@ -44,7 +44,7 @@ class CatsMaintMockup(Equipment):
     """
 
     def __init__(self, *args, **kwargs):
-        Equipment.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self._state = "READY"
         self._running = 0

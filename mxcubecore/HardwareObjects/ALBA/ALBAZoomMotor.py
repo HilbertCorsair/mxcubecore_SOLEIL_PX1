@@ -43,7 +43,7 @@ Hardware Object is used to manipulate the zoom of the OAV camera.
 
 Example Hardware Object XML file :
 ==================================
-<device class="ALBAZoomMotor">
+<object class="ALBAZoomMotor">
   <username>Zoom</username>
   <taurusname>ioregister/eh_zoom_tangoior_ctrl/2</taurusname>
   <alias>zoom</alias>
@@ -53,7 +53,7 @@ Example Hardware Object XML file :
   <channel type="sardana" name="labels">Labels</channel>
   <interval>200</interval>
   <threshold>0.001</threshold>
-</device>
+</object>
 """
 
 from mxcubecore import BaseHardwareObjects
@@ -75,7 +75,7 @@ class ALBAZoomMotor(BaseHardwareObjects.Device, AbstractMotor):
     INIT, FAULT, READY, MOVING, ONLIMIT = range(5)
 
     def __init__(self, name):
-        BaseHardwareObjects.Device.__init__(self, name)
+        super().__init__(name)
 
     def init(self):
         logging.getLogger("HWR").debug("Initializing zoom motor IOR")
