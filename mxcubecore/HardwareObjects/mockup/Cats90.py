@@ -741,7 +741,7 @@ class Cats90(SampleChanger):
                     argin = ["2", str(lid), str(sample), "0", "0"]
                     self._execute_server_task(self._cmdScanSample, argin)
 
-    def load(self, sample=None, wait=True):
+    def load(self, sample=None, wait=True, wash=True):
         """
         Load a sample.
             overwrite original load() from AbstractSampleChanger to allow finer decision
@@ -766,7 +766,7 @@ class Cats90(SampleChanger):
 
         self._execute_task(SampleChangerState.Loading, wait, self._do_load, sample)
 
-    def _do_load(self, sample=None, shifts=None):
+    def _do_load(self, sample=None, shifts=None, wash=False):
         """
         Loads a sample on the diffractometer. Performs a simple put operation if the diffractometer is empty, and
         a sample exchange (unmount of old + mount of new sample) if a sample is already mounted on the diffractometer.
@@ -868,6 +868,16 @@ class Cats90(SampleChanger):
                         "  ==========CATS=== load sample, sending to cats:  %s" % argin
                     )
                     self._execute_server_task(self._cmdLoad, argin)
+
+    def wash(self, wait=False):
+        self._update_state() # remove software flags like Loading.
+        self.assert_not_charging()
+        self._execute_task(SampleChangerState.Loading, wait, self._doWash)
+        self.update_info()
+
+    def _doWash(self):
+        sample=self.get_loaded_sample()
+        self._do_load(sample=sample, wash=True)
 
     def _do_unload(self, sample_slot=None, shifts=None):
         """
