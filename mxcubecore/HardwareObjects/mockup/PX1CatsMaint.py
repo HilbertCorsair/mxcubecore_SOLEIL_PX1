@@ -49,128 +49,96 @@ class PX1CatsMaint(CatsMaint):
 
         self.debug_cmd = self.get_property("debug_collision")
         self.video_ho = self.get_object_by_role("video")
-
         self._chnHomeOpened = self.add_channel({ "type": "tango",
                 "name": "_chnHomeOpened", "tangoname": self.tangoname,
                 "polling": "events", }, "homeOpened")
-        
         self._chnSampleOnTool = self.get_channel_object('_chnSampleOnTool')
         self._chnGonioCollision = self.get_channel_object('_chnGonioCollision')
         self._chnDewarCollision = self.get_channel_object('_chnDewarCollision')
-        self._chnGonioCollision.connect_signal("update", self.gonio_collision_changed) 
-        self._chnDewarCollision.connect_signal("update", self.dewar_collision_changed) 
+        self._chnGonioCollision.connect_signal("update", self.gonio_collision_changed)
+        self._chnDewarCollision.connect_signal("update", self.dewar_collision_changed)
         self._chnHomeOpened.connect_signal("update", self.update_home_opened)
         self._cmdDrySoak = self.add_command({ "type": "tango",
                 "name": "_cmdDrySoak", "tangoname": self.tangoname, }, "DryAndSoak")
         self._cmdReset = self.add_command({"type": "tango",
                 "name": "_cmdReset", "tangoname": self.tangoname, }, "ResetError")
+
+        self._cmdSafe = self.add_command({
+            "type": "tango",
+            "name": "_cmdSafe",
+            "tangoname": self.tangoname,}, "Safe")
+
         self.cats_hwo = self.get_object_by_role("sample_changer")
         self.regulation_mode = self.get_property("regulation")
         self._soaking = self.cats_device.Position == 'Soak'
-        
         self._tango_state_name = self._chnState.get_value().name
+        print(f"Inintaial state check :{self._state}")
         self._update_state(self._SS[self._tango_state_name].value)
-        self._update_running_state(self.is_string_true(self.cats_device.pathRunning))# self._chnPathRunning.get_value())
-        
+        print(f"State updated to :{self._state}")
+        self._update_running_state(self.cats_device.pathRunning)
         self._update_powered_state(self.cats_cats.Powered)
-        self._update_regulation_state(self.is_string_true(self.cats_cats.LN2Regulating))
-        
-       
+        self._update_regulation_state(self.cats_cats.LN2Regulating)
 
     def send_command (self, cmd_name, args = None):
-        
-
-
-        print (f'BEFORE COMMAND:\n---Power state: {self._powered}')
-
-      
-
-        cmds_menu= {"powerOn" :  self.cats_device.PowerON, 
-                    "powerOff":  self.cats_device.PowerOFF, 
+        cmds_menu= {"powerOn" :  self.cats_device.PowerON,
+                    "powerOff":  self.cats_device.PowerOFF,
                     "home": self.cats_device.HomeOpen,
                     "openlid1" : self.cats_device.OpenLid,
-                    "closelid1" : self.cats_device.CloseLid, 
+                    "closelid1" : self.cats_device.CloseLid,
                     "dry": self._cmdDrySoak,
-                    "soak" : self.cats_device.Soak, 
-                    "clear_memory" : self.cats_device.ClearMemory, 
+                    "soak" : self.cats_device.Soak,
+                    "clear_memory" : self.cats_device.ClearMemory,
                     "reset": self.cats_device.ResetError,
                     "back" : None,
-                    "safe" : self.cats_device.Safe, 
-                    "abort" : self.cats_device.Abort, 
+                    "safe" : self._cmdSafe,
+                    "abort" : self.cats_device.Abort,
                     }
-        
-
-        
-  
 
         cmd = cmds_menu.get(cmd_name, None)
         cmd()
-
         time.sleep(3)
-
         self._update_global_state()
-        #self._update_lid1_state(not(self.is_string_true(self.cats_device.isLidClosed)))
-        
-        
-        #self._update_global_state()
 
-
-        print(f"STATES afetr send_command in PX1CatsMaint: \n>Powered {self._powered}\n>State: --- comes_from---> {self._state.name} \n" )
-    
     def is_string_true (self, string):
         i = str(string) in ["True","true"]
-        return i 
-    
+        return i
+
     def get_global_state(self):
-        
-       
         _ready = self._state.name in ("READY", "ON", "STANDBY", "OFF")
-        gtg = _ready and self.is_string_true(self.cats_cats.Powered)
-         
+        gtg = _ready and self.cats_cats.Powered
 
         state_dict = {
-            "toolopen": self.is_string_true(self.cats_device.toolOpen),
-            "powered": self.is_string_true(self.cats_cats.Powered),
-            "running": self.is_string_true(self.cats_device.pathRunning),
-            "regulating": self.is_string_true(self.cats_cats.LN2Regulating),
-            "lid1": self.is_string_true(self.cats_device.isLidClosed), #True if lid is closed
+            "toolopen": self.cats_device.toolOpen,
+            "powered": self.cats_cats.Powered,
+            "running":self.cats_device.pathRunning,
+            "regulating":self.cats_cats.LN2Regulating,
+            "lid1": self.cats_device.isLidClosed, # True if lid is closed
             "state": self._state.name,
-            "homeopen":self.is_string_true( self.cats_device.homeOpened),
+            "homeopen": self.cats_device.homeOpened,
         }
-        print(f"PX1CatsMaint State dict : \n{state_dict}\n{_ready} comes from ---> {self._state.name}")
 
-        #state_dict =  {k: self.is_string_true(v) for k, v in state_dict.items() if not  k in ["state", "regulating"]  }
         nr_gtg = (not state_dict["running"]) and gtg
-        
-
-        if not isinstance(state_dict["regulating"], bool):
-            print(f"Caution! regulating is not a boolean--- {state_dict['regulating']} getting val from source ...")
-            state_dict["regulating"] = self.is_string_true(self.cats_cats.LN2Regulating)
-        
-        
         cmd_state = {
-            "powerOn": (not state_dict["powered"] ) and _ready, #(not self._powered) and _ready,
-            "powerOff":  state_dict["powered"] and _ready ,     #self._powered and _ready,
+            "powerOn": (not state_dict["powered"] ) and _ready,
+            "powerOff":  state_dict["powered"] and _ready,
             "regulon":  (not self._regulating) and _ready,
             "openlid1":   state_dict["lid1"] and (not self.cats_device.Position == 'Soak')and  gtg,
             "closelid1": ( not (state_dict["lid1"] or self.cats_device.Position == 'Soak')) and gtg,
             "dry":  nr_gtg,
             "soak": not self.cats_device.Position == 'Soak' and nr_gtg,
             "home": nr_gtg,
-            "back": nr_gtg, 
+            "back": nr_gtg,
             "safe": nr_gtg,
             "clear_memory": False,
             "reset": True,
             "abort": True,
         }
-
         message = self._message
         return state_dict, cmd_state, message
-    
 
     def is_gonio_collision(self):
         return self._chnGonioCollision.get_value()
-
+    
     def update_home_opened(self, value):
         if value != self.home_opened:
             self.home_opened = value 
@@ -185,18 +153,14 @@ class PX1CatsMaint(CatsMaint):
             has_loaded_sample = True
         else:
             has_loaded_sample = False
-
         return has_loaded_sample
 
     def run_home_open(self, wait=False):
-
         has_loaded_sample = self.get_loaded_state()
-
         if has_loaded_sample:
             unload = True
         else:
             unload = False
-
         self._executeTask(wait, self._doHomeOpen,unload)
 
     def _updateMessage(self, value):
@@ -205,7 +169,6 @@ class PX1CatsMaint(CatsMaint):
         # Normally the collisions are detected now with
         # corresponding bits di_VI91 (gonio), diVI92(dewar)
         # this is extra verification on Cats message attribute
-
 
         self.events['debug_unmount'] = None
         self.events['collision'] = None
@@ -225,9 +188,6 @@ class PX1CatsMaint(CatsMaint):
             elif "WAIT for DIF_OK" in value:
                 self.events['debug_unmount'] = True
                 self.emit('debugUnmountRequired')
-            #elif "WAIT for SplOn" in value:
-                #self.events['debug_unmount'] = True
-                #self.emit('debugUnmountRequired')
 
         CatsMaint._updateMessage(self,value)
 

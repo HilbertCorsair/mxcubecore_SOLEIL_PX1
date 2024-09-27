@@ -30,7 +30,9 @@ from mxcubecore.HardwareObjects.abstract.AbstractSampleChanger import (
     SampleChanger, SampleChangerState
     )
 from mxcubecore.BaseHardwareObjects import HardwareObjectState
+import gevent
 
+__author__ = "Michael Hellmig, Jie Nan, Bixente Rey"
 __credits__ = ["The MXCuBE collaboration"]
 __email__ = "txo@txolutions.com"
 
@@ -181,15 +183,12 @@ class Cats90(SampleChanger):
         self.number_of_baskets = None
 
         # add support for CATS dewars with variable number of lids
-
-
         self.cats_device = PyTango.DeviceProxy(self.get_property("tangoname"))
         self.cats_name = self.get_property("cats")
         no_of_lids = self.get_property("no_of_lids")
         self.cats_cats = PyTango.DeviceProxy(self.get_property("cats"))
 
-
-
+        no_of_lids = self.get_property("no_of_lids")
         if no_of_lids is None:
             self.number_of_lids = self.default_no_lids
         else:
@@ -524,22 +523,6 @@ class Cats90(SampleChanger):
             pass
 
         self.update_info()
-#    def get_state(self):
-#        """Get the device state.
-#        Returns:
-#            (enum 'HardwareObjectState'): Device state.
-#        """
-#        try:
-#            _state = self.cats_device.State()
-#            return self.SPECIFIC_STATES[str(_state)].value[0]
-#        except (AttributeError, KeyError) as err:
-#            logging.error(f"Exception in get_state(): {err}")
-#            return self.STATES.UNKNOWN
-    def is_string_true (self, string):
-        i = str (string) in ["True","true"]
-        return i 
-
-
 
     def connect_notify(self, signal):
         if signal == SampleChanger.INFO_CHANGED_EVENT:
@@ -654,10 +637,6 @@ class Cats90(SampleChanger):
             "doUpdateInfo should not be called for cats. only for update timer type of SC"
         )
         return
-
-        self._do_update_cats_contents()
-        self._do_update_state()
-        self._do_update_loaded_sample()
 
     def _do_change_mode(self, mode):
         """
@@ -972,11 +951,11 @@ class Cats90(SampleChanger):
             # hack for transient states
             trials = 0
 
-            while value in [PyTango.DevState.ALARM, PyTango.DevState.ON]:
+            while value in [PyTango.DevState.ALARM]:#, PyTango.DevState.ON]:
                 time.sleep(0.1)
                 trials += 1
                 logging.getLogger("HWR").warning(
-                    "SAMPLE CHANGER could be in transient state. trying again"
+                    "SAMPLE CHANGER could be in transient state. trying again (Cats90)"
                 )
                 value = self._chnState.get_value()
                 if trials > 4:
@@ -1068,6 +1047,8 @@ class Cats90(SampleChanger):
     def cats_sample_on_diffr(self):
         detected = self._chnSampleIsDetected.get_value()
         on_diffr = -1 not in [self.cats_loaded_lid, self.cats_loaded_num]
+        #!!!!
+        return 0
 
         if detected and on_diffr:
             return 1
@@ -1144,7 +1125,7 @@ class Cats90(SampleChanger):
         """
         self.cats_running = self._chnPathRunning.get_value()
         self.cats_powered = self._chnPowered.get_value()
-        self.cats_lids_closed = False if isinstance (self._chnAllLidsClosed.get_value(), int) else True
+        self.cats_lids_closed = self._chnAllLidsClosed.get_value()
         self.cats_status = self._chnStatus.get_value()
         self.cats_state = self._chnState.get_value()
 
@@ -1173,10 +1154,7 @@ class Cats90(SampleChanger):
         """
         _state = self._chnState.get_value()
         _powered = self._chnPowered.get_value()
-
-        # Hack that avoids nueric value interference 
-        _lids_closed = False if isinstance(self._chnAllLidsClosed.get_value(), int) else True
-        
+        _lids_closed = self._chnAllLidsClosed.get_value()
         _has_loaded = self.has_loaded_sample()
         _on_diff = self._chnSampleIsDetected.get_value()
 
@@ -1195,42 +1173,27 @@ class Cats90(SampleChanger):
         state = self._decide_state(
             _state, _powered, _lids_closed, _has_loaded, _on_diff
         )
-        #print(f"\nIn _read_state: _state is : {state}\n")
-        #exit()
 
         return state
 
     def _decide_state(self, dev_state, powered, lids_closed, has_loaded, on_diff):
 
-        # Hack that deals with inconsitent value types comming from CanalObject.get_value() 
-        powered = powered if isinstance(powered, bool) else self.is_string_true(self.cats_cats.Powered) # CATS has the Powerd attribute not CATScryotong
-        lids_closed = lids_closed if isinstance(lids_closed, bool) else self.is_string_true( self.cats_device.isLidClosed) # lids closed is on the CatsCryotong device
-
         if dev_state == PyTango.DevState.ALARM:
             _state = SampleChangerState.Alarm
 
-            print("C1")
-        elif not powered or dev_state == PyTango.DevState.STANDBY:
+        elif not powered:
+            _state = SampleChangerState.Disabled
 
-            #print(dir(SampleChangerState))
-            #exit()
-            #print("C2")
-            _state = SampleChangerState.Ready
         elif dev_state == PyTango.DevState.RUNNING:
             if self.state not in [
                 SampleChangerState.Loading,
                 SampleChangerState.Unloading,
             ]:
-                print("C3")
                 _state = SampleChangerState.Moving
             else:
                 _state = self.state
-                print("C4")
-
         elif dev_state == PyTango.DevState.UNKNOWN:
             _state = SampleChangerState.Unknown
-            print("C5")
-
         elif has_loaded ^ on_diff:
             # go to Unknown state if a sample is detected on the gonio but not registered in the internal database
             # or registered but not on the gonio anymore
@@ -1239,15 +1202,11 @@ class Cats90(SampleChanger):
                 % (self.has_loaded_sample(), self._chnSampleIsDetected.get_value())
             )
             _state = SampleChangerState.Unknown
-        # elif not lids_closed:
-        # _state = SampleChangerState.Charging
         elif dev_state == PyTango.DevState.ON:
-            print("C6")
             _state = SampleChangerState.Ready
         else:
             _state = SampleChangerState.Unknown
-            print("C7")
-        
+
         return _state
 
     def _is_device_busy(self, state=None):
@@ -1277,7 +1236,7 @@ class Cats90(SampleChanger):
         :rtype: Bool
         """
         state = self._read_state()
-        return state in (SampleChangerState.Ready, SampleChangerState.Charging)
+        return state in (SampleChangerState.Ready, SampleChangerState.Charging, SampleChangerState.StandBy)
 
     def _wait_device_ready(self, timeout=None):
         """
@@ -1347,7 +1306,7 @@ class Cats90(SampleChanger):
         if basket_type == BASKET_SPINE:
             tool = TOOL_SPINE
         elif basket_type == BASKET_UNIPUCK:
-            tool = self.unipuck_tool  # configurable (xml and command set_unipuck_tool()
+            tool = self.unipuck_tool
         else:
             tool = -1
 

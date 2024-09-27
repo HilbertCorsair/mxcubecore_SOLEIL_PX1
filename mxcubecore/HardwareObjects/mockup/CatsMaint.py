@@ -194,7 +194,7 @@ class CatsMaint(HardwareObject):
             {"type": "tango", "name": "_chnCurrentTool", "tangoname": self.tangoname},
             "Tool",
         )
-        #
+
         self._cmdPowerOn = self.add_command(
             {"type": "tango", "name": "_cmdPowerOn", "tangoname": self.tangoname},
             "powerOn",
@@ -688,22 +688,15 @@ class CatsMaint(HardwareObject):
             a message describing current state information
             as a string
         """
-        # !!! hack 
-
-        print("!!!!ERROR DO't come here use the PX1CM version ")
         _ready = self.is_ready()#str(self._state) in ("READY", "ON")
 
         if self._running:
             state_str = "MOVING"
-            print("CatsMaint on the move")
         elif not (self._powered) and _ready:
-            print("CatsMaint Disabled")
             state_str = "DISABLED"
         elif _ready:
-            print('CatsMaint ready !')
             state_str = "READY"
         else:
-            print("CatsMAint is in None of the above states!")
             state_str = str(self._state)
 
         state_dict = {
@@ -786,7 +779,6 @@ class CatsMaint(HardwareObject):
             ],
             ["Abort", [["abort", "Abort", "Abort Execution of Command"]]],
         ]
-        print(f"Command Info is a list: {cmd_list}")
         return cmd_list
 
     def _execute_server_task(self, method, *args):
@@ -801,75 +793,26 @@ class CatsMaint(HardwareObject):
         ret = True
         return ret
 
-    def send_command(self, cmd_name, args=None):
-        print(f"Sending command {cmd_name} from SCM")
+    def send_command (self, cmd_name, args = None):
+        cmds_menu= {"powerOn" :  self.cats_device.PowerON,
+                    "powerOff":  self.cats_device.PowerOFF,
+                    "home": self.cats_device.HomeOpen,
+                    "openlid1" : self.cats_device.OpenLid,
+                    "closelid1" : self.cats_device.CloseLid,
+                    "dry": self._cmdDrySoak,
+                    "soak" : self.cats_device.Soak,
+                    "clear_memory" : self.cats_device.ClearMemory,
+                    "reset": self.cats_device.ResetError,
+                    "back" : None,
+                    "safe" : self._cmdSafe,
+                    "abort" : self.cats_device.Abort,
+                    }
         
-        if cmd_name == "powerOn":
-            self.cats_device.PowerON()
-
-        elif cmd_name == "powerOff":
-            self.cats_device.PowerOFF(
-            )
-
-        '''
-
-
+        cmd = cmds_menu.get(cmd_name, None)
+        cmd()
+        time.sleep(3)
+        self._update_global_state()
         
-        #
-        lid = 1
-        toolcal = 0
-        tool = self.get_current_tool()
-
-        if cmd_name in ["dry", "safe", "home"]:
-            print("CHECK 0")
-            if tool is not None:
-                print("CHECK 1")
-                args = [tool]
-            else:
-                print("CHECK 2")
-                raise Exception("Cannot detect type of TOOL in Cats. Command ignored")
-
-        if cmd_name == "soak":
-            print("CHECK 3")
-            if tool in [TOOL_DOUBLE, TOOL_UNIPUCK]:
-                args = [str(tool), str(lid)]
-                print("CHECK 4")
-            else:
-                print("CHECK 5")
-                raise Exception("Can SOAK only when UNIPUCK tool is mounted")
-
-        if cmd_name == "back":
-            if tool is not None:
-                print("CHECK 6")
-                args = [tool, toolcal]
-            else:
-                print("CHECK 7")
-                raise Exception("Cannot detect type of TOOL in Cats. Command ignored")
-        
-
-        cmd = getattr(self.cats_device, cmd_name)
-
-        try:
-            if args is not None:
-                print("CHECK 8")
-                if len(args) > 1:
-                    print("CHECK 9")
-                    ret = cmd(map(str, args))
-                else:
-                    print("CHECK 10")
-                    ret = cmd(*args)
-            else:
-                print("CHECK 11")
-                ret = cmd()
-            return ret
-        except Exception as exc:
-            import traceback
-
-            traceback.print_exc()
-            msg = exc[0].desc
-            raise Exception(msg)
-        '''
-
 
 def test_hwo(hwo):
     print((hwo.get_current_tool()))
