@@ -80,22 +80,25 @@ class PX1CatsMaint(CatsMaint):
         self._update_regulation_state(self.cats_cats.LN2Regulating)
 
     def send_command (self, cmd_name, args = None):
-        cmds_menu= {"powerOn" :  self.cats_device.PowerON,
-                    "powerOff":  self.cats_device.PowerOFF,
+        cmds_menu= {"powerOn": self.cats_device.PowerON,
+                    "powerOff": self.cats_device.PowerOFF,
                     "home": self.cats_device.HomeOpen,
-                    "openlid1" : self.cats_device.OpenLid,
-                    "closelid1" : self.cats_device.CloseLid,
+                    "openlid1": self.cats_device.OpenLid,
+                    "closelid1": self.cats_device.CloseLid,
                     "dry": self._cmdDrySoak,
-                    "soak" : self.cats_device.Soak,
-                    "clear_memory" : self.cats_device.ClearMemory,
+                    "soak": self.cats_device.Soak,
+                    "clear_memory": self.cats_device.ClearMemory,
                     "reset": self.cats_device.ResetError,
-                    "back" : None,
-                    "safe" : self._cmdSafe,
-                    "abort" : self.cats_device.Abort,
+                    "back": None,
+                    "safe": self._cmdSafe,
+                    "abort": self.cats_device.Abort,
                     }
 
-        cmd = cmds_menu.get(cmd_name, None)
-        cmd()
+        try:
+            cmd = cmds_menu.get(cmd_name, None)
+            cmd()
+        except Exception as e:
+            logging.getLogger().error(f"Command: {cmd_name} not found! Consider adding it to cmds_menu\{e}")
         time.sleep(3)
         self._update_global_state()
 

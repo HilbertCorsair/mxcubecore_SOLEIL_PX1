@@ -807,12 +807,14 @@ class CatsMaint(HardwareObject):
                     "safe" : self._cmdSafe,
                     "abort" : self.cats_device.Abort,
                     }
-        
-        cmd = cmds_menu.get(cmd_name, None)
-        cmd()
+        try:
+            cmd = cmds_menu.get(cmd_name, None)
+            cmd()
+        except Exception as e:
+            logging.getLogger().error(f"Command: {cmd_name} not found! Consider adding it to cmds_menu\{e}")
+
         time.sleep(3)
         self._update_global_state()
-        
 
 def test_hwo(hwo):
     print((hwo.get_current_tool()))

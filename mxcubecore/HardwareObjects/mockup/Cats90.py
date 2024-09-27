@@ -1046,17 +1046,7 @@ class Cats90(SampleChanger):
 
     def cats_sample_on_diffr(self):
         detected = self._chnSampleIsDetected.get_value()
-        on_diffr = -1 not in [self.cats_loaded_lid, self.cats_loaded_num]
-        #!!!!
-        return 0
-
-        if detected and on_diffr:
-            return 1
-        elif detected or on_diffr:  # conflicting info
-            return -1
-        else:
-            return 0
-
+        return int(detected)
     # ########################           PRIVATE           #########################
 
     def _execute_server_task(self, method, *args, **kwargs):
