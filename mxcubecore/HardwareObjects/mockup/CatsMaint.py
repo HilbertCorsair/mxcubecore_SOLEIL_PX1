@@ -647,10 +647,15 @@ class CatsMaint(HardwareObject):
         self._update_global_state()
 
     def _update_lid1_state(self, value):
-        print(f"LID 1 value is {value} of type {type(value)}")
-        self._lid1state = False if isinstance(value, int) else value
-        self.emit("lid1StateChanged", (value,))
-        self._update_global_state()
+        if not isinstance(value, bool):
+            self._lid1state = not self.cats_device.isLidClosed
+            print(f"LID 1 value is {value} of type {type(value)}--->changing to {not self._lid1state}")
+            self.emit("lid1StateChanged", (not self._lid1state,))
+            self._update_global_state()
+        else :
+            self._lid1state =  value
+            self.emit("lid1StateChanged", (value,))
+            self._update_global_state()
 
     def _update_lid2_state(self, value):
         self._lid2state = value
