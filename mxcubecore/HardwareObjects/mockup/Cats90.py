@@ -872,10 +872,10 @@ class Cats90(SampleChanger):
     def wash(self, wait=False):
         self._update_state() # remove software flags like Loading.
         self.assert_not_charging()
-        self._execute_task(SampleChangerState.Loading, wait, self._doWash)
+        self._execute_task(SampleChangerState.Loading, wait, self._do_wash)
         self.update_info()
 
-    def _doWash(self):
+    def _do_wash(self):
         sample=self.get_loaded_sample()
         self._do_load(sample=sample, wash=True)
 
