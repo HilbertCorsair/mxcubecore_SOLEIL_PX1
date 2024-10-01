@@ -186,7 +186,6 @@ class PX1Cryotong(Cats90):
             _state = SampleChangerState.Disabled
 
         elif (not powered ) or dev_state in [ PyTango.DevState.ON , PyTango.DevState.STANDBY]:
-            print("CRYOTONG STATE IS READY")
             _state = SampleChangerState.Ready
 
         elif dev_state in [PyTango.DevState.RUNNING, PyTango.DevState.MOVING]:
@@ -334,7 +333,6 @@ class PX1Cryotong(Cats90):
             else:
                raise Exception("No sample selected")
 
-
         basketno = selected.get_basket_no()
         sampleno = selected.get_vial_no()
 
@@ -357,7 +355,7 @@ class PX1Cryotong(Cats90):
         #self.videohub_ho.select_camera("Robot", process="mount")
         #self.videohub_ho.start_recording(file_prefix="mount")
 
-        if self.has_loaded_sample():
+        if self.has_loaded_sample() :
             if selected==self.get_loaded_sample() and not wash:
                 msg = "Load aborted. Reason: \nSample " + str(self.get_loaded_sample().get_address()) + " already loaded"
                 logging.getLogger("user_level_log").info(msg)
@@ -365,23 +363,17 @@ class PX1Cryotong(Cats90):
                 self._update_state()
                 raise Exception(msg)
             else:
-                if self.read_datamatrix and self._cmdChainedLoadBarcode is not None:
-                    logging.getLogger("HWR").warning("  ==========CATS=== chained load sample (brcd), sending to cats:  %s" % argin)
-                    self._execute_server_task(self._cmdChainedLoadBarcode, argin)
-                else:
-                    logging.getLogger("HWR").warning("  ==========CATS=== chained load sample, sending to cats:  %s" % argin)
-                    self._execute_server_task(self._cmdChainedLoad, argin)
+                logging.getLogger("HWR").warning("  ==========CATS=== chained load sample, sending to cats:  %s" % argin)
+                self._execute_server_task(self._cmdChainedLoad, argin)
         else:
+            print(f'NO LOADED SAMPLE -- {self.has_loaded_sample()}')
             if self.cats_sample_on_diffr():
                 logging.getLogger("HWR").warning("  ==========CATS=== trying to load sample, but sample detected on diffr. Exchanging samples")
                 self._update_state() # remove software flags like Loading.
+                self._execute_server_task(self._cmdChainedLoad, argin)
             else:
-                if self.read_datamatrix and self._cmdLoadBarcode is not None:
-                    logging.getLogger("HWR").warning("  ==========CATS=== load sample (bcrd), sending to cats:  %s" % argin)
-                    self._execute_server_task(self._cmdLoadBarcode, argin)
-                else:
-                    logging.getLogger("HWR").warning("  ==========CATS=== load sample, sending to cats:  %s" % argin)
-                    self._execute_server_task(self._cmdChainedLoad, argin)
+                logging.getLogger("HWR").warning("  ==========CATS=== load sample, sending to cats:  %s" % argin)
+                self._execute_server_task(self._cmdLoad, argin)
         #self.videohub_ho.select_camera("OAV", process="mount")
 
     def wait_countdown(self, timeout=20):
