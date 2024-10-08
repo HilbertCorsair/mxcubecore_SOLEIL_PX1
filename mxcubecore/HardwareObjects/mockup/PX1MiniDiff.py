@@ -48,6 +48,184 @@ class PX1MiniDiff(GenericDiffractometer):
              GenericDiffractometer.CENTRING_METHOD_MOVE_TO_BEAM: \
                  self.start_move_to_beam}
 
+    def px1_start(self, centring_motors_dict,
+            pixelsPerMm_Hor, pixelsPerMm_Ver,
+            beam_xc, beam_yc,
+            chi_angle = 0,
+            n_points = 3, phi_incr=120., sample_type="LOOP"):
+
+        global CURRENT_CENTRING
+
+        phi, phiy, phiz, sampx, sampy = sample_centring.prepare(centring_motors_dict)
+
+
+        CURRENT_CENTRING = gevent.spawn(self.px1_center,
+                                        phi,
+                                        phiy,
+                                        phiz,
+                                        sampx,
+                                        sampy,
+                                        pixelsPerMm_Hor, pixelsPerMm_Ver,
+                                        beam_xc, beam_yc,
+                                        chi_angle,
+                                        n_points, phi_incr, sample_type)
+        return CURRENT_CENTRING
+
+
+    def move_motors(self, motor_positions_dict):
+        if not motor_positions_dict:
+            return
+        sample_centring.wait_ready(motor_positions_dict, timeout=30)
+        if "sampx" in motor_positions_dict:
+            self.sgonaxis_dev = motor_positions_dict["sampx"]
+        else:
+            from PyTango import DeviceProxy as dp
+            self.sgonaxis_dev = dp(self.smargon.device_name)
+            sample_centring.wait_ready(motor_positions_dict, timeout=60)
+
+        if not sample_centring.ready(*motor_positions_dict.keys()):
+            raise RuntimeError("Motors not ready")
+
+        if self.sgonaxis_dev:
+            self.sgonaxis_dev.freeze = True
+
+        for motor, position in motor_positions_dict.iteritems():
+            motor.move(position)
+
+        if self.sgonaxis_dev:
+            self.sgonaxis_dev.freeze = False
+        sample_centring.wait_ready()
+
+
+    def px1_center(self, phi, phiy, phiz,
+                sampx, sampy,
+                pixelsPerMm_Hor, pixelsPerMm_Ver,
+                beam_xc, beam_yc,
+                chi_angle,
+                n_points,phi_incr,sample_type):
+
+        global USER_CLICKED_EVENT
+
+        PHI_ANGLE_START = phi.get_position()
+        PhiCamera=90
+
+        X, Y, PHI = [], [], []
+        P, Q, XB, YB, ANG = [], [], [], [], []
+
+        if sample_type.upper() in ["PLATE","CHIP"]:
+            # go back half of the total range
+            logging.getLogger("user_level_log").info("centerig in plate mode / n_points %s / incr %s" % (n_points, phi_incr))
+            half_range = (phi_incr * (n_points - 1))/2.0
+            phi.syncMoveRelative(-half_range)
+        else:
+            logging.getLogger("user_level_log").info("centerig in loop mode / n_points %s / incr %s " % (n_points, phi_incr))
+
+        try:
+            # OBTAIN CLICKS
+            while True:
+                USER_CLICKED_EVENT = gevent.event.AsyncResult()
+                user_info = USER_CLICKED_EVENT.get()
+                if user_info == "abort":
+                    sample_centring.bort_centring()
+                    return None
+                else:
+                    x,y = user_info
+
+
+                USER_CLICKED_EVENT = gevent.event.AsyncResult()
+
+                X.append(x)
+                Y.append(y)
+                PHI.append(phi.getPosition())
+
+                if len(X) == n_points:
+                    #PHI_LAST_ANGLE = phi.getPosition()
+                    #GO_ANGLE_START = PHI_ANGLE_START - PHI_LAST_ANGLE
+                    sample_centring.READY_FOR_NEXT_POINT.set()
+                    #phi.syncMoveRelative(GO_ANGLE_START)
+                    break
+
+                phi.sync_move_relative(phi_incr)
+                sample_centring.READY_FOR_NEXT_POINT.set()
+
+            logging.getLogger("user_level_log").info("returning PHI to initial position %s" % PHI_ANGLE_START)
+            phi.move(PHI_ANGLE_START)
+
+            # CALCULATE
+            logging.getLogger("HWR").debug("sample_centring: INPUT for calculation")
+            logging.getLogger("HWR").debug("sample_centring:   beam_xc = %s, beam_yc = %s " % (beam_xc, beam_yc))
+            logging.getLogger("HWR").debug("sample_centring:   X = %s, Y = %s " % (str(X), str(Y)))
+            logging.getLogger("HWR").debug("sample_centring:   PHI = %s, PhiCamera = %s, n_points = %s " % (str(PHI), PhiCamera, n_points))
+
+            try:
+                for i in range(n_points):
+                    xb  = X[i] - beam_xc
+                    yb = Y[i] - beam_yc
+                    ang = math.radians(PHI[i]+PhiCamera)
+
+                    XB.append(xb); YB.append(yb); ANG.append(ang)
+
+                for i in range(n_points):
+                    y0 = YB[i] ; a0 = ANG[i]
+                    if i < (n_points-1):
+                        y1 = YB[i+1] ; a1 = ANG[i+1]
+                    else:
+                        y1 = YB[0] ; a1 = ANG[0]
+
+                    p = (y0*math.sin(a1)-y1*math.sin(a0))/math.sin(a1-a0)
+                    q = (y0*math.cos(a1)-y1*math.cos(a0))/math.sin(a0-a1)
+
+                    P.append(p);  Q.append(q)
+
+                x_echantillon = -sum(P)/n_points
+                y_echantillon = sum(Q)/n_points
+                z_echantillon = -sum(XB)/n_points
+            except:
+                import traceback
+                logging.getLogger("HWR").info("sample_centring: error while centering: %s" % traceback.format_exc())
+
+            logging.getLogger("HWR").info("sample_centring: Calculating centred position with")
+            logging.getLogger("HWR").info("sample_centring:    / x_ech: %s / y_ech: %s / z_ech: %s" % (x_echantillon, y_echantillon, z_echantillon))
+            logging.getLogger("HWR").info("sample_centring:    / sampx: %s / sampy: %s / phiy: %s" % (sampx.getPosition(), sampy.getPosition(), phiy.getPosition()))
+            logging.getLogger("HWR").info("sample_centring:    / pixels_per_mm: %s " % (pixelsPerMm_Hor))
+
+            x_echantillon_real = x_echantillon/pixelsPerMm_Hor + sampx.getPosition()
+            y_echantillon_real = y_echantillon/pixelsPerMm_Hor + sampy.getPosition()
+            z_echantillon_real = z_echantillon/pixelsPerMm_Hor + phiy.getPosition()
+
+            if phiy.getLimits() is not None:
+                if (z_echantillon_real + phiy.getPosition() < phiy.getLimits()[0]*2) :
+                    logging.getLogger("HWR").info("sample_centring: phiy limits: %s" % str(phiy.getLimits()))
+                    logging.getLogger("HWR").info("sample_centring:  requiring: %s" % str(z_echantillon_real + phiy.getPosition()))
+                    logging.getLogger("HWR").error("sample_centring: loop too long")
+
+                    self.move_motors(sample_centring.SAVED_INITIAL_POSITIONS)
+                    raise Exception()
+
+            centred_pos = sample_centring.SAVED_INITIAL_POSITIONS.copy()
+
+            centred_pos.update({ phi.motor: PHI_ANGLE_START,
+                                sampx.motor: x_echantillon_real,
+                                sampy.motor: y_echantillon_real,
+                                phiy.motor: z_echantillon_real})
+            logging.getLogger("HWR").info("sample_centring: centring result")
+
+            logging.getLogger("HWR").info("sample_centring: SampX: %s" % x_echantillon_real)
+            logging.getLogger("HWR").info("sample_centring: SampY: %s" % y_echantillon_real)
+            logging.getLogger("HWR").info("sample_centring: PhiY: %s" % z_echantillon_real)
+
+            return centred_pos
+
+        except gevent.GreenletExit:
+            logging.getLogger("HWR").debug("sample_centring.py - Centring aborted")
+
+            sample_centring.abort_centring()
+            #return None
+
+        except:
+            import traceback
+            logging.getLogger("HWR").error("sample_centring: Exception. %s" % traceback.format_exc())
+
     def set_chip_mode(self, flag):
         self.chip_mode = flag
 
