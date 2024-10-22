@@ -648,6 +648,7 @@ class CatsMaint(HardwareObject):
 
     def _update_lid1_state(self, value):
         if not isinstance(value, bool):
+            # Hacked by to read the value from the device proxy instead of using the value passed as argument since the <value> argiment is faulty and is somtimes a bollean other time a 'random' integer
             self._lid1state = not self.cats_device.isLidClosed
             print(f"LID 1 value is {value} of type {type(value)}--->changing to {not self._lid1state}")
             self.emit("lid1StateChanged", (not self._lid1state,))

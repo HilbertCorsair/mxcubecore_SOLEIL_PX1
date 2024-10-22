@@ -4,6 +4,7 @@ import gevent
 import time
 from mxcubecore.HardwareObjects.abstract.sample_changer import Container
 import PyTango
+import math
 
 
 from Cats90 import (
@@ -29,7 +30,6 @@ class PX1Cryotong(Cats90):
         super(PX1Cryotong, self).__init__(*args, **kwargs)
         # Generates a list of baskets
         self.components = [ Container.Basket(self, i +1, 16) for i in range(16) ]
-
         self._safeNeeded = None
         self._homeOpened = None
         self.dry_and_soak_needed = False
@@ -40,7 +40,9 @@ class PX1Cryotong(Cats90):
 
     def init(self):
         super(PX1Cryotong, self).init()
+        self._num_loaded = self._chnNumLoadedSample.value if self._chnNumLoadedSample.value != -1 else None
         self.environment = self.get_object_by_role("environment")
+        self.tangoname = self.get_property("tangoname")
         if self.environment is None:
             logging.error(
                 "PX1Cats. environment object not available. Sample changer cannot operate. Info.mode only"
@@ -54,20 +56,22 @@ class PX1Cryotong(Cats90):
             "_chnHomeOpened",
             "_chnDryAndSoakNeeded",
             "_chnIncoherentGonioSampleState",
-            "_chnSampleIsDetected",
             "_chnCountDown",
         ):
             setattr(self, channel_name, self.get_channel_object(channel_name))
 
+        self._chnNumLoadedSample = self.get_channel_object("_chnNumLoadedSample")
+        if self._chnNumLoadedSample is None:
+            self._chnNumLoadedSample = self.add_channel({
+                    "type": "tango", "name": "_chnNumLoadedSample",
+                    "tangoname": self.tangoname, "polling": 1000,
+                }, "NumSampleOnDiff")
+
         self._chnSoftAuth.connect_signal("update", self._software_authorization)
         self._chnHomeOpened.connect_signal("update", self._update_home_opened)
-        self._chnIncoherentGonioSampleState.connect_signal(
-            "update", self._update_ack_sample_memory
-        )
+        self._chnIncoherentGonioSampleState.connect_signal("update", self._update_ack_sample_memory)
         self._chnDryAndSoakNeeded.connect_signal("update", self._dry_and_soak_needed)
-        self._chnSampleIsDetected.connect_signal(
-            "update", self._update_sample_is_detected
-        )
+        self._chnSampleIsDetected.connect_signal( "update", self._update_sample_is_detected)
         self._chnCountDown.connect_signal("update", self._update_count_down)
 
         self._cmdDrySoak = self.add_command({
@@ -100,9 +104,11 @@ class PX1Cryotong(Cats90):
                 self, i + 1, samples_num = self.no_of_samples_in_basket
             )
             self._add_component(basket)
-        
+        self._chnNumLoadedSample.connect_signal("update", self._update_num_loaded)
+
         self._init_sc_contents()
         self._do_update_state()
+        self._update_loaded_list()
 
     # ## CRYOTONG SPECIFIC METHODS ###
     def is_string_true (self, val):
@@ -110,6 +116,27 @@ class PX1Cryotong(Cats90):
             return val
         else :
             return str(val) in ["True","true"]
+
+    def _update_num_loaded(self, value):
+        print(f"UPDATE NUM LOADED TRIGGERED +++ wit value {value}")
+        if value !=  self._num_loaded:
+            self._num_loaded = value
+            self._update_loaded_list()
+
+
+    def _update_loaded_list (self):
+        """Upsdates the list of sample objects by changing their loaded property
+        """
+        if self._num_loaded :
+            smp = self._num_loaded % 16
+            comp_no = math.ceil(int(self._num_loaded) / 16) -1
+            smp_no = smp-1 if smp != 0 else 15
+            # reset all previous load
+            for sample in self.components[comp_no].get_sample_list():
+                sample.loaded = False
+            # update loaded for new sample
+            self.components[comp_no].get_sample_list()[smp_no].loaded = True
+
 
     def _do_update_state(self):
         """
@@ -225,7 +252,7 @@ class PX1Cryotong(Cats90):
             self.emit("homeOpened", (value,))
 
     def _update_sample_is_detected(self, value):
-        print("\nUpdating sample is detected ... ")
+        print(f"\nUpdating sample is detected ... <{value}>")
         self.emit("sampleIsDetected", (value,))
 
     def _update_ack_sample_memory(self, value=None):
@@ -436,6 +463,7 @@ class PX1Cryotong(Cats90):
                 "CATS: Load/Unload Error. Please try again."
             )
             self.emit("loadError", incoherentSample)
+        self._update_loaded_list() 
 
     def _do_unload(self, sample=None, wash=None):
         print("\nDoing unload ... ")
@@ -457,7 +485,34 @@ class PX1Cryotong(Cats90):
                 "Cryotong cannot get to transfer phase. Aborting sample changer operation"
             )
 
-        self._do_unloadOperation(sample)
+        self._do_unload_operation(sample)
+        self._update_loaded_list()
+    
+    def _do_unload_operation(self,sample_slot=None, shifts=None):
+        # if not self.hasLoadedSample() or not self._chnSampleIsDetected.getValue():
+        if not self.has_loaded_sample():
+            msg = "Trying to unload sample, but it does not seem to be any on diffractometer"
+            self.emit("catsError", msg)
+            logging.getLogger("HWR").warning(msg)
+            return
+
+        if (sample_slot is not None):
+            self._do_select(sample_slot)
+
+        if shifts is None:
+            xshift, yshift, zshift = ["0", "0", "0"]
+        else:
+            xshift, yshift, zshift = map(str,shifts)
+
+        #loaded_lid = self._chnLidLoadedSample.get_value()
+        argin = ["1", "0", xshift, yshift, zshift]
+        #self.videohub_ho.select_camera("Robot", process="unmount")
+        #self.videohub_ho.start_recording(file_prefix="unmount")
+        logging.getLogger("HWR").warning("  ==========CATS=== unload sample, sending to cats:  %s" % argin)
+        self._execute_server_task(self._cmdUnload, argin)
+        #self.videohub_ho.select_camera("OAV", process="unmount")
+        self.update_info()
+
 
     def check_power_on(self):
         print("\nChecking power on ....")
@@ -481,7 +536,7 @@ class PX1Cryotong(Cats90):
             return False
 
         return True
-    
+
 
     def _init_sc_contents(self):
         """
@@ -515,7 +570,7 @@ class PX1Cryotong(Cats90):
                         Container.Pin.STD_HOLDERLENGTH,
                     )
                 )
-        
+
         for spl in sample_list:
             address = Container.Pin.get_sample_address(spl[1], spl[2])
             sample = self.get_component_by_address(address)

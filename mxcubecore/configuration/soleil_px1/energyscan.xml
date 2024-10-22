@@ -7,7 +7,7 @@
     <device hwrid="/ketek" role="fluodet"/>
     <device hwrid="/fastshut" role="fast_shutter"/>
     <device hwrid="/safety_shutter" role="safety_shutter"/>
-    <device hwrid="/px1environment" role="px1environment"/>
+    <device hwrid="/environment" role="px1environment"/>
     <device hwrid="/beam-info" role="beaminfo"/>
     <device hwrid="/session" role="session"/>
     <device hwrid="/ruche" role="ruche"/>

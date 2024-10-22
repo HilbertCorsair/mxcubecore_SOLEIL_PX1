@@ -195,15 +195,18 @@ class ChannelObject:
 
     def connect_signal(self, signalName: str, callableFunc: Callable) -> None:
         """Connect signal.
-
         Args:
             signalName (str): Signal name.
             callableFunc (Callable): Connection method.
         """
         try:
-            dispatcher.disconnect(callableFunc, signalName, self)
-        except Exception:
-            pass
+            # Check if the signal is already connected
+            if dispatcher.getReceivers(signalName, self):
+                dispatcher.disconnect(callableFunc, signalName, self)
+
+        except dispatcher.errors.DispatcherKeyError as e:
+            print(f"Error while disconnecting: {e}")
+        # Connect the signal
         dispatcher.connect(callableFunc, signalName, self)
 
     def disconnect_signal(self, signalName: str, callableFunc: Callable) -> None:

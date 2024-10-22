@@ -16,9 +16,6 @@ class PX1TangoLight(HardwareObject):
         #self.tangoname = self.
         self.attrchan = self.get_channel_object("attributeName")
         self.attrchan.connect_signal("update", self.value_changed)
-
-        print(dir(self))
-        exit()
         self.attrchan.connect_signal("connected", self._set_ready)
         self.attrchan.connect_signal("disconnected", self._set_ready)
         self.set_in = self.get_command_object("set_in")

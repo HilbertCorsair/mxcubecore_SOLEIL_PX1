@@ -249,7 +249,7 @@ class TangoChannel(ChannelObject):
                 if not self.attribute_name.lower() in [
                     attr.name.lower() for attr in self.device.attribute_list_query()
                 ]:
-                    # Hack for translating the position attribute to current zoom in case of using the new discrete zoom motor
+                    # Hack for translating the position attribute to 'current_zoom' in case of using the new discrete zoom motor
                     if self.device_name == "i10-c-cx1/ex/zoom_pos" and self.attribute_name == "position":
                         self.attribute_name == "current_zoom"
                     else :
