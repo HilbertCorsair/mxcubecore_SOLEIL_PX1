@@ -11,22 +11,22 @@ abort
 
 """
 
-import os
-import logging
-import gevent
-import time
-import math
-import requests
-import uuid
 import json
+import logging
+import math
+import os
 import sys
+import time
+import uuid
 
+import gevent
+import requests
 from EigerDataSet import EigerDataSet
-from mxcubecore.TaskUtils import task
-from mxcubecore.BaseHardwareObjects import HardwareObject
-from mxcubecore.HardwareObjects.abstract.AbstractCollect import AbstractCollect
 
 from mxcubecore import HardwareRepository as HWR
+from mxcubecore.BaseHardwareObjects import HardwareObject
+from mxcubecore.HardwareObjects.abstract.AbstractCollect import AbstractCollect
+from mxcubecore.TaskUtils import task
 
 
 class BIOMAXCollect(AbstractCollect, HardwareObject):
@@ -1178,40 +1178,6 @@ class BIOMAXCollect(AbstractCollect, HardwareObject):
             % (xds_directory, auto_directory)
         )
         return xds_directory, auto_directory
-
-    # def move_detector(self, value):
-    #     """
-    #     Descript. : move detector to the set distance
-    #     """
-    #     lower_limit, upper_limit = self.get_detector_distance_limits()
-    #     logging.getLogger("HWR").info(
-    #         "...................value %s, detector movement start..... %s"
-    #         % (value, HWR.beamline.detector.distance.get_value())
-    #     )
-    #     if upper_limit is not None and lower_limit is not None:
-    #         if value >= upper_limit or value <= lower_limit:
-    #             logging.getLogger("HWR").exception(
-    #                 "Can't move detector, the value is out of limits"
-    #             )
-    #             self.stop_collect()
-    #         else:
-    #             try:
-    #                 if HWR.beamline.detector.distance is not None:
-    #                     HWR.beamline.detector.distance.set_value(value, timeout=50)
-    #                     # 30s is not enough for the whole range
-    #             except Exception:
-    #                 logging.getLogger("HWR").exception(
-    #                     "Problems when moving detector!!"
-    #                 )
-    #                 self.stop_collect()
-    #     else:
-    #         logging.getLogger("HWR").exception(
-    #             "Can't get distance limits, not moving detector!!"
-    #         )
-    #     logging.getLogger("HWR").info(
-    #         "....................value %s detector movement finished.....%s"
-    #         % (value, HWR.beamline.detector.distance.get_value())
-    #     )
 
     def prepare_detector(self):
 

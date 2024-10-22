@@ -41,9 +41,11 @@ It has some functionalities, like Harvest Sample, etc....
 -----------------------------------------------------------------
 """
 from __future__ import annotations
-import gevent
+
 import logging
 from typing import Optional
+
+import gevent
 
 from mxcubecore import queue_entry
 from mxcubecore.BaseHardwareObjects import HardwareObject
@@ -192,7 +194,6 @@ class Harvester(HardwareObject):
             if cmd.startswith("set"):
                 ret = exp_attr.set_value(args_str)
 
-        self._wait_ready(timeout=timeout)
         return ret
 
     # ---------------------- State --------------------------------

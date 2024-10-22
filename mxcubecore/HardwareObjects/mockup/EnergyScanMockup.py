@@ -1,18 +1,16 @@
+import logging
 import os
 import time
+
 import gevent
 import gevent.event
-import logging
-
-from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 
-from mxcubecore.TaskUtils import cleanup
-from mxcubecore.HardwareObjects.abstract.AbstractEnergyScan import (
-    AbstractEnergyScan,
-)
-from mxcubecore.BaseHardwareObjects import HardwareObject
 from mxcubecore import HardwareRepository as HWR
+from mxcubecore.BaseHardwareObjects import HardwareObject
+from mxcubecore.HardwareObjects.abstract.AbstractEnergyScan import AbstractEnergyScan
+from mxcubecore.TaskUtils import cleanup
 
 scan_test_data = [
     (10841.0, 20.0),
@@ -198,9 +196,9 @@ class EnergyScanMockup(AbstractEnergyScan):
         self.energy_scan_parameters["exposureTime"] = 0.01
         print(self.cpos)
         if HWR.beamline.transmission is not None:
-            self.energy_scan_parameters[
-                "transmissionFactor"
-            ] = HWR.beamline.transmission.get_value()
+            self.energy_scan_parameters["transmissionFactor"] = (
+                HWR.beamline.transmission.get_value()
+            )
         else:
             self.energy_scan_parameters["transmissionFactor"] = None
         size_hor = None

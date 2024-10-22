@@ -24,14 +24,15 @@ Any object that inherhits from TaskNode can be added to and handled by
 the QueueModel.
 """
 import copy
-import os
 import logging
+import os
 
 from mxcubecore.model import queue_model_enumerables
 
 try:
-    from mxcubecore.model import crystal_symmetry
     from ruamel.yaml import YAML
+
+    from mxcubecore.model import crystal_symmetry
 
     # If you want to write out copies of the file, use typ="rt" instead
     # pure=True uses yaml version 1.2, with fewere gotchas for strange type conversions
@@ -793,9 +794,9 @@ class DataCollection(TaskNode):
         return self.online_processing_results
 
     def set_snapshot(self, snapshot):
-        self.acquisitions[
-            0
-        ].acquisition_parameters.centred_position.snapshot_image = snapshot
+        self.acquisitions[0].acquisition_parameters.centred_position.snapshot_image = (
+            snapshot
+        )
 
     def add_processing_msg(self, time, method, status, msg):
         self.processing_msg_list.append((time, method, status, msg))
@@ -2022,6 +2023,9 @@ class GphlWorkflow(TaskNode):
         self.acquisition_dose = 0.0
         self.strategy_length = 0.0
 
+        # Workflow attributes - for passing to LIMS (conf Olof Svensson)
+        self.workflow_params = {}
+
         # # Centring handling and MXCuBE-side flow
         self.set_requires_centring(False)
 
@@ -2109,13 +2113,15 @@ class GphlWorkflow(TaskNode):
         from mxcubecore.HardwareObjects.Gphl import GphlMessages
 
         if space_group:
-            if space_group in crystal_symmetry.SPACEGROUP_MAP:
-                self.space_group = space_group
-            else:
+            sginfo = crystal_symmetry.SPACEGROUP_MAP.get(space_group)
+            if sginfo is None:
                 raise ValueError(
                     "Invalid space group %s, not in crystal_symmetry.SPACEGROUP_MAP"
                     % space_group
                 )
+            else:
+                space_group = sginfo.name
+                self.space_group = space_group
         else:
             space_group = self.space_group
         if crystal_classes:
@@ -2328,6 +2334,11 @@ class GphlWorkflow(TaskNode):
             value = params.get(tag)
             if value:
                 setattr(self, tag, value)
+
+        # For external workflow parameters (conf. Olof Svensson)
+        dd1 = params.get("workflow_params")
+        if dd1:
+            self.workflow_params.update(dd1)
 
         settings = HWR.beamline.gphl_workflow.settings
         # NB settings is an internal attribute DO NOT MODIFY
