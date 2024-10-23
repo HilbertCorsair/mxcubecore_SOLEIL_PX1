@@ -7,7 +7,7 @@
     <!-- px1environment_dev>i10-c-cx1/ex/px1environment</px1environment_dev -->
     <!-- light_dev>i10-c-cx1/ex/light.1</light_dev -->
 
-    <object href="/px1environment" role="px1environment" />
+    <object href="/environment" role="px1environment" />
     <object href="/zoom" role="zoom" />
     <object href="/light" role="intensity" />
 </object>

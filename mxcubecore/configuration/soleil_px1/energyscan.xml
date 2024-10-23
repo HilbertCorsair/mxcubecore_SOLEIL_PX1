@@ -3,7 +3,6 @@
     <mono_dev>i10-c-c02/op/mono1</mono_dev>
     <ble_dev>i10-c-c00/ex/beamlineenergy</ble_dev>
     <fp_dev>i10-c-c00/ex/fp_parser</fp_dev>
-
     <object hwrid="/ketek" role="fluodet"/>
     <object hwrid="/fastshut" role="fast_shutter"/>
     <object hwrid="/safety_shutter" role="safety_shutter"/>
@@ -12,9 +11,7 @@
     <object hwrid="/session" role="session"/>
     <object hwrid="/ruche" role="ruche"/>
     <object hwrid="/dbconnection" role="dbserver"/>
-    
     <normalization_diode>i10-c-c03/dt/xbpm_diode.2</normalization_diode>
-
     <number_of_steps>80</number_of_steps>
     <chooch_cmd>/nfs/ruche/share-dev/px1dev/MXCuBE/tools/run_chooch.sh</chooch_cmd>
     <!-- test_data>/nfs/ruche/share-dev/px1dev/MXCuBE/pychooch/examples/PtL2.raw</test_data -->
@@ -46,7 +43,7 @@
         <element>
             <symbol>Cr</symbol>
             <energy>K</energy>
-        </element>   
+        </element>
         <element>
             <symbol>Mn</symbol>
             <energy>K</energy>
@@ -202,7 +199,7 @@
         <element>
             <symbol>Dy</symbol>
             <energy>L</energy>
-        </element>    
+        </element>
         <element>
             <symbol>Ho</symbol>
             <energy>L</energy>
@@ -214,7 +211,7 @@
         <element>
             <symbol>Tm</symbol>
             <energy>L</energy>
-        </element>    
+        </element>
         <element>
             <symbol>Yb</symbol>
             <energy>L</energy>

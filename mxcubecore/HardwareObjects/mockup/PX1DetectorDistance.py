@@ -52,7 +52,6 @@ class PX1DetectorDistance(TangoMotor):
         print(dir (self.STATES),"\nType of self.STATES IS .... \n", print(type(self.STATES) ))
         for k, v in self.STATES.__members__.items():
             print(k, v)
-        exit()
 
         self.chan_position = self.get_channel_object("position")
         self.chan_state = self.get_channel_object("state")

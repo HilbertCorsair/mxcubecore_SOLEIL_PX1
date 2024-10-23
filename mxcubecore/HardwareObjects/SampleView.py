@@ -46,7 +46,6 @@ class SampleView(AbstractSampleView):
                 motor_ho.connect("stateChanged", self._update_shape_positions)
 
     def _update_shape_positions(self, *args, **kwargs):
-
         for shape in self.get_shapes():
             shape.update_position(HWR.beamline.diffractometer.motor_positions_to_screen)
 

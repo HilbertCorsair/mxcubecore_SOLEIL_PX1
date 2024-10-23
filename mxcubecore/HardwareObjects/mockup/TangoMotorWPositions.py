@@ -13,7 +13,6 @@ class TangoMotorWPositions(AbstractNState):
         self.positions = {}
         self.position_names = []
         self.delta = 5
-        self._nominal_value = None
         self.last_position = None
 
     def parse_xml_config(self):
@@ -32,7 +31,8 @@ class TangoMotorWPositions(AbstractNState):
                 }
             }
             self.positions[user] = position_data
-
+    
+    
 
     def init(self):
         super().init()
@@ -44,6 +44,9 @@ class TangoMotorWPositions(AbstractNState):
 
         # Create Enum for VALUES
         self.VALUES = Enum('ValueEnum', {name: name for name in self.positions.keys() })
+
+        # position names on tha tango device are lowarcase without spaces
+        self.position_names = [name.lower().replace(" ", '')for name in self.VALUES.__members__.keys()]
 
         print("\n---|ZooM InitiateD|--- !\n")
 
@@ -125,7 +128,7 @@ class TangoMotorWPositions(AbstractNState):
         return value in self.position_names
 
     def get_current_name(self):
-        pos = self._nominal_value
+        pos = self.get_value()
 
         min_dist = 1000.0
         curr_name = ''
@@ -144,8 +147,7 @@ class TangoMotorWPositions(AbstractNState):
 
         return curr_name, pos, valid
 
-    getCurrentPositionName = get_current_name
-
+    """
     def get_current_offset(self):
         name, pos, valid = self.get_current_name()
 
@@ -154,28 +156,19 @@ class TangoMotorWPositions(AbstractNState):
             return offset
         else:
             return None
+    """
 
-    getCurrentOffset = get_current_offset
 
     def get_properties(self, name=None):
-        if name is None:
-            name, pos, valid = self.get_current_name()
-            if not valid:
-                return None
-
-        values = {}
-
-        if name in self.positions:
-            values = self.positions[name]
+        pos = self.get_value()
+        values = self.positions[pos] if not name else self.positions[name]
 
         return values
 
-    getCurrentPositionProperties = get_properties
 
     def get_positions(self):
         return self.position_names
 
-    getPredefinedPositionsList = get_positions
 
     def goto_position(self, name):
         logging.getLogger().debug("TangoMotorWPositions (%s) / Moving to posname %s" % (self.name(), name))
