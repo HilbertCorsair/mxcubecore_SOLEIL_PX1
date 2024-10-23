@@ -1,4 +1,4 @@
-import os 
+import os
 import logging
 import ldap
 import re
@@ -85,7 +85,7 @@ class SOLEILLdapLogin(HardwareObject):
 
     def get_uid_gid(self, username: str) -> Tuple[Optional[str], Optional[str]]:
         ok, info = self.get_info(username)
- 
+
         if ok:
             return info['uidNumber'], info['gidNumber']
         else:
@@ -99,17 +99,17 @@ class SOLEILLdapLogin(HardwareObject):
             return self.cleanup(msg="no LDAP server configured")
 
         found = self.search_user(username, retry)
-        
+
         if not found:
             return self.cleanup(msg=f"unknown proposal {username}")
-        
+
         if password == "":
             return self.cleanup(msg=f"no password for {username}")
 
         if not isinstance(found, list):
             log.error(f"SOLEILLdapLogin: found type: {type(found)}")
             return self.cleanup(msg=f"unknown error {username}")
-        
+
         dn = str(found[0][0])
 
         log.debug(f"SOLEILLdapLogin: found: {dn}")
@@ -160,7 +160,7 @@ class SOLEILLdapLogin(HardwareObject):
             if mat:
                 groupnames[mat.group('gname')] = item[1]['memberUid']
         return groupnames
-        
+
     def find_projectusers(self, username: str) -> List[str]:
         groups = self.find_groups_for_username(username)
         return [user for groupname, users in groups.items() for user in users if user == groupname[1:]]
@@ -177,10 +177,10 @@ class SOLEILLdapLogin(HardwareObject):
     def find_sessions_for_user(self, username: str) -> 'SessionList':
         sesslist = SessionList()
         for projuser in self.find_projectusers(username):
-            desc = self.find_description_for_user(projuser)  
-            if desc is not None: 
+            desc = self.find_description_for_user(projuser)
+            if desc is not None:
                 sesslist.extend(self.decode_session_info(projuser, desc))
-        return sesslist 
+        return sesslist
 
     def find_valid_sessions_for_user(self, username: str, beamline: Optional[str] = None) -> 'SessionList':
         sesslist = self.find_sessions_for_user(username)
@@ -188,7 +188,7 @@ class SOLEILLdapLogin(HardwareObject):
 
     def decode_session_info(self, projuser: str, session_info: str) -> 'SessionList':
         retlist = SessionList()
-        
+
         beamlinelist = session_info.split(";")
 
         if len(beamlinelist) < 2:
@@ -230,11 +230,11 @@ class SessionInfo:
 
     def __repr__(self):
         return f"""
-            Beamline: {self.beamline}; Username: {self.username} ({self.usertype}); 
-            From: {time.asctime(time.localtime(self.begin))}: 
+            Beamline: {self.beamline}; Username: {self.username} ({self.usertype});
+            From: {time.asctime(time.localtime(self.begin))}:
             To: {time.asctime(time.localtime(self.finish))}
         """
-        
+
 class SessionList(list):
     def beamline_list(self) -> List[str]:
         return list(set(session.beamline for session in self))

@@ -1,5 +1,4 @@
-""" 
-Session hardware object.
+"""Session hardware object.
 
 Contains information regarding the current session and methods to
 access and manipulate this information.
@@ -198,4 +197,3 @@ class Session(HardwareObject):
 
 def test_hwo(hwo):
     print("Is inhouse (blissadm): ", hwo.is_inhouse("mx", "blissadm"))
-

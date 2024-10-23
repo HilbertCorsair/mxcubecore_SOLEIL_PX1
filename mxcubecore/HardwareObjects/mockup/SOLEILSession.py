@@ -1,5 +1,4 @@
-
-import os 
+import os
 import time
 import logging
 from typing import Optional, Tuple, Dict
@@ -26,7 +25,7 @@ class SOLEILSession(Session.Session):
 
     def get_projuser(self) -> str:
         return self.projuser
-        
+
     def get_latest_projuser(self) -> str:
         return self.latest_projuser
 
@@ -62,7 +61,7 @@ class SOLEILSession(Session.Session):
             'uid': self.user_id,
             'gid': self.group_id,
         }
-          
+
     def path_to_ispyb(self, path: str) -> str:
         projuser = self.get_proposal_number()
         ispyb_base = self["file_info"].get_property('ispyb_base_directory') % {'projuser': projuser}
@@ -76,7 +75,7 @@ class SOLEILSession(Session.Session):
         directory = "/tmp/mxcube_video"
         os.makedirs(directory, exist_ok=True)
         return directory
-         
+
     def get_beamline_name(self) -> str:
         return self.get_property("beamline_name")
 
@@ -88,7 +87,7 @@ class SOLEILSession(Session.Session):
         :rtype: str
         """
         return self.proposal_number or "local-user"
-	     
+
     def get_base_directory(self) -> str:
         return self.base_directory
 
