@@ -19,11 +19,14 @@
 
 """ Mockup shutter implementation"""
 
-from enum import Enum, unique
-from mxcubecore.HardwareObjects.abstract.AbstractShutter import AbstractShutter
+from enum import (
+    Enum,
+    unique,
+)
+
 from mxcubecore.BaseHardwareObjects import HardwareObjectState
-#from mxcubecore.HardwareObjects.mockup.ActuatorMockup import ActuatorMockup
-from mxcubecore.HardwareObjects.TangoShutter import TangoShutter
+from mxcubecore.HardwareObjects.abstract.AbstractShutter import AbstractShutter
+from mxcubecore.HardwareObjects.mockup.ActuatorMockup import ActuatorMockup
 
 @unique
 class ShutterStates(Enum):
@@ -61,4 +64,3 @@ class ShutterMockup(AbstractShutter, TangoShutter):
             }
         )
         self.VALUES = Enum("ValueEnum", values_dict)
-

@@ -1,19 +1,26 @@
 from math import isclose
+
 from mxcubecore.utils.units import (
-    us_to_sec,
-    sec_to_us,
-    sec_to_hour,
+    A_to_mA,
     ev_to_kev,
     meter_to_mm,
     mm_to_meter,
+    ms_to_sec,
+    sec_to_hour,
+    sec_to_us,
     um_to_mm,
-    A_to_mA,
+    us_to_sec,
 )
 
 
 def test_us_to_sec():
     assert isclose(us_to_sec(500_000), 0.5)
     assert isclose(us_to_sec(123.4), 0.0001234)
+
+
+def test_ms_to_sec():
+    assert isclose(ms_to_sec(13), 0.013)
+    assert isclose(ms_to_sec(2148.5), 2.1485)
 
 
 def test_sec_to_us():

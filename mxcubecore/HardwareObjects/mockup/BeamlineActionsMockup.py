@@ -7,7 +7,16 @@ from mxcubecore.HardwareObjects.BeamlineActions import (
     AnnotatedCommand,
 )
 import gevent
-import logging
+from pydantic.v1 import (
+    BaseModel,
+    Field,
+)
+from typing_extensions import Literal
+
+from mxcubecore.HardwareObjects.BeamlineActions import (
+    AnnotatedCommand,
+    BeamlineActions,
+)
 
 
 class SimpleFloat(BaseModel):

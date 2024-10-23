@@ -1,7 +1,9 @@
 import sys
 import logging
 import math
+
 import gevent
+
 from mxcubecore.BaseHardwareObjects import HardwareObject
 
 """

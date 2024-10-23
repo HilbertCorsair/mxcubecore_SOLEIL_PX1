@@ -20,10 +20,11 @@ Known sites using cats90
 """
 
 from __future__ import print_function
-import time
-import PyTango
+
 import logging
 import gevent
+import time
+import PyTango
 
 from mxcubecore.HardwareObjects.abstract.AbstractSampleChanger import (
     Container,
@@ -196,7 +197,7 @@ class Cats90(SampleChanger):
         # Create channels from XML
 
         self.cats_device = PyTango.DeviceProxy(self.get_property("tangoname"))
-        
+
         no_of_lids = self.get_property("no_of_lids")
         if no_of_lids is None:
             self.number_of_lids = self.default_no_lids
