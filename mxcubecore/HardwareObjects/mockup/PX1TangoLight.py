@@ -19,10 +19,10 @@ class PX1TangoLight(HardwareObject):
         self.attrchan.connect_signal("connected", self._set_ready)
         self.attrchan.connect_signal("disconnected", self._set_ready)
         self.set_in = self.get_command_object("set_in")
-        self.set_in.connect_signal("connected", self._set_ready)
+        #self.set_in.connect_signal("connected", self._set_ready)
 
-        self.set_in.connect_signal("disconnected", self._set_ready)
-        self.set_out = self.get_command_object("set_out")
+        #self.set_in.connect_signal("disconnected", self._set_ready)
+        #self.set_out = self.get_command_object("set_out")
 
         self.px1env_hwo = self.get_object_by_role("px1environment")
         self.light_hwo = self.get_object_by_role("intensity")
