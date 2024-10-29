@@ -258,11 +258,11 @@ class PX1MiniDiff(GenericDiffractometer):
         #return self.smargon_state == "STANDBY"
 
     def get_pixels_per_mm(self):
-        x= float(self.get_object_by_role("zoom").positions['zoom1']['calibrationData']['pixelsPerMmY'])
-        y= float(self.get_object_by_role("zoom").positions['zoom1']['calibrationData']['pixelsPerMmZ'])
+        position = self.zoom.get_value()
+        x= float(self.zoom.positions[position]['calibrationData']['pixelsPerMmY'])
+        y= float(self.zoom.positions[position]['calibrationData']['pixelsPerMmZ'])
 
         self.pixels_per_mm_x = x
-
         self.pixels_per_mm_y = y
         return GenericDiffractometer.get_pixels_per_mm(self)
 
