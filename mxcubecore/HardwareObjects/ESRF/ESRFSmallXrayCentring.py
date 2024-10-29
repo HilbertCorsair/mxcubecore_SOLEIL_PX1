@@ -50,13 +50,16 @@ class ESRFSmallXrayCentring(AbstractXrayCentring):
 
         logging.getLogger("HWR").debug("Executes SmallXrayCentring workflow")
         workflow_name = "SmallXrayCentring"
-        bes_host = "mxbes2-1707"
+        bes_host = "mxbes3-2204"
         bes_port = 38180
         task_group_node_id = self._data_collection_group._node_id
         dict_parameters = json.loads(json.dumps(HWR.beamline.workflow.dict_parameters))
         dict_parameters["sample_node_id"] = task_group_node_id
         dict_parameters["end_workflow_in_mxcube"] = False
         dict_parameters["workflow_id"] = HWR.beamline.xml_rpc_server.workflow_id
+        dict_parameters["workflow_parameters"] = (
+            self._queue_entry.get_data_model().get_workflow_parameters()
+        )
         logging.getLogger("HWR").info("Starting workflow {0}".format(workflow_name))
         logging.getLogger("HWR").info(
             "Starting a workflow on http://%s:%d/BES" % (bes_host, bes_port)

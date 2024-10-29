@@ -1671,8 +1671,7 @@ class GphlWorkflow(HardwareObjectYaml):
 
                 if recentring_mode == "none":
                     if has_recentring_file:
-                        # If we have recentring use it
-                        # If not, never mind, presumably we have MiniKappaCorrescion
+                        # NB  if no recentring  but  MiniKappaCorrection this still OK
                         translation = GphlMessages.GoniostatTranslation(
                             rotation=sweepSetting, **translation_settings
                         )
@@ -1701,7 +1700,9 @@ class GphlWorkflow(HardwareObjectYaml):
             rotation_settings = dict(
                 (role, current_pos_dict[role]) for role in sweepSetting.axisSettings
             )
-            orientation_id = gphl_workflow_model.workflow_params.get("orientation_id")
+            orientation_id = gphl_workflow_model.workflow_parameters.get(
+                "orientation_id"
+            )
             if orientation_id:
                 # We have a pre-existing orientation ID. Use it
                 rotation_settings["id_"] = orientation_id
@@ -1963,7 +1964,13 @@ class GphlWorkflow(HardwareObjectYaml):
                 )
             acq.path_template = path_template
             filename_params = scan.filenameParams
-            subdir = filename_params.get("subdir")
+            subdir = filename_params.get("subdir") or ""
+            prefix = filename_params.get("prefix", "")
+            head, prefix = os.path.split(prefix)
+            if head and subdir:
+                subdir = os.path.join(subdir, head)
+            else:
+                subdir = subdir or head
             if subdir:
                 path_template.directory = os.path.join(path_template.directory, subdir)
                 path_template.process_directory = os.path.join(
@@ -1973,7 +1980,6 @@ class GphlWorkflow(HardwareObjectYaml):
             path_template.run_number = int(ss0) if ss0 else 1
             path_template.start_num = acq_parameters.first_image
             path_template.num_files = acq_parameters.num_images
-            prefix = filename_params.get("prefix", "")
             if path_template.suffix.endswith("h5"):
                 # Add scan number to prefix for interleaved hdf5 files (only)
                 # NBNB Tempoary fix, pending solution to hdf5 interleaving problem
@@ -1991,6 +1997,31 @@ class GphlWorkflow(HardwareObjectYaml):
             # Handle orientations and (re) centring
             goniostatRotation = sweep.goniostatSweepSetting
             rotation_id = orientation_id = goniostatRotation.id_
+
+            model_workflow_parameters = gphl_workflow_model.workflow_parameters
+            if not model_workflow_parameters.get("workflow_name"):
+                model_workflow_parameters["workflow_name"] = gphl_workflow_model.wfname
+            if not model_workflow_parameters.get("workflow_type"):
+                model_workflow_parameters["workflow_type"] = gphl_workflow_model.wftype
+            if not model_workflow_parameters.get("workflow_uid"):
+                model_workflow_parameters["workflow_uid"] = str(
+                    HWR.beamline.gphl_connection._enactment_id
+                )
+            if not model_workflow_parameters.get("workflow_position_id"):
+                # As of 20240911 all workflows use a single position,
+                model_workflow_parameters["workflow_position_id"] = str(uuid.uuid1())
+            if (
+                gphl_workflow_model.wftype == "acquisition"
+                and not gphl_workflow_model.characterisation_done
+                and not model_workflow_parameters.get("workflow_characterisation_id")
+            ):
+                model_workflow_parameters["workflow_characterisation_id"] = str(
+                    sweep.id_
+                )
+            model_workflow_parameters["workflow_kappa_settings_id"] = str(
+                orientation_id
+            )
+
             initial_settings = sweep.get_initial_settings()
             orientation = (
                 initial_settings.get("kappa"),
@@ -2054,28 +2085,9 @@ class GphlWorkflow(HardwareObjectYaml):
             data_collection = queue_model_objects.DataCollection([acq], crystal)
             # Workflow parameters for ICAT / external workflow
             # The 'if' statement is to allow this to work in multiple versions
-            if hasattr(data_collection, "workflow_params"):
-                wfp = gphl_workflow_model.workflow_params
-                if not wfp.get("workflow_name"):
-                    wfp["workflow_name"] = gphl_workflow_model.wfname
-                if not wfp.get("workflow_type"):
-                    wfp["workflow_type"] = gphl_workflow_model.wftype
-                if not wfp.get("workflow_uid"):
-                    wfp["workflow_uid"] = HWR.beamline.gphl_connection._enactment_id
-                if not wfp.get("position_id"):
-                    # As of 20240911 all workflows use a single position,
-                    wfp["position_id"] = str(uuid.uuid1())
-                if (
-                    gphl_workflow_model.wftype == "acquisition"
-                    and not gphl_workflow_model.characterisation_done
-                    and not wfp.get("characterisation_id")
-                ):
-                    wfp["characterisation_id"] = sweep.id_
-                wfp["orientation_id"] = orientation_id
-                data_collection.workflow_params.update(wfp)
-
+            if hasattr(data_collection, "workflow_parameters"):
+                data_collection.workflow_parameters.update(model_workflow_parameters)
             data_collections.append(data_collection)
-
             data_collection.set_enabled(True)
             data_collection.ispyb_group_data_collections = True
             data_collection.set_name(path_template.get_prefix())
@@ -2147,6 +2159,10 @@ class GphlWorkflow(HardwareObjectYaml):
                 bravais_lattice, choose_lattice.priorCrystalClasses
             )
 
+            if space_group == "None":
+                space_group = None
+                # Should not happen
+                # 20240926 Rasmus and Olof
             if space_group:
                 xtlc = crystal_symmetry.SPACEGROUP_MAP[space_group].crystal_class
                 if (

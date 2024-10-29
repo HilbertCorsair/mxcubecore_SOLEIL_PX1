@@ -24,6 +24,7 @@ __copyright__ = """2019 by the MXCuBE collaboration """
 __license__ = "LGPLv3+"
 
 import abc
+from typing import Union
 
 from mxcubecore.BaseHardwareObjects import HardwareObject
 
@@ -43,20 +44,22 @@ class AbstractSampleView(HardwareObject):
         self._shapes = None
 
     @abc.abstractmethod
-    def get_snapshot(self, overlay=True, bw=False, return_as_array=False):
+    def get_snapshot(
+        self, overlay: Union[bool, str] = True, bw=False, return_as_array=False
+    ):
         """Get snappshot(s)
         Args:
-            overlay(bool): Display shapes and other items on the snapshot
+            overlay(bool | str): Display shapes and other items on the snapshot
             bw(bool): return grayscale image
             return_as_array(bool): return as np array
         """
 
     @abc.abstractmethod
-    def save_snapshot(self, filename, overlay=True, bw=False):
+    def save_snapshot(self, filename, overlay: Union[bool, str] = True, bw=False):
         """Save a snapshot to file.
         Args:
             filename (str): The filename.
-            overlay(bool): Display shapes and other items on the snapshot.
+            overlay(bool | str): Display shapes and other items on the snapshot.
             bw(bool): Return grayscale image.
         """
 

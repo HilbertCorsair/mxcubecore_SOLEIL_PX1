@@ -88,6 +88,8 @@ class AbstractMultiCollect(object):
         self.mesh_range = None
         self.mesh_center = None
 
+        self.number_of_snapshots = 4
+
     def setControlObjects(self, **control_objects):
         self.bl_control = BeamlineControl(**control_objects)
 
@@ -250,10 +252,6 @@ class AbstractMultiCollect(object):
     def generate_image_jpeg(self, filename, jpeg_path, jpeg_thumbnail_path):
         pass
 
-    @task
-    def take_crystal_snapshots(self, number_of_snapshots):
-        HWR.beamline.diffractometer.take_snapshots(number_of_snapshots, wait=True)
-
     def get_sample_info_from_parameters(self, parameters):
         """Returns sample_id, sample_location and sample_code from data collection parameters"""
         sample_info = parameters.get("sample_reference")
@@ -316,18 +314,35 @@ class AbstractMultiCollect(object):
         else:
             pass
 
-    def _take_crystal_snapshots(self, number_of_snapshots):
-        try:
-            if isinstance(number_of_snapshots, bool):
-                # backward compatibility, if number_of_snapshots is True|False
-                if number_of_snapshots:
-                    return self.take_crystal_snapshots(4)
-                else:
-                    return
-            if number_of_snapshots:
-                return self.take_crystal_snapshots(number_of_snapshots)
-        except Exception:
-            logging.getLogger("HWR").exception("Could not take crystal snapshots")
+    def take_snapshots(self, dc_params):
+        snapshot_directory = dc_params["fileinfo"]["archive_directory"]
+
+        if HWR.beamline.diffractometer.in_plate_mode():
+            if number_of_snapshots > 0:
+                number_of_snapshots = 1
+
+        if not os.path.exists(snapshot_directory):
+            self.create_directories(snapshot_directory)
+
+        image_path_list = []
+
+        for snapshot_index in range(self.number_of_snapshots):
+            snapshot_filename = os.path.join(
+                snapshot_directory,
+                "%s_%s_%s.snapshot.jpeg"
+                % (
+                    dc_params["fileinfo"]["prefix"],
+                    dc_params["fileinfo"]["run_number"],
+                    (snapshot_index + 1),
+                ),
+            )
+
+            image_path_list.append(snapshot_filename)
+            dc_params["xtalSnapshotFullPath%i" % (snapshot_index + 1)] = (
+                snapshot_filename
+            )
+
+        HWR.beamline.diffractometer.take_snapshot(image_path_list)
 
     @abc.abstractmethod
     def set_helical(self, helical_on):
@@ -561,13 +576,11 @@ class AbstractMultiCollect(object):
         self.move_motors(motors_to_move_before_collect)
         HWR.beamline.diffractometer.save_centring_positions()
 
-        # take snapshots, then assign centring status (which contains images) to
-        # centring_info variable
-        take_snapshots = data_collect_parameters.get("take_snapshots", False)
-
-        if take_snapshots:
-            logging.getLogger("user_level_log").info("Taking sample snapshosts")
-            self._take_crystal_snapshots(take_snapshots)
+        if data_collect_parameters.get("take_snapshots", False):
+            logging.getLogger("user_level_log").info(
+                f"Taking sample ({self.number_of_snapshots}) snapshosts"
+            )
+            self.take_snapshots(data_collect_parameters)
         centring_info = HWR.beamline.diffractometer.get_centring_status()
         # move *again* motors, since taking snapshots may change positions
         logging.getLogger("user_level_log").info(
