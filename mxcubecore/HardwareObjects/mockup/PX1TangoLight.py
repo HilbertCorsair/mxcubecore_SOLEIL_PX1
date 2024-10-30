@@ -37,8 +37,6 @@ class PX1TangoLight(HardwareObject):
     def _setup_channels(self) -> None:
         """Set up communication channels and their signal connections."""
         self.attrchan = self.get_channel_object("attributeName")
-        import pdb
-        pdb.set_trace()
         if self.attrchan:
             self.attrchan.connect_signal("update", self._value_changed)
             self.attrchan.connect_signal("connected", self._set_ready)
