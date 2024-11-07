@@ -84,8 +84,7 @@ class GetStaticParameters:
 
 class ESRFEnergyScan(AbstractEnergyScan, HardwareObject):
     def __init__(self, name, tunable_bl):
-        AbstractEnergyScan.__init__(self)
-        HardwareObject.__init__(self, name)
+        super().__init__(name)
         self._tunable_bl = tunable_bl
 
     def execute_command(self, command_name, *args, **kwargs):
@@ -268,7 +267,7 @@ class ESRFEnergyScan(AbstractEnergyScan, HardwareObject):
         # while waiting fro chooch to work...
         subprocess.call(
             [
-                "/opt/pxsoft/bin/chooch",
+                "/cvmfs/sb.esrf.fr/bin/chooch",
                 "-e",
                 elt,
                 "-a",

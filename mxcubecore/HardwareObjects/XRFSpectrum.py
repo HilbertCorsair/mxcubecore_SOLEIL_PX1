@@ -105,7 +105,7 @@ class XRFSpectrum(HardwareObject):
             try:
                 os.makedirs(directory)
             except OSError as diag:
-                logging.getLogger().error(
+                logging.getLogger("user_level_log").error(
                     "XRFSpectrum: error creating directory %s (%s)"
                     % (directory, str(diag))
                 )
@@ -224,9 +224,9 @@ class XRFSpectrum(HardwareObject):
         self.scanning = False
         if result is not False:
             fname = self.spectrumInfo["filename"].replace(".dat", ".raw")
-            self.mca_hwobj.set_presets(fname=str(fname))
-            mcaData = self.mca_hwobj.read_data(save_data=True)
-            mcaCalib = self.mca_hwobj.get_calibration()
+            self.mca_hwobj.datafile = str(fname)
+            mcaData = self.mca_hwobj.read_roi_data(save_data=True)
+            mcaCalib = self.mca_hwobj.calibration
             mcaConfig = {}
             self.spectrumInfo["beamTransmission"] = (
                 HWR.beamline.transmission.get_value()

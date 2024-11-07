@@ -29,7 +29,10 @@ import numpy as np
 from PIL import Image
 
 from mxcubecore import HardwareRepository as HWR
-from mxcubecore.HardwareObjects.abstract.AbstractSampleView import AbstractSampleView
+from mxcubecore.HardwareObjects.abstract.AbstractSampleView import (
+    AbstractSampleView,
+    ShapeState,
+)
 from mxcubecore.model import queue_model_objects
 
 
@@ -179,7 +182,14 @@ class SampleView(AbstractSampleView):
         self.shapes[shape.id] = shape
         shape.shapes_hw_object = self
 
-    def add_shape_from_mpos(self, mpos_list, screen_coord, t):
+    def add_shape_from_mpos(
+        self,
+        mpos_list,
+        screen_coord,
+        t,
+        state: ShapeState = "SAVED",
+        user_state: ShapeState = "SAVED",
+    ):
         """
         Adds a shape of type <t>, with motor positions from mpos_list and
         screen position screen_coord.
@@ -198,11 +208,17 @@ class SampleView(AbstractSampleView):
 
         if _cls:
             shape = _cls(mpos_list, screen_coord)
+            # In case the shape is being recreated, we need to restore it's state.
+            shape.state = state
+            shape.user_state = user_state
+
             self.add_shape(shape)
 
         return shape
 
-    def add_shape_from_refs(self, refs, t):
+    def add_shape_from_refs(
+        self, refs, t, state: ShapeState = "SAVED", user_state: ShapeState = "SAVED"
+    ):
         """
         Adds a shape of type <t>, taking motor positions and screen positions
         from reference points in refs.
@@ -217,7 +233,7 @@ class SampleView(AbstractSampleView):
         mpos = [self.get_shape(refid).mpos() for refid in refs]
         spos_list = [self.get_shape(refid).screen_coord for refid in refs]
         spos = reduce((lambda x, y: tuple(x) + tuple(y)), spos_list, ())
-        shape = self.add_shape_from_mpos(mpos, spos, t)
+        shape = self.add_shape_from_mpos(mpos, spos, t, state, user_state)
         shape.refs = refs
 
         return shape
@@ -457,7 +473,10 @@ class Shape(object):
         self.id = ""
         self.cp_list = []
         self.name = ""
-        self.state = "SAVED"
+        self.state: ShapeState = "SAVED"
+        self.user_state: ShapeState = (
+            "SAVED"  # used to persist user preferences in regards wether to show or hide particular shape.
+        )
         self.label = ""
         self.screen_coord = screen_coord
         self.selected = False
@@ -547,7 +566,7 @@ class Point(Shape):
 
     def set_id(self, id_num):
         Shape.set_id(self, id_num)
-        self.cp_list[0].index = self.id
+        self.cp_list[0].index = self.name
 
     def as_dict(self):
         d = Shape.as_dict(self)
@@ -575,6 +594,9 @@ class Line(Shape):
         self.t = "L"
         self.label = "Line"
         self.set_id(Line.SHAPE_COUNT)
+
+    def set_id(self, id_num):
+        Shape.set_id(self, id_num)
 
     def get_centred_positions(self):
         return [self.start_cpos, self.end_cpos]
@@ -619,6 +641,10 @@ class Grid(Shape):
         phi_pos = HWR.beamline.diffractometer.omega.get_value() % 360
         _d = abs((self.get_centred_position().phi % 360) - phi_pos)
 
+        if self.user_state == "HIDDEN":
+            self.state = "HIDDEN"
+            return
+
         if min(_d, 360 - _d) > self.shapes_hw_object.hide_grid_threshold:
             self.state = "HIDDEN"
         else:
@@ -644,7 +670,6 @@ class Grid(Shape):
 
     def set_id(self, id_num):
         Shape.set_id(self, id_num)
-        self.cp_list[0].index = self.id
 
     def set_result(self, result_data):
         self.result = result_data
@@ -661,7 +686,6 @@ class Grid(Shape):
         beam_pos = HWR.beamline.beam.get_beam_position_on_screen()
         size_x, size_y, shape, _label = HWR.beamline.beam.get_value()
 
-        # MXCuBE - 2 WF compatability
         d["x1"] = -float((beam_pos[0] - d["screen_coord"][0]) / pixels_per_mm[0])
         d["y1"] = -float((beam_pos[1] - d["screen_coord"][1]) / pixels_per_mm[1])
         d["steps_x"] = d["num_cols"]
