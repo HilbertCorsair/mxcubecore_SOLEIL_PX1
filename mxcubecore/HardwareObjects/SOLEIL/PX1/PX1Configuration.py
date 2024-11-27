@@ -1,6 +1,7 @@
-
 import os
+
 from mxcubecore.BaseHardwareObjects import HardwareObject
+
 
 class PX1Configuration(HardwareObject):
     def __init__(self, name):
@@ -17,7 +18,7 @@ class PX1Configuration(HardwareObject):
         self.centring_points = self.get_property("centring_points")
         self.centring_phi_incr = self.get_property("centring_phi_increment")
         self.centring_sample_type = self.get_property("centring_sample_type")
-        
+
         print(f"LocalConfiguration has value sample_type={self.centring_sample_type}")
 
     def get_use_edna(self):
@@ -59,7 +60,7 @@ class PX1Configuration(HardwareObject):
         self.commit_changes()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     hwr_directory = os.environ["XML_FILES_PATH"]
     hwr = HardwareRepository.HardwareRepository(os.path.abspath(hwr_directory))
     hwr.connect()

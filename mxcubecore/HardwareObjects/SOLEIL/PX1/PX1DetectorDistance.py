@@ -1,10 +1,7 @@
 import time
+
 import gevent
-
 from TangoMotor import TangoMotor
-
-
-
 
 
 class PX1DetectorDistance(TangoMotor):
@@ -26,11 +23,11 @@ class PX1DetectorDistance(TangoMotor):
         "MOVING": 4,
         "ON": 2,
     }
-    #def __init__(self, name):
+    # def __init__(self, name):
     #    super().__init__(name)
 
     def init(self):
-    #    super().init()
+        #    super().init()
 
         self.current_position = 0.0
         self.state_value = "UNKNOWN"
@@ -49,7 +46,11 @@ class PX1DetectorDistance(TangoMotor):
                 pass
 
         self.set_ready()
-        print(dir (self.STATES),"\nType of self.STATES IS .... \n", print(type(self.STATES) ))
+        print(
+            dir(self.STATES),
+            "\nType of self.STATES IS .... \n",
+            print(type(self.STATES)),
+        )
         for k, v in self.STATES.__members__.items():
             print(k, v)
 
@@ -65,7 +66,6 @@ class PX1DetectorDistance(TangoMotor):
         self.chan_position.connect_signal("update", self.motor_chan_positionged)
         self.state_chan.connect_signal("update", self.motor_state_changed)
         self.distance_min_chan.connect_signal("update", self.distance_min_changed)
-
 
     def is_ready(self):
         return self.state_value == "STANDBY"

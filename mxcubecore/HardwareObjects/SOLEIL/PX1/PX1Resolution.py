@@ -1,9 +1,8 @@
-import math
 import logging
+import math
 import time
 
 from mxcubecore.Command.Tango import DeviceProxy
-
 from mxcubecore.HardwareObjects.abstract.AbstractResolution import AbstractResolution
 
 DETECTOR_DIAMETER = 424.0
@@ -29,8 +28,8 @@ class PX1Resolution(AbstractResolution):
         self._nominal_value = None
         self.currentDistance = None
 
-        #self.connect("equipmentReady", self.equipmentReady)
-        #self.connect("equipmentNotReady", self.equipmentNotReady)
+        # self.connect("equipmentReady", self.equipmentReady)
+        # self.connect("equipmentNotReady", self.equipmentNotReady)
 
         self.distance_chan = self.get_channel_object("distance")
         self.resolution_chan = self.get_channel_object("resolution")
@@ -51,7 +50,7 @@ class PX1Resolution(AbstractResolution):
         self.currentDistance = self.distance_chan.get_value()
         self._nominal_value = self.resolution_chan.get_value()
 
-        #return AbstractResolution._init(self)
+        # return AbstractResolution._init(self)
 
     def connect_notify(self, signal):
         if signal == "stateChanged":
@@ -99,12 +98,11 @@ class PX1Resolution(AbstractResolution):
     def _calculate_resolution(self, radius=None, distance=None, wavelength=None):
         return self.get_value()
 
-
-
-
     def get_value(self):
         if self._nominal_value is None:
-            self._nominal_value = self.resolution_chan.get_value() # le canal donne la résolution
+            self._nominal_value = (
+                self.resolution_chan.get_value()
+            )  # le canal donne la résolution
         return self._nominal_value
 
     def getDistance(self):
@@ -148,9 +146,6 @@ class PX1Resolution(AbstractResolution):
         ) > 0.001:
             self.currentDistance = distance
             self.emit("distanceChanged", (distance,))
-
-
-
 
     def getDistanceLimits(self):
 

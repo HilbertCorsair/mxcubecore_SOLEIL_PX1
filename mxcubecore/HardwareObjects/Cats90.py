@@ -20,16 +20,25 @@ Known sites using cats90
 """
 
 from __future__ import print_function
-from enum import Enum, unique
-import time
-import PyTango
+
 import logging
-from mxcubecore.HardwareObjects.abstract.sample_changer import (Sample, Container)
+import time
+from enum import (
+    Enum,
+    unique,
+)
+
+import PyTango
+
+from mxcubecore.BaseHardwareObjects import HardwareObjectState
 from mxcubecore.HardwareObjects.abstract.AbstractSampleChanger import (
     SampleChanger,
-    SampleChangerState
+    SampleChangerState,
 )
-from mxcubecore.BaseHardwareObjects import HardwareObjectState
+from mxcubecore.HardwareObjects.abstract.sample_changer import (
+    Container,
+    Sample,
+)
 
 __author__ = "Michael Hellmig, Jie Nan, Bixente Rey"
 __credits__ = ["The MXCuBE collaboration"]
@@ -75,8 +84,10 @@ def cats_basket_presence_void(value, basket=1):
 class Basket(Container.Container):
     __TYPE__ = "Puck"
 
-    def __init__(self, container , number, samples_num=10, name="Puck"):
-        super(Basket, self).__init__(self.__TYPE__, container, Basket.get_basket_address(number), True )
+    def __init__(self, container, number, samples_num=10, name="Puck"):
+        super(Basket, self).__init__(
+            self.__TYPE__, container, Basket.get_basket_address(number), True
+        )
 
         self.samples_num = samples_num
 
@@ -131,19 +142,21 @@ class Pin(Container.Sample):
             return str(basket_number) + ":" + "%02d" % (sample_number)
         else:
             return ""
+
+
 @unique
 class CatsStates(Enum):
     """Shutter states definitions."""
+
     RUNNING = HardwareObjectState.READY, "RUNNING"
-    OF =HardwareObjectState.OFF, "DISABLE"
-    #RUNNING = HardwareObjectState.READY, "RUNNING"
+    OF = HardwareObjectState.OFF, "DISABLE"
+    # RUNNING = HardwareObjectState.READY, "RUNNING"
     MOVING = HardwareObjectState.BUSY, "MOVING"
     DISABLE = HardwareObjectState.WARNING, "DISABLE"
-    #AUTOMATIC = HardwareObjectState.READY, "RUNNING"
+    # AUTOMATIC = HardwareObjectState.READY, "RUNNING"
     UNKNOWN = HardwareObjectState.UNKNOWN, "RUNNING"
     FAULT = HardwareObjectState.WARNING, "FAULT"
     STANDBY = HardwareObjectState.WARNING, "STANDBY"
-
 
 
 class Cats90(SampleChanger):
@@ -552,6 +565,7 @@ class Cats90(SampleChanger):
             pass
 
         self.update_info()
+
     def get_state(self):
         """Get the device state.
         Returns:
@@ -563,7 +577,6 @@ class Cats90(SampleChanger):
         except (AttributeError, KeyError) as err:
             logging.error(f"Exception in get_state(): {err}")
             return self.STATES.UNKNOWN
-
 
     def connect_notify(self, signal):
         if signal == SampleChanger.INFO_CHANGED_EVENT:

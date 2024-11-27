@@ -1,12 +1,19 @@
 import logging
 import time
-from typing import Optional, List, Dict, Any
+from typing import (
+    Any,
+    Dict,
+    List,
+    Optional,
+)
 
 import gevent
+
 from mxcubecore.BaseHardwareObjects import HardwareObject
 from mxcubecore.Command.Tango import DeviceProxy
 
 logger = logging.getLogger("HWR")
+
 
 class PX1TangoLight(HardwareObject):
     """
@@ -17,7 +24,7 @@ class PX1TangoLight(HardwareObject):
     def __init__(self, name: str) -> None:
         super().__init__(name)
         self.current_state: str = "unknown"
-        self.states: List[str] =["out", "in"]
+        self.states: List[str] = ["out", "in"]
         self.inversed: bool = False
         self.attrchan: Optional[Any] = None
         self.set_in: Optional[Any] = None
@@ -46,11 +53,11 @@ class PX1TangoLight(HardwareObject):
         """Set up command objects and their signal connections."""
         self.set_in = self.get_command_object("set_in")
         self.set_out = self.get_command_object("set_out")
-        '''
+        """
         if self.set_in:
             self.set_in.connect_signal("connected", self._set_ready)
             self.set_in.connect_signal("disconnected", self._set_ready)
-        '''
+        """
 
     def _setup_hardware_objects(self) -> None:
         """Set up references to related hardware objects."""
@@ -90,7 +97,7 @@ class PX1TangoLight(HardwareObject):
             value: Boolean indicating the new state
         """
         self.current_state = self.states[1] if value else self.states[0]
-        self.emit('wago_state_changed', (self.current_state,))
+        self.emit("wago_state_changed", (self.current_state,))
 
     def get_state(self) -> str:
         """Get current state of the light system."""
@@ -172,10 +179,10 @@ class PX1TangoLight(HardwareObject):
 
         try:
             props = self.zoom_hwo.get_current_position_properties()
-            if 'lightLevel' not in props:
+            if "lightLevel" not in props:
                 return
 
-            light_level = float(props['lightLevel'])
+            light_level = float(props["lightLevel"])
             current_light = self.light_hwo.get_position()
 
             if current_light != light_level:

@@ -1,19 +1,19 @@
 from __future__ import print_function
+
 import logging
-import gevent
-import time
-from mxcubecore.HardwareObjects.abstract.sample_changer import Container
-import PyTango
 import math
+import time
 
-
+import gevent
+import PyTango
 from Cats90 import (
+    BASKET_UNIPUCK,
     Cats90,
     SampleChangerState,
-    BASKET_UNIPUCK,
 )
-
 from PX1Environment import EnvironmentPhase
+
+from mxcubecore.HardwareObjects.abstract.sample_changer import Container
 
 
 class PX1Cryotong(Cats90):
