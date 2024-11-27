@@ -541,7 +541,6 @@ class Cats90(SampleChanger):
         self._chnLidLoadedSample.connect_signal("update", self.cats_loaded_lid_changed)
         self._chnNumLoadedSample.connect_signal("update", self.cats_loaded_num_changed)
         self._chnSampleBarcode.connect_signal("update", self.cats_barcode_changed)
-        self.SPECIFIC_STATES = CatsStates
 
         # connect presence channels
         if self.basket_channels is not None:  # old device server
