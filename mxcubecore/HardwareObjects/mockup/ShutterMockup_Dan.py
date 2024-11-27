@@ -19,14 +19,10 @@
 
 """ Mockup shutter implementation"""
 
-from enum import (
-    Enum,
-    unique,
-)
-
+from enum import Enum, unique
+from mxcubecore.HardwareObjects.abstract.AbstractNState import AbstractNState
 from mxcubecore.BaseHardwareObjects import HardwareObjectState
-from mxcubecore.HardwareObjects.abstract.AbstractShutter import AbstractShutter
-from mxcubecore.HardwareObjects.mockup.ActuatorMockup import ActuatorMockup
+
 
 @unique
 class ShutterStates(Enum):
@@ -39,7 +35,7 @@ class ShutterStates(Enum):
     AUTOMATIC = HardwareObjectState.READY, 10
 
 
-class ShutterMockup(AbstractShutter, TangoShutter):
+class ShutterMockup_Dan(AbstractNState):
     """
     ShutterMockup for simulating a simple open/close shutter.
     Fake some of the states of the shutter to correspong to values.
@@ -50,17 +46,10 @@ class ShutterMockup(AbstractShutter, TangoShutter):
     def init(self):
         """Initialisation"""
         super().init()
-        self._initialise_values()
+        self.initialise_values()
         self.update_value(self.VALUES.CLOSED)
         self.update_state(self.STATES.READY)
 
-    def _initialise_values(self):
-        """Add additional, known in advance states to VALUES"""
-        values_dict = {item.name: item.value for item in self.VALUES}
-        values_dict.update(
-            {
-                "MOVING": "In Motion",
-                "UNUSABLE": "Temporarily not controlled",
-            }
-        )
-        self.VALUES = Enum("ValueEnum", values_dict)
+    def limits(self):
+            return self.get_limits()
+

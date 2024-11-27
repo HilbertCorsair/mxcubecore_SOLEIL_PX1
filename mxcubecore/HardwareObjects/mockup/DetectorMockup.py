@@ -46,6 +46,9 @@ class DetectorMockup(AbstractDetector):
         """Returns always True"""
         return True
 
+    def get_radius(self, distance=None):
+        return 160
+
     def prepare_acquisition(self, *args, **kwargs):
         """
         Prepares detector for acquisition

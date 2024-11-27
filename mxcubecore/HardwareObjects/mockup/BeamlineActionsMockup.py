@@ -1,5 +1,11 @@
-import logging
+from typing import Any
+from typing_extensions import Literal
 
+from pydantic.v1 import BaseModel, Field
+from mxcubecore.HardwareObjects.BeamlineActions import (
+    BeamlineActions,
+    AnnotatedCommand,
+)
 import gevent
 from pydantic.v1 import (
     BaseModel,
@@ -50,6 +56,16 @@ class Anneal2(AnnotatedCommand):
             f"Annealing for {data.exp_time} seconds"
         )
         gevent.sleep(data.exp_time)
+
+class PrismaticAlignment:
+    def __call__(self, *args: Any, **kwds: Any) -> Any:
+        logging.getLogger('HWR').info('Running Alignment')
+        logging.getLogger('HWR').info("Setting diff to transfer")
+        HWR.beamline.diffractometer.set_phase('Transfer')
+        gevent.sleep(3)
+        logging.getLogger('HWR').info("Focusing Beam")
+        HWR.beamline.detector.restart()
+        logging.getLogger('HWR').info("Running Prismatic Alignment'")
 
 
 class QuickRealign2(AnnotatedCommand):
