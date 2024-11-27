@@ -1,12 +1,13 @@
 import time
-
 import gevent
 
-from mxcubecore.BaseHardwareObjects import HardwareObject
-from mxcubecore.HardwareObjects.abstract.AbstractMotor import AbstractMotor
+from TangoMotor import TangoMotor
 
 
-class PX1DetectorDistance(Device, AbstractMotor):
+
+
+
+class PX1DetectorDistance(TangoMotor):
 
     MOVESTARTED = 0
     NOTINITIALIZED = 0
@@ -25,8 +26,12 @@ class PX1DetectorDistance(Device, AbstractMotor):
         "MOVING": 4,
         "ON": 2,
     }
+    #def __init__(self, name):
+    #    super().__init__(name)
 
     def init(self):
+    #    super().init()
+
         self.current_position = 0.0
         self.state_value = "UNKNOWN"
         self.threshold = (
@@ -43,10 +48,13 @@ class PX1DetectorDistance(Device, AbstractMotor):
             except Exception:
                 pass
 
-        self.set_is_ready(True)
+        self.set_ready()
+        print(dir (self.STATES),"\nType of self.STATES IS .... \n", print(type(self.STATES) ))
+        for k, v in self.STATES.__members__.items():
+            print(k, v)
 
-        self.position_chan = self.get_channel_object("position")
-        self.state_chan = self.get_channel_object("state")
+        self.chan_position = self.get_channel_object("position")
+        self.chan_state = self.get_channel_object("state")
         self.stop_command = self.get_command_object("stop")
 
         self.distance_min_chan = self.get_channel_object("minimum_distance")
@@ -54,9 +62,10 @@ class PX1DetectorDistance(Device, AbstractMotor):
         self.light_state_chan = self.get_channel_object("light_state")
         self.light_extract_cmd = self.get_command_object("extract_light")
 
-        self.position_chan.connect_signal("update", self.motor_position_changed)
+        self.chan_position.connect_signal("update", self.motor_chan_positionged)
         self.state_chan.connect_signal("update", self.motor_state_changed)
         self.distance_min_chan.connect_signal("update", self.distance_min_changed)
+
 
     def is_ready(self):
         return self.state_value == "STANDBY"
@@ -64,8 +73,8 @@ class PX1DetectorDistance(Device, AbstractMotor):
     def connect_notify(self, signal):
         if signal == "hardware_object_name,stateChanged":
             self.motor_state_changed()
-        elif signal == "position_changed":
-            self.motor_position_changed()
+        elif signal == "chan_positionged":
+            self.motor_chan_positionged()
         elif signal == "limitsChanged":
             self.distance_min_changed()
         self.set_is_ready(True)
@@ -74,13 +83,13 @@ class PX1DetectorDistance(Device, AbstractMotor):
         state_code = self.get_state(state)
 
         if self.state_value not in ["RUNNING", "MOVING"]:
-            position = self.position_chan.get_value()
-            self.motor_position_changed(position)
+            position = self.chan_position.get_value()
+            self.motor_chan_positionged(position)
 
         self.set_is_ready(True)
         self.emit("stateChanged", (state_code,))
 
-    def motor_position_changed(self, position=None):
+    def motor_chan_positionged(self, position=None):
         if position is None:
             position = self.get_value()
 
@@ -98,7 +107,7 @@ class PX1DetectorDistance(Device, AbstractMotor):
 
     def get_state(self, state=None):
         if state is None:
-            state = str(self.state_chan.get_value())
+            state = str(self.chan_state.get_value())
         else:
             state = str(state)
 
@@ -107,11 +116,11 @@ class PX1DetectorDistance(Device, AbstractMotor):
         return self.stateDict[state]
 
     def get_value(self):
-        return self.position_chan.get_value()
+        return self.chan_position.get_value()
 
     def get_limits(self):
         try:
-            info = self.position_chan.getInfo()
+            info = self.chan_position.getInfo()
             max = float(info.max_value)
             min = float(self.distance_min_chan.get_value())
             return [min, max]
@@ -126,7 +135,7 @@ class PX1DetectorDistance(Device, AbstractMotor):
         if not self.check_light(value):
             return (False, "Error while trying to extract the light arm!")
 
-        self.position_chan.set_value(value)
+        self.chan_position.set_value(value)
 
     def get_motor_mnemonic(self):
         return self.name()

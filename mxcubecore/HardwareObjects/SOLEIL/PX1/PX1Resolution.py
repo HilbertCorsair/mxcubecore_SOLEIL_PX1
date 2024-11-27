@@ -1,16 +1,17 @@
-import logging
 import math
+import logging
 import time
 
-from mxcubecore.BaseHardwareObjects import HardwareObject
 from mxcubecore.Command.Tango import DeviceProxy
+
+from mxcubecore.HardwareObjects.abstract.AbstractResolution import AbstractResolution
 
 DETECTOR_DIAMETER = 424.0
 
 NOTINITIALIZED, UNUSABLE, READY, MOVESTARTED, MOVING, ONLIMIT = (0, 1, 2, 3, 4, 5)
 
 
-class PX1Resolution(HardwareObject):
+class PX1Resolution(AbstractResolution):
 
     stateDict = {
         "UNKNOWN": 0,
@@ -28,8 +29,8 @@ class PX1Resolution(HardwareObject):
         self._nominal_value = None
         self.currentDistance = None
 
-        self.connect("equipmentReady", self.equipmentReady)
-        self.connect("equipmentNotReady", self.equipmentNotReady)
+        #self.connect("equipmentReady", self.equipmentReady)
+        #self.connect("equipmentNotReady", self.equipmentNotReady)
 
         self.distance_chan = self.get_channel_object("distance")
         self.resolution_chan = self.get_channel_object("resolution")
@@ -50,7 +51,7 @@ class PX1Resolution(HardwareObject):
         self.currentDistance = self.distance_chan.get_value()
         self._nominal_value = self.resolution_chan.get_value()
 
-        return super()._init()
+        #return AbstractResolution._init(self)
 
     def connect_notify(self, signal):
         if signal == "stateChanged":
@@ -70,16 +71,40 @@ class PX1Resolution(HardwareObject):
     def equipmentNotReady(self):
         self.emit("deviceNotReady")
 
+    def motstate_to_state(self, motstate):
+
+        motstate = str(motstate)
+
+        if motstate == "ON":
+            state = self.STATES.READY
+        elif motstate == "MOVING":
+            state = self.STATES.BUSY
+        elif motstate == "FAULT":
+            state = self.STATES.FAULT
+        elif motstate == "OFF":
+            state = self.STATES.OFF
+        else:
+            state = self.STATES.UNKNOWN
+
+        return state
+
     def get_state(self, value=None):
         if value is None:
             value = self.state_chan.get_value()
         state_str = str(value)
         # return self.stateDict[state_str]
-        return state_str
+        print(f"MOtor state is {state_str}")
+        return self.motstate_to_state(state_str)
+
+    def _calculate_resolution(self, radius=None, distance=None, wavelength=None):
+        return self.get_value()
+
+
+
 
     def get_value(self):
         if self._nominal_value is None:
-            self.recalculateResolution()
+            self._nominal_value = self.resolution_chan.get_value() # le canal donne la résolution
         return self._nominal_value
 
     def getDistance(self):
@@ -124,9 +149,12 @@ class PX1Resolution(HardwareObject):
             self.currentDistance = distance
             self.emit("distanceChanged", (distance,))
 
+
+
+
     def getDistanceLimits(self):
 
-        chan_info = self.distance_chan.getInfo()
+        chan_info = self.distance_chan.get_info()
 
         high = float(chan_info.max_value)
         low = self.minimum_dist_chan.get_value()

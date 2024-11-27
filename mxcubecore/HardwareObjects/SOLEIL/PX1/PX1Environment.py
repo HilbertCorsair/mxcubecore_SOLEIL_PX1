@@ -1,345 +1,240 @@
-# -*- coding: utf-8 -*-
-
-import logging
 import time
-
+import logging
 import gevent
-
-from mxcubecore.BaseHardwareObjects import HardwareObject
+from mxcubecore.HardwareObjects.abstract.AbstractMotor import AbstractMotor
 from mxcubecore.Command.Tango import DeviceProxy
 from mxcubecore.TaskUtils import task
 
+from mxcubecore.BaseHardwareObjects import HardwareObject
 
 class EnvironmentPhase:
-
     TRANSFER = 0
     CENTRING = 1
     COLLECT = 2
     DEFAULT = 3
     BEAMVIEW = 4
     FLUOX = 5
-    MANUALTRANSFER = 6
-    INPROGRESS = 7
-    VISUSAMPLE = 8
+    MANUAL_TRANSFER = 6
+    IN_PROGRESS = 7
+    VISU_SAMPLE = 8
 
-    phasedesc = {
+    phase_desc = {
         "TRANSFER": TRANSFER,
         "CENTRING": CENTRING,
         "COLLECT": COLLECT,
         "DEFAULT": DEFAULT,
         "BEAMVIEW": BEAMVIEW,
         "FLUOX": FLUOX,
-        "MANUALTRANSFER": MANUALTRANSFER,
-        "INPROGRESS": INPROGRESS,
-        "VISUSAMPLE": VISUSAMPLE,
+        "MANUAL_TRANSFER": MANUAL_TRANSFER,
+        "IN_PROGRESS": IN_PROGRESS,
+        "VISU_SAMPLE": VISU_SAMPLE,
     }
 
     @staticmethod
-    def phase(phasename):
-        return EnvironmentPhase.phasedesc.get(phasename, None)
+    def phase(phase_name):
+        return EnvironmentPhase.phase_desc.get(phase_name)
 
-
-class EnvironemntState:
-    UNKNOWN, ON, RUNNING, ALARM, FAULT = (0, 1, 10, 13, 14)  # Like PyTango stated
-
-    # TangoStates = {
-    #    Unknown     = 0
-    #    On          = 1
-    #    Loaded      = 2
-    #    Loading     = 3
-    #    Unloading   = 4
-    #    Selecting   = 5
-    #    Scanning    = 6
-    #    Resetting   = 7
-    #    Charging    = 8
-    #    Moving      = 9
-    #    Running     = 10
-    #    StandBy     = 11
-    #    Disabled    = 12
-    #    Alarm       = 13
-    #    Fault       = 14
-    #    Initializing= 15
-    #    Closing     = 16
-    #    Off         = 17
-    # }
-
-    statedesc = {ON: "ON", RUNNING: "RUNNING", ALARM: "ALARM", FAULT: "FAULT"}
+class EnvironmentState:
+    UNKNOWN, ON, RUNNING, ALARM, FAULT = (0, 1, 10, 13, 14)
+    state_desc = {ON: "ON", RUNNING: "RUNNING", ALARM: "ALARM", FAULT: "FAULT"}
 
     @staticmethod
-    def tostring(state):
-        return SampleChangerState.statedesc.get(state, "Unknown")
-
+    def to_string(state):
+        return SampleChangerState.state_desc.get(state, "Unknown")
 
 class PX1Environment(HardwareObject):
     def __init__(self, name):
         super().__init__(name)
         self.auth = None
         self.device = None
+        self.state_chan = None
+        self.chan_auth = None
+        self.cmds = {}
 
     def init(self):
-
         self.device = DeviceProxy(self.get_property("tangoname"))
+        self._init_channels()
+        self._init_commands()
+        self._update_state()
 
+    def _init_channels(self):
         try:
             self.state_chan = self.get_channel_object("State")
-            self.state_chan.connect_signal("update", self.stateChanged)
+            if self.state_chan is None:
+                self.state_chan = self.add_channel(
+                    {
+                        "type": "tango",
+                        "name": "state_can",
+                        "tangoname": self.tangoname,
+                        "polling": 300,
+                    },
+                    "State",
+                )
 
+            self.state_chan.connect_signal("update", self._update_state)
         except KeyError:
             logging.getLogger().warning("%s: cannot report State", self.name())
-
         try:
-            self.chanAuth = self.get_channel_object("beamlineMvtAuthorized")
-            self.chanAuth.connect_signal("update", self.setAuthorizationFlag)
-            # state = self.state_chan.get_value()
-
+            self.chan_auth = self.get_channel_object("beamlineMvtAuthorized")
+            self.chan_auth.connect_signal("update", self._set_authorization_flag)
         except KeyError:
-            logging.getLogger().warning("%s: cannot report State", self.name())
+            logging.getLogger().warning("%s: cannot report Authorization", self.name())
 
-        try:
-            self.usingCapillaryChannel = self.get_channel_object("usingCapillary")
-            self.setUsingCapillary(True)
-        except Exception:
-            self.usingCapillaryChannel = None
-
-        try:
-            self.beamstopPositionChannel = self.get_channel_object("beamstopPosition")
-        except Exception:
-            self.beamstopPositionChannel = None
-
+    def _init_commands(self):
         if self.device is not None:
-            self.set_is_ready(True)
-
             self.cmds = {
                 EnvironmentPhase.TRANSFER: self.device.GoToTransfertPhase,
                 EnvironmentPhase.CENTRING: self.device.GoToCentringPhase,
                 EnvironmentPhase.COLLECT: self.device.GoToCollectPhase,
                 EnvironmentPhase.DEFAULT: self.device.GoToDefaultPhase,
-                # EnvironmentPhase.BEAMVIEW: self.device.GoToBeamViewPhase,
                 EnvironmentPhase.FLUOX: self.device.GoToFluoXPhase,
-                EnvironmentPhase.MANUALTRANSFER: self.device.GoToManualTransfertPhase,
-                EnvironmentPhase.VISUSAMPLE: self.device.GoToVisuSamplePhase,
+                EnvironmentPhase.MANUAL_TRANSFER: self.device.GoToManualTransfertPhase,
+                EnvironmentPhase.VISU_SAMPLE: self.device.GoToVisuSamplePhase,
             }
 
-    # ---- begin state handling
-    #
-    def stateChanged(self, value):
-        self.emit("StateChanged", (value,))
+    def _motstate_to_state(self, motstate):
+        motstate = str(motstate)
+        state_map = {
+            "ON": self.STATES.READY,
+            "MOVING": self.STATES.BUSY,
+            "FAULT": self.STATES.FAULT,
+            "OFF": self.STATES.OFF
+        }
+        return state_map.get(motstate, self.STATES.UNKNOWN)
+
+    def _update_state(self,s=None):
+        gevent.sleep(0.1)
+        motor_state = self.state_chan.get_value()
+        self.log.debug(f"Reading motor state for {self.name} is {str(motor_state)}")
+        self._motor_state_changed(motor_state)
+
+    def _motor_state_changed(self, state=None):
+        if not state:
+            state = self.state_chan.get_value()
+        self.update_state(self._motstate_to_state(state))
 
     def get_state(self):
-        state = str(self.state_chan.get_value())
-        return state
+        return str(self.state_chan.get_value())
 
-    def isBusy(self, timeout=None):
-        state = self.stateChan.get_value()
+    def is_busy(self, timeout=None):
+        state = self.state_chan.get_value()
         return state not in [EnvironmentState.ON]
 
     def wait_ready(self, timeout=None):
-        self._waitState(["ON"], timeout)
+        self._wait_state(["ON"], timeout)
 
-    def _waitState(self, states, timeout=None):
+    def _wait_state(self, states, timeout=None):
         if self.device is None:
             return
 
-        _debut = time.time()
         with gevent.Timeout(timeout, Exception("Timeout waiting for device ready")):
-            waiting = True
-            while waiting:
-                state = self.readState()
-                if state in states:
-                    waiting = False
+            while self.state_chan.get_value() not in states:
                 gevent.sleep(0.05)
 
-    #
-    # ------- end state handling
-    # logging.debug("PX1environment: end _waitState in %.1f sec" % (time.time() - _debut))
-
-    # ------- begin phase handling
-    #
-    def isPhaseTransfer(self):
+    def is_phase_transfer(self):
         return self.device.readyForTransfert
 
-    def isPhaseCollect(self):
-        return self.readyForCollect()
+    def is_phase_collect(self):
+        return self.ready_for_collect()
 
-    def isPhaseVisuSample(self):
+    def is_phase_visu_sample(self):
         return self.device.readyForVisuSample
 
-    def isPhaseFluoScan(self):
+    def is_phase_fluo_scan(self):
         return self.device.readyForFluoScan
 
-    def readyForCentring(self):
-        if self.device is not None:
-            return self.device.readyForCentring
-        else:
-            return None
+    def ready_for_centring(self):
+        return self.device.readyForCentring if self.device else None
 
-    def readyForCollect(self):
-        if self.device is not None:
-            return self.device.readyForCollect
-        else:
-            return None
+    def ready_for_collect(self):
+        return self.device.readyForCollect if self.device else None
 
-    def readyForDefaultPosition(self):
-        if self.device is not None:
-            return self.device.readyForDefaultPosition
-        else:
-            return None
+    def ready_for_default_position(self):
+        return self.device.readyForDefaultPosition if self.device else None
 
-    def readyForFluoScan(self):
-        if self.device is not None:
-            return self.device.readyForFluoScan
-        else:
-            return None
+    def ready_for_fluo_scan(self):
+        return self.device.readyForFluoScan if self.device else None
 
-    def readyForManualTransfer(self):
-        if self.device is not None:
-            return self.device.readyForManualTransfert
-        else:
-            return None
+    def ready_for_manual_transfer(self):
+        return self.device.readyForManualTransfert if self.device else None
 
-    def readyForTransfer(self):
-        if self.device is not None:
-            return self.device.readyForTransfert
-        else:
-            return None
+    def ready_for_transfer(self):
+        return self.device.readyForTransfert if self.device else None
 
-    def readyForVisuSample(self):
-        if self.device is not None:
-            return self.device.readyForVisuSample
-        else:
-            return None
+    def ready_for_visu_sample(self):
+        return self.device.readyForVisuSample if self.device else None
 
-    def gotoPhase(self, phase):
-        logging.debug("PX1environment.gotoPhase %s" % phase)
-        cmd = self.cmds.get(phase, None)
+    def goto_phase(self, phase):
+        logging.debug(f"PX1environment.goto_phase {phase}")
+        cmd = self.cmds.get(phase)
         if cmd is not None:
-            logging.debug("PX1environment.gotoPhase state %s" % self.readState())
+            logging.debug(f"PX1environment.goto_phase state {self.get_state()}")
             cmd()
-        else:
-            return None
 
-    def setPhase(self, phase, timeout=120):
-        self.gotoPhase(phase)
-        self.waitPhase(phase, timeout)
+    def set_phase(self, phase, timeout=120):
+        self.goto_phase(phase)
+        self.wait_phase(phase, timeout)
 
-    def readPhase(self):
+    def read_phase(self):
         if self.device is not None:
-            phasename = self.device.currentPhase
-            return EnvironmentPhase.phase(phasename)
-        else:
-            return None
+            phase_name = self.device.currentPhase
+            return EnvironmentPhase.phase(phase_name)
 
     def get_current_phase(self):
-        return self.device.currentPhase
+        return self.device.currentPhase if self.device else None
 
-    getCurrentPhase = get_current_phase
+    def get_phase(self):
+        return self.device.currentPhase if self.device else None
 
-    def getPhase(self):
-        if self.device is not None:
-            phasename = self.device.currentPhase
-            return phasename
-        else:
-            return None
-
-    def waitPhase(self, phase, timeout=None):
+    def wait_phase(self, phase, timeout=None):
         if self.device is None:
             return
-        logging.debug("PX1environment: start waitPhase")
-        _debut = time.time()
-        n = 0
-        with gevent.Timeout(
-            timeout, Exception("Timeout waiting for environment phase")
-        ):
-            waiting = True
-            while waiting:
-                n += 1
-                _phaseread = self.readPhase()
-                if phase == _phaseread:
-                    waiting = False
+
+        logging.debug("PX1environment: start wait_phase")
+        with gevent.Timeout(timeout, Exception("Timeout waiting for environment phase")):
+            while self.read_phase() != phase:
                 gevent.sleep(0.05)
-        logging.debug(
-            "PX1environment: end waitPhase in %.1f sec N= %d"
-            % ((time.time() - _debut), n)
-        )
+        logging.debug("PX1environment: end wait_phase")
 
-    #
-    # ------- end phase handling
-
-    def gotoCentringPhase(self):
-        if not self.readyForCentring() or self.getPhase() != "CENTRING":
+    def goto_centring_phase(self):
+        if not self.ready_for_centring() or self.get_phase() != "CENTRING":
             self.get_command_object("GoToCentringPhase")()
             time.sleep(0.1)
 
-    def gotoCollectPhase(self):
-        if not self.readyForCollect() or self.getPhase() != "COLLECT":
+    def goto_collect_phase(self):
+        if not self.ready_for_collect() or self.get_phase() != "COLLECT":
             self.get_command_object("GoToCollectPhase")()
             time.sleep(0.1)
 
-    def gotoLoadingPhase(self):
-        if not self.readyForTransfer():
+    def goto_loading_phase(self):
+        if not self.ready_for_transfer():
             self.get_command_object("GoToTransfertPhase")()
             time.sleep(0.1)
 
-    def gotoManualLoadingPhase(self):
-        if not self.readyForTransfer():
+    def goto_manual_loading_phase(self):
+        if not self.ready_for_transfer():
             self.get_command_object("GoToManualTransfertPhase")()
             time.sleep(0.1)
 
-    def gotoSampleViewPhase(self):
-        if not self.readyForVisuSample():
+    def goto_sample_view_phase(self):
+        if not self.ready_for_visu_sample():
             self.get_command_object("GoToVisuSamplePhase")()
             time.sleep(0.1)
 
-    def gotoFluoScanPhase(self):
-        if not self.readyForFluoScan():
+    def goto_fluo_scan_phase(self):
+        if not self.ready_for_fluo_scan():
             self.get_command_object("GoToFluoScanPhase")()
             time.sleep(0.1)
 
-    def setAuthorizationFlag(self, value):
-        # make here the logic with eventually other permits (like hardware permit)
+    def _set_authorization_flag(self, value):
         if value != self.auth:
             logging.getLogger("HWR").debug(
-                "PX1Environment. received authorization from cryotong:  %s" % value
+                f"PX1Environment. received authorization from cryotong: {value}"
             )
             self.auth = value
-            self.emit("operationPermitted", value)
-
-    def getUsingCapillary(self):
-        if self.usingCapillaryChannel is not None:
-            return self.usingCapillaryChannel.get_value()
-
-    def setUsingCapillary(self, value):
-        self.capillary_value = value
-        gevent.spawn(self._setUsingCapillary)
-
-    @task
-    def _setUsingCapillary(self):
-        if self.usingCapillaryChannel is not None:
-            self.usingCapillaryChannel.set_value(self.capillary_value)
-
-    def getBeamstopPosition(self):
-        if self.beamstopPositionChannel is not None:
-            return self.beamstopPositionChannel.get_value()
-
-    def setBeamstopPosition(self, value):
-        self.beamstop_position = value
-        gevent.spawn(self._setBeamstopPosition)
-
-    @task
-    def _setBeamstopPosition(self):
-        if self.beamstopPositionChannel is not None:
-            self.beamstopPositionChannel.set_value(self.beamstop_position)
-
+            self.emit("operation_permitted", value)
 
 def test_hwo(hwo):
-    t0 = time.time()
     print("PX1 Environment (state) ", hwo.get_state())
-    print("               phase is ", hwo.getCurrentPhase())
-    print("        beamstop pos is ", hwo.getBeamstopPosition())
-
-    # if not env.readyForTransfer():
-    #    print "Going to transfer phase"
-    #    env.setPhase(EnvironmentPhase.TRANSFER)
-    #    print time.time() - t0
-    # print "done"
-    # env.waitPhase(EnvironmentPhase.TRANSFER)
+    print("               phase is ", hwo.get_current_phase())
+    print("        beamstop pos is ", hwo.get_beamstop_position())
