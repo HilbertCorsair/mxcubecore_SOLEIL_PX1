@@ -111,24 +111,26 @@ class RedisMpegVideo(HardwareObject):
             #exit()
 
             self._video_stream_process = subprocess.Popen(
-                [
+                [  
                     "video-streamer",
                     "-uri",
-                    "redis://localhost:6379",
+                    "redis://195.221.8.84:6379",
                     "-hs",
                     "localhost",
                     "-p",
-                    str(self.port),
+                    self.port,
                     "-q",
-                    "4",
+                    str(self._quality),
                     "-s",
-                    str(self.get_availabble_stream_sizes()[0]),
+                    self._current_stream_size,
                     "-of",
-                    "MJPEG",
+                    self.format,
                     "-id",
                     self.stream_hash,
                     "-irc",
-                    self.stream_hash,  
+                    "redis_channel" 
+
+                    # "-d",
                 ],
                 close_fds=True,
             )
@@ -146,14 +148,14 @@ class RedisMpegVideo(HardwareObject):
 
             self._video_stream_process = None
 
-    def start_streaming(self, _format=None, size=(0, 0), _port=None):
+    def start_streaming(self, _format=None, size=(0, 0), port=None):
         _s = size
      
         if _format:
             self.format = _format
         
-        if _port:
-            self.port = _port
+        if port:
+            self.port = port
 
         if not size[0]:
             _s = (self.get_width(), self.get_height())
