@@ -97,22 +97,7 @@ class ISPyBClientMockup(ProposalTypeISPyBLims):
         if password == "ispybDown":
             raise Exception("Could not authenticate")
 
-    def login(
-        self, user_name: str, password: str, is_local_host: bool
-    ) -> LimsSessionManager:
-        logging.getLogger("HRW").debug(
-            "Login on ISPyBLims proposal=%s is_local_host=%s"
-            % (user_name, str(is_local_host)),
-        )
-        self._authenticate(user_name, password)
-        self.session_manager = LimsSessionManager()
-        # Authentication
-        try:
-            self._authenticate(user_name, password)
-            self.user_name = user_name
-        except BaseException as e:
-            raise e
-
+    def _create_test_session(self):
         session_dict = {
             "session_id": "1565334143",
             "beamline_name": "ID23-1",
@@ -135,10 +120,31 @@ class ISPyBClientMockup(ProposalTypeISPyBLims):
             "data_portal_URL": "https://data2.esrf.fr/investigation/1565334143/datasets",
             "logbook_URL": "https://data2.esrf.fr/investigation/1565334143/logbook",
         }
+
         session: Session = Session(**session_dict)
-        self.session_manager = LimsSessionManager(
-            sessions=[session], active_session=session
+        return LimsSessionManager(sessions=[session], active_session=session)
+
+    def login(
+        self, user_name: str, password: str, is_local_host: bool
+    ) -> LimsSessionManager:
+        logging.getLogger("HRW").debug(
+            "Login on ISPyBLims proposal=%s is_local_host=%s"
+            % (user_name, str(is_local_host)),
         )
+        self._authenticate(user_name, password)
+        self.session_manager = LimsSessionManager()
+        # Authentication
+        try:
+            self._authenticate(user_name, password)
+            self.user_name = user_name
+        except BaseException as e:
+            raise e
+
+        self.session_manager = self._create_test_session()
+        return self.session_manager
+
+    def create_session(self, proposal):
+        self.session_manager = self._create_test_session()
         return self.session_manager
 
     def get_proposal(self, proposal_code, proposal_number):
@@ -201,6 +207,9 @@ class ISPyBClientMockup(ProposalTypeISPyBLims):
                 if str(proposal_number) == str(proposal.number):
                     return True
         return False
+
+    def _store_data_collection_group(self, group_data_dict):
+        pass
 
     def store_data_collection(self, mx_collection, bl_config=None):
         """
@@ -271,6 +280,30 @@ class ISPyBClientMockup(ProposalTypeISPyBLims):
         :type image_dict: dict
 
         :returns: None
+        """
+        pass
+
+    def store_robot_action(self, robot_action_dict):
+        """
+        Stores the robot action dictionary.
+
+        Structure of robot_action_dictionary:
+        {
+            "actionType":str,
+            "containerLocation": str,
+            "dewarLocation":str,
+            "message":str,
+            "sampleBarcode":str,
+            "sessionId":int,
+            "sampleId":int.
+            "startTime":str,
+            "endTime":str,
+            "xtalSnapshotAfter:str",
+            "xtalSnapshotBefore:str",
+        }
+
+        Args:
+            robot_action_dict: robot action dictionary as defined above
         """
         pass
 
