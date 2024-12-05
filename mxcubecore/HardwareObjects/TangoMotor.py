@@ -204,7 +204,6 @@ class TangoMotor(AbstractMotor):
                 self.cmd_on()
         # ensure that the state is updated at least once after the polling time
         # in case we miss the state update
-        #gevent.spawn(self._update_state)
 
     def _update_state(self):
         gevent.sleep(0.5)
