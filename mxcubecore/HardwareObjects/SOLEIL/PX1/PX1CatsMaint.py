@@ -26,8 +26,10 @@ import os
 import subprocess
 import time
 from enum import Enum
+
 import gevent
 from CatsMaint import CatsMaint
+
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.BaseHardwareObjects import HardwareObjectState
 
