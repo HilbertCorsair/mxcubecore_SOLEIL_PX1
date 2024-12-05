@@ -36,9 +36,6 @@ class PX1Beamline(BeamlineSetup):
 
             time.sleep(1)  # allow some time on quit to allow actions to be triggered
         except BaseException as e:
-            import traceback
-
-            log.error("Error while launching beamline close procedure. %s" % str(e))
-            log.error(traceback.format_exc())
+            log.exception("Error while launching beamline close procedure.")
 
         return "PX1 beamline close procedure launched"
