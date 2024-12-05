@@ -54,7 +54,6 @@ from mxcubecore.BaseHardwareObjects import (
 #
 # TODO Make all tags consistent, including AcquisitionParameters attributes.
 
-
 class Beamline(ConfiguredObject):
     """Beamline class serving as singleton container for links to HardwareObjects"""
 
@@ -171,6 +170,7 @@ class Beamline(ConfiguredObject):
             logging.getLogger("HWR").warning(
                 "Unrecognised parameter limits for: %s" % unrecognised
             )
+
 
     def _hwr_init_done(self):
         """
@@ -418,6 +418,7 @@ class Beamline(ConfiguredObject):
         Returns:
             Optional[AbstractDiffractometer]:
         """
+
         return self._objects.get("diffractometer")
 
     __content_roles.append("diffractometer")
@@ -432,6 +433,15 @@ class Beamline(ConfiguredObject):
         return self._objects.get("detector")
 
     __content_roles.append("detector")
+
+    @property
+    def environment(self):
+        """Environment specifique PX1"""
+
+        return self._objects.get("environment")
+
+    __content_roles.append("environment")
+
 
     @property
     def resolution(self):
@@ -452,6 +462,7 @@ class Beamline(ConfiguredObject):
         Returns:
             Optional[AbstractSampleChanger]:
         """
+
         return self._objects.get("sample_changer")
 
     __content_roles.append("sample_changer")

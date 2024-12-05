@@ -222,6 +222,7 @@ class GenericDiffractometer(HardwareObject):
         "kappa_phi",
         "beam_x",
         "beam_y",
+        "zoom",
     ]
 
     STATE_CHANGED_EVENT = "stateChanged"
@@ -474,15 +475,16 @@ class GenericDiffractometer(HardwareObject):
                     self.motor_hwobj_dict["sampy"]
                 )
         except Exception:
-            pass  # used the default value
+            print("HEY ! Execptoin encountered in GenericDiffracto;eter line 452 : Using defqul values> ")  # used the default value
 
         try:
             self.delay_state_polling = self.get_property("delay_state_polling")
-        except Exception:
-            pass
+        except Exception as e:
+            print("YO ! Execptoin encountered in GenericDiffracto;eter line 473 self.get_property(delay_state_polling) :\n{e}\nUsing defqul values> ")  # used the default value
 
         # Other parameters ---------------------------------------------------
         try:
+
             self.zoom_centre = eval(self.get_property("zoom_centre"))
         except Exception:
             self.zoom_centre = {"x": 0, "y": 0}
@@ -705,7 +707,7 @@ class GenericDiffractometer(HardwareObject):
                 self.use_sc = True
             else:
                 logging.getLogger("HWR").error(
-                    "Diffractometer: Set the "
+                    "Diffractometer: Set the"
                     + "diffractometer TransferMode to SAMPLE_CHANGER first!!"
                 )
                 return False
@@ -771,6 +773,14 @@ class GenericDiffractometer(HardwareObject):
         """
         Descript. :
         """
+        # hacked to avoid division by zero problem
+
+        print(f"This is ~~~~~ GENEGIC DEFRACTOMETER ~~~~~~\nReporting pixels per mm Y : {self.pixels_per_mm_y}\n")
+        if self.pixels_per_mm_x == 0 or self.pixels_per_mm_y == 0 :
+            zoom = self.get_object_by_role("zoom")
+            position = self.get_object_by_role("zoom").get_value()
+            self.pixels_per_mm_x = float(zoom.positions[position]['calibrationData']['pixelsPerMmY'])
+            self.pixels_per_mm_y = float(zoom.positions[position]['calibrationData']['pixelsPerMmZ'])
 
         self.current_motor_positions["beam_x"] = (
             self.beam_position[0] - self.zoom_centre["x"]
@@ -817,7 +827,6 @@ class GenericDiffractometer(HardwareObject):
     def get_phase_list(self):
         """
         Returns list of available phases
-
         :returns: list with str
         """
         return self.phase_list
@@ -947,6 +956,7 @@ class GenericDiffractometer(HardwareObject):
         Descript. :
         """
         try:
+
             self.emit_progress_message("Move to beam...")
             self.centring_time = time.time()
             curr_time = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -1349,6 +1359,7 @@ class GenericDiffractometer(HardwareObject):
 
     def update_zoom_calibration(self):
         """ """
+        print(f"~~~~~ GENERIC DIFRACTO ~~~~~~~~~\ncoqx cqm y : {self.channel_dict['CoaxCamScaleX'].get_value()}  /\n")
         self.pixels_per_mm_x = 1.0 / self.channel_dict["CoaxCamScaleX"].get_value()
         self.pixels_per_mm_y = 1.0 / self.channel_dict["CoaxCamScaleY"].get_value()
         self.emit("pixelsPerMmChanged", ((self.pixels_per_mm_x, self.pixels_per_mm_y)))
