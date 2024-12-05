@@ -20,29 +20,20 @@ Known sites using cats90
 """
 
 from __future__ import print_function
-
-import logging
+from enum import Enum, unique
 import time
-from enum import (
-    Enum,
-    unique,
-)
-
 import PyTango
-
-from mxcubecore.BaseHardwareObjects import HardwareObjectState
+import logging
+from mxcubecore.HardwareObjects.abstract.sample_changer.Sample import Sample
+from mxcubecore.HardwareObjects.abstract.sample_changer.Container import Container
 from mxcubecore.HardwareObjects.abstract.AbstractSampleChanger import (
-    SampleChanger,
-    SampleChangerState,
-)
-from mxcubecore.HardwareObjects.abstract.sample_changer import (
-    Container,
-    Sample,
-)
+    SampleChanger, SampleChangerState
+    )
+from mxcubecore.BaseHardwareObjects import HardwareObjectState
+import gevent
 
 __author__ = "Michael Hellmig, Jie Nan, Bixente Rey"
 __credits__ = ["The MXCuBE collaboration"]
-
 __email__ = "txo@txolutions.com"
 
 #
@@ -81,13 +72,11 @@ def cats_basket_presence_void(value, basket=1):
     )
 
 
-class Basket(Container.Container):
+class Basket(Container):
     __TYPE__ = "Puck"
 
-    def __init__(self, container, number, samples_num=10, name="Puck"):
-        super(Basket, self).__init__(
-            self.__TYPE__, container, Basket.get_basket_address(number), True
-        )
+    def __init__(self, container , number, samples_num=10, name="Puck"):
+        super(Basket, self).__init__(self.__TYPE__, container, Basket.get_basket_address(number), True )
 
         self.samples_num = samples_num
 
@@ -113,15 +102,13 @@ class SpineBasket(Basket):
             container, Basket.get_basket_address(number), SAMPLES_SPINE, True
         )
 
-
 class UnipuckBasket(Basket):
     def __init__(self, container, number, name="UniPuck"):
         super(UnipuckBasket, self).__init__(
             container, Basket.get_basket_address(number), SAMPLES_UNIPUCK, True
         )
 
-
-class Pin(Container.Sample):
+class Pin(Sample):
     STD_HOLDERLENGTH = 22.0
 
     def __init__(self, basket, basket_no, sample_no):
@@ -144,25 +131,7 @@ class Pin(Container.Sample):
             return ""
 
 
-@unique
-class CatsStates(Enum):
-    """Shutter states definitions."""
-
-    RUNNING = HardwareObjectState.READY, "RUNNING"
-    OFF = HardwareObjectState.OFF, "DISABLE"
-    # RUNNING = HardwareObjectState.READY, "RUNNING"
-    MOVING = HardwareObjectState.BUSY, "MOVING"
-    DISABLE = HardwareObjectState.WARNING, "DISABLE"
-    # AUTOMATIC = HardwareObjectState.READY, "RUNNING"
-    UNKNOWN = HardwareObjectState.UNKNOWN, "RUNNING"
-    FAULT = HardwareObjectState.WARNING, "FAULT"
-    STANDBY = HardwareObjectState.WARNING, "STANDBY"
-
-
 class Cats90(SampleChanger):
-
-    SPECIFIC_STATES = CatsStates
-
     """
 
     Actual implementation of the CATS Sample Changer,
@@ -214,10 +183,10 @@ class Cats90(SampleChanger):
         self.number_of_baskets = None
 
         # add support for CATS dewars with variable number of lids
-
-        # Create channels from XML
-
         self.cats_device = PyTango.DeviceProxy(self.get_property("tangoname"))
+        self.cats_name = self.get_property("cats")
+        no_of_lids = self.get_property("no_of_lids")
+        self.cats_cats = PyTango.DeviceProxy(self.get_property("cats"))
 
         no_of_lids = self.get_property("no_of_lids")
         if no_of_lids is None:
@@ -256,7 +225,7 @@ class Cats90(SampleChanger):
                 {
                     "type": "tango",
                     "name": "_chnPowered",
-                    "tangoname": self.tangoname,
+                    "tangoname": self.cats_name,
                     "polling": 300,
                 },
                 "Powered",
@@ -273,7 +242,7 @@ class Cats90(SampleChanger):
                 },
                 "PathRunning",
             )
-
+        """
         self._chnPathSafe = self.get_channel_object("_chnPathSafe", optional=True)
         if self._chnPathSafe is None:
             self._chnPathSafe = self.add_channel(
@@ -285,7 +254,7 @@ class Cats90(SampleChanger):
                 },
                 "PathSafe",
             )
-
+        """
         self._chnNumLoadedSample = self.get_channel_object(
             "_chnNumLoadedSample", optional=True
         )
@@ -322,7 +291,7 @@ class Cats90(SampleChanger):
                 {
                     "type": "tango",
                     "name": "_chnSampleBarcode",
-                    "tangoname": self.tangoname,
+                    "tangoname": self.cats_name,
                     "polling": 1000,
                 },
                 "Barcode",
@@ -353,17 +322,6 @@ class Cats90(SampleChanger):
                     "polling": 1000,
                 },
                 "di_AllLidsClosed",
-            )
-
-        self._chnCurrentTool = self.get_channel_object("_chnCurrentTool", optional=True)
-        if self._chnCurrentTool is None:
-            self._chnCurrentTool = self.add_channel(
-                {
-                    "type": "tango",
-                    "name": "_chnCurrentTool",
-                    "tangoname": self.tangoname,
-                },
-                "Tool",
             )
 
         # commands
@@ -412,7 +370,7 @@ class Cats90(SampleChanger):
                 {
                     "type": "tango",
                     "name": "_cmdLoadBarcode",
-                    "tangoname": self.tangoname,
+                    "tangoname": self.cats_name,
                 },
                 "put_bcrd",
             )
@@ -423,7 +381,7 @@ class Cats90(SampleChanger):
                 {
                     "type": "tango",
                     "name": "_cmdChainedLoadBarcode",
-                    "tangoname": self.tangoname,
+                    "tangoname": self.cats_name,
                 },
                 "getput_bcrd",
             )
@@ -536,11 +494,12 @@ class Cats90(SampleChanger):
         self._chnStatus.connect_signal("update", self.cats_status_changed)
         self._chnPathRunning.connect_signal("update", self.cats_pathrunning_changed)
         self._chnPowered.connect_signal("update", self.cats_powered_changed)
-        self._chnPathSafe.connect_signal("update", self.cats_pathsafe_changed)
+        #self._chnPathSafe.connect_signal("update", self.cats_pathsafe_changed)
         self._chnAllLidsClosed.connect_signal("update", self.cats_lids_closed_changed)
         self._chnLidLoadedSample.connect_signal("update", self.cats_loaded_lid_changed)
         self._chnNumLoadedSample.connect_signal("update", self.cats_loaded_num_changed)
         self._chnSampleBarcode.connect_signal("update", self.cats_barcode_changed)
+        self._is_device_ready()
 
         # connect presence channels
         if self.basket_channels is not None:  # old device server
@@ -564,19 +523,6 @@ class Cats90(SampleChanger):
             pass
 
         self.update_info()
-
-    def get_state(self) -> HardwareObjectState:
-        """Get the device state.
-
-        Returns:
-            Device state.
-        """
-        try:
-            _state = self.cats_device.State()
-            return self.SPECIFIC_STATES[str(_state)].value[0]
-        except (AttributeError, KeyError) as err:
-            logging.error(f"Exception in get_state(): {err}")
-            return self.STATES.UNKNOWN
 
     def connect_notify(self, signal):
         if signal == SampleChanger.INFO_CHANGED_EVENT:
@@ -692,10 +638,6 @@ class Cats90(SampleChanger):
         )
         return
 
-        self._do_update_cats_contents()
-        self._do_update_state()
-        self._do_update_loaded_sample()
-
     def _do_change_mode(self, mode):
         """
         Changes the SC operation mode, not implemented for the CATS system
@@ -799,7 +741,7 @@ class Cats90(SampleChanger):
                     argin = ["2", str(lid), str(sample), "0", "0"]
                     self._execute_server_task(self._cmdScanSample, argin)
 
-    def load(self, sample=None, wait=True):
+    def load(self, sample=None, wait=True, wash=True):
         """
         Load a sample.
             overwrite original load() from AbstractSampleChanger to allow finer decision
@@ -824,7 +766,7 @@ class Cats90(SampleChanger):
 
         self._execute_task(SampleChangerState.Loading, wait, self._do_load, sample)
 
-    def _do_load(self, sample=None, shifts=None):
+    def _do_load(self, sample=None, shifts=None, wash=False):
         """
         Loads a sample on the diffractometer. Performs a simple put operation if the diffractometer is empty, and
         a sample exchange (unmount of old + mount of new sample) if a sample is already mounted on the diffractometer.
@@ -927,6 +869,16 @@ class Cats90(SampleChanger):
                     )
                     self._execute_server_task(self._cmdLoad, argin)
 
+    def wash(self, wait=False):
+        self._update_state() # remove software flags like Loading.
+        self.assert_not_charging()
+        self._execute_task(SampleChangerState.Loading, wait, self._do_wash)
+        self.update_info()
+
+    def _do_wash(self):
+        sample=self.get_loaded_sample()
+        self._do_load(sample=sample, wash=True)
+
     def _do_unload(self, sample_slot=None, shifts=None):
         """
         Unloads a sample from the diffractometer.
@@ -1009,11 +961,11 @@ class Cats90(SampleChanger):
             # hack for transient states
             trials = 0
 
-            while value in [PyTango.DevState.ALARM, PyTango.DevState.ON]:
+            while value in [PyTango.DevState.ALARM]:#, PyTango.DevState.ON]:
                 time.sleep(0.1)
                 trials += 1
                 logging.getLogger("HWR").warning(
-                    "SAMPLE CHANGER could be in transient state. trying again"
+                    "SAMPLE CHANGER could be in transient state. trying again (Cats90)"
                 )
                 value = self._chnState.get_value()
                 if trials > 4:
@@ -1104,15 +1056,7 @@ class Cats90(SampleChanger):
 
     def cats_sample_on_diffr(self):
         detected = self._chnSampleIsDetected.get_value()
-        on_diffr = -1 not in [self.cats_loaded_lid, self.cats_loaded_num]
-
-        if detected and on_diffr:
-            return 1
-        elif detected or on_diffr:  # conflicting info
-            return -1
-        else:
-            return 0
-
+        return int(detected)
     # ########################           PRIVATE           #########################
 
     def _execute_server_task(self, method, *args, **kwargs):
@@ -1183,7 +1127,7 @@ class Cats90(SampleChanger):
         self.cats_powered = self._chnPowered.get_value()
         self.cats_lids_closed = self._chnAllLidsClosed.get_value()
         self.cats_status = self._chnStatus.get_value()
-        self.cats_state = self._device_chnState.get_value()
+        self.cats_state = self._chnState.get_value()
 
     def _update_state(self):
 
@@ -1236,8 +1180,10 @@ class Cats90(SampleChanger):
 
         if dev_state == PyTango.DevState.ALARM:
             _state = SampleChangerState.Alarm
+
         elif not powered:
-            _state = SampleChangerState.Ready
+            _state = SampleChangerState.Disabled
+
         elif dev_state == PyTango.DevState.RUNNING:
             if self.state not in [
                 SampleChangerState.Loading,
@@ -1256,8 +1202,6 @@ class Cats90(SampleChanger):
                 % (self.has_loaded_sample(), self._chnSampleIsDetected.get_value())
             )
             _state = SampleChangerState.Unknown
-        # elif not lids_closed:
-        # _state = SampleChangerState.Charging
         elif dev_state == PyTango.DevState.ON:
             _state = SampleChangerState.Ready
         else:
@@ -1292,7 +1236,7 @@ class Cats90(SampleChanger):
         :rtype: Bool
         """
         state = self._read_state()
-        return state in (SampleChangerState.Ready, SampleChangerState.Charging)
+        return state in (SampleChangerState.Ready, SampleChangerState.Charging, SampleChangerState.StandBy)
 
     def _wait_device_ready(self, timeout=None):
         """
@@ -1362,7 +1306,7 @@ class Cats90(SampleChanger):
         if basket_type == BASKET_SPINE:
             tool = TOOL_SPINE
         elif basket_type == BASKET_UNIPUCK:
-            tool = self.unipuck_tool  # configurable (xml and command set_unipuck_tool()
+            tool = self.unipuck_tool
         else:
             tool = -1
 

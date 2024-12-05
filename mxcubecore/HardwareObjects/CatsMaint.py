@@ -11,15 +11,15 @@ Derived from Michael Hellmig's implementation for the BESSY CATS sample changer
 Vicente Rey - add support for ISARA Model
 
 """
-
 import logging
-import time
+
+from mxcubecore.TaskUtils import task
+from mxcubecore.BaseHardwareObjects import HardwareObject
 
 import gevent
-from PyTango import DeviceProxy
+import time
 
-from mxcubecore.BaseHardwareObjects import HardwareObject
-from mxcubecore.TaskUtils import task
+from PyTango import DeviceProxy
 
 __author__ = "Jie Nan"
 __credits__ = ["The MxCuBE collaboration"]
@@ -49,16 +49,13 @@ TOOL_TO_STR = {
 
 class CatsMaint(HardwareObject):
 
-    __TYPE__ = "CATS"
-    NO_OF_LIDS = 3
-
     """
     Actual implementation of the CATS Sample Changer, MAINTENANCE COMMANDS ONLY
     BESSY BL14.1 installation with 3 lids
     """
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__( *args, **kwargs)
 
         self._state = None
         self._running = None
@@ -73,17 +70,16 @@ class CatsMaint(HardwareObject):
 
     def init(self):
 
+
+        # Check if both devices are realy needed
         self.cats_device = DeviceProxy(self.tangoname)
+        
+        self.cats_name = self.get_property("cats")
+        self.cats_cats = DeviceProxy(self.cats_name)
 
-        try:
-            self.cats_model = self.cats_device.read_attribute("CatsModel").value
-        except Exception:
-            self.cats_model = "CATS"
+        self.nb_of_lids = self.get_property("nb_of_lids")
 
-        if self.is_isara():
-            self.nb_of_lids = 1
-        else:
-            self.nb_of_lids = 3
+        self.cats_model = self.get_property('cm')
 
         self._chnState = self.add_channel(
             {
@@ -108,7 +104,7 @@ class CatsMaint(HardwareObject):
             {
                 "type": "tango",
                 "name": "_chnPowered",
-                "tangoname": self.tangoname,
+                "tangoname": self.cats_name,
                 "polling": 1000,
             },
             "Powered",
@@ -135,7 +131,7 @@ class CatsMaint(HardwareObject):
             {
                 "type": "tango",
                 "name": "_chnLN2Regulation",
-                "tangoname": self.tangoname,
+                "tangoname": self.cats_name,
                 "polling": 1000,
             },
             "LN2Regulating",
@@ -188,16 +184,17 @@ class CatsMaint(HardwareObject):
         self._chnState.connect_signal("update", self._update_state)
         self._chnPathRunning.connect_signal("update", self._update_running_state)
         self._chnPowered.connect_signal("update", self._update_powered_state)
+
         self._chnToolOpenClose.connect_signal("update", self._update_tool_state)
         self._chnMessage.connect_signal("update", self._update_message)
         self._chnLN2Regulation.connect_signal("update", self._update_regulation_state)
-        self._chnBarcode.connect_signal("update", self._updateBarcode)
+        #self._chnBarcode.connect_signal("update", self._updateBarcode)
 
         self._chnCurrentTool = self.add_channel(
             {"type": "tango", "name": "_chnCurrentTool", "tangoname": self.tangoname},
             "Tool",
         )
-        #
+
         self._cmdPowerOn = self.add_command(
             {"type": "tango", "name": "_cmdPowerOn", "tangoname": self.tangoname},
             "powerOn",
@@ -358,7 +355,7 @@ class CatsMaint(HardwareObject):
         tool = TOOL_TO_STR.get(current_value, None)
 
         return tool
-
+    
     ################################################################################
 
     def back_traj(self):
@@ -645,14 +642,21 @@ class CatsMaint(HardwareObject):
         self._barcode = value
         self.emit("barcodeChanged", (value,))
 
-    def _update_state(self, value):
+    def _update_state(self,value):
         self._state = value
         self._update_global_state()
 
     def _update_lid1_state(self, value):
-        self._lid1state = value
-        self.emit("lid1StateChanged", (value,))
-        self._update_global_state()
+        if not isinstance(value, bool):
+            # Hacked by to read the value from the device proxy instead of using the value passed as argument since the <value> argiment is faulty and is somtimes a bollean other time a 'random' integer
+            self._lid1state = not self.cats_device.isLidClosed
+            print(f"LID 1 value is {value} of type {type(value)}--->changing to {not self._lid1state}")
+            self.emit("lid1StateChanged", (not self._lid1state,))
+            self._update_global_state()
+        else :
+            self._lid1state =  value
+            self.emit("lid1StateChanged", (value,))
+            self._update_global_state()
 
     def _update_lid2_state(self, value):
         self._lid2state = value
@@ -672,6 +676,7 @@ class CatsMaint(HardwareObject):
         self.emit("globalStateChanged", (state_dict, cmd_state, message))
 
     def get_global_state(self):
+        print("Getting global state from CatsMaint")
         """
         Update clients with a global state that
         contains different:
@@ -689,7 +694,7 @@ class CatsMaint(HardwareObject):
             a message describing current state information
             as a string
         """
-        _ready = str(self._state) in ("READY", "ON")
+        _ready = self.is_ready()#str(self._state) in ("READY", "ON")
 
         if self._running:
             state_str = "MOVING"
@@ -732,6 +737,8 @@ class CatsMaint(HardwareObject):
         return state_dict, cmd_state, message
 
     def get_cmd_info(self):
+        print("Getting command info (CatsMaint)")
+
         """return information about existing commands for this object
         the information is organized as a list
         with each element contains
@@ -792,49 +799,28 @@ class CatsMaint(HardwareObject):
         ret = True
         return ret
 
-    def send_command(self, cmd_name, args=None):
-
-        #
-        lid = 1
-        toolcal = 0
-        tool = self.get_current_tool()
-
-        if cmd_name in ["dry", "safe", "home"]:
-            if tool is not None:
-                args = [tool]
-            else:
-                raise Exception("Cannot detect type of TOOL in Cats. Command ignored")
-
-        if cmd_name == "soak":
-            if tool in [TOOL_DOUBLE, TOOL_UNIPUCK]:
-                args = [str(tool), str(lid)]
-            else:
-                raise Exception("Can SOAK only when UNIPUCK tool is mounted")
-
-        if cmd_name == "back":
-            if tool is not None:
-                args = [tool, toolcal]
-            else:
-                raise Exception("Cannot detect type of TOOL in Cats. Command ignored")
-
-        cmd = getattr(self.cats_device, cmd_name)
-
+    def send_command (self, cmd_name, args = None):
+        cmds_menu= {"powerOn" :  self.cats_device.PowerON,
+                    "powerOff":  self.cats_device.PowerOFF,
+                    "home": self.cats_device.HomeOpen,
+                    "openlid1" : self.cats_device.OpenLid,
+                    "closelid1" : self.cats_device.CloseLid,
+                    "dry": self._cmdDrySoak,
+                    "soak" : self.cats_device.Soak,
+                    "clear_memory" : self.cats_device.ClearMemory,
+                    "reset": self.cats_device.ResetError,
+                    "back" : None,
+                    "safe" : self._cmdSafe,
+                    "abort" : self.cats_device.Abort,
+                    }
         try:
-            if args is not None:
-                if len(args) > 1:
-                    ret = cmd(map(str, args))
-                else:
-                    ret = cmd(*args)
-            else:
-                ret = cmd()
-            return ret
-        except Exception as exc:
-            import traceback
+            cmd = cmds_menu.get(cmd_name, None)
+            cmd()
+        except Exception as e:
+            logging.getLogger().error(f"Command: {cmd_name} not found! Consider adding it to cmds_menu\{e}")
 
-            traceback.print_exc()
-            msg = exc[0].desc
-            raise Exception(msg)
-
+        time.sleep(3)
+        self._update_global_state()
 
 def test_hwo(hwo):
     print((hwo.get_current_tool()))
