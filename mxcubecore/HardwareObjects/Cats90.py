@@ -149,7 +149,7 @@ class CatsStates(Enum):
     """Shutter states definitions."""
 
     RUNNING = HardwareObjectState.READY, "RUNNING"
-    OF = HardwareObjectState.OFF, "DISABLE"
+    OFF = HardwareObjectState.OFF, "DISABLE"
     # RUNNING = HardwareObjectState.READY, "RUNNING"
     MOVING = HardwareObjectState.BUSY, "MOVING"
     DISABLE = HardwareObjectState.WARNING, "DISABLE"
