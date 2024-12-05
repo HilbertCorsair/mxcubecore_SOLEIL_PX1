@@ -565,10 +565,11 @@ class Cats90(SampleChanger):
 
         self.update_info()
 
-    def get_state(self):
+    def get_state(self) -> HardwareObjectState:
         """Get the device state.
+
         Returns:
-            (enum 'HardwareObjectState'): Device state.
+            Device state.
         """
         try:
             _state = self.cats_device.State()
