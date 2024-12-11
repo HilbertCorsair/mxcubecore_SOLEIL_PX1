@@ -86,6 +86,13 @@ __author__ = "Rasmus H Fogh"
 EMULATION_DATA = {
     "3n0s": {"radiationSensitivity": 0.9},
     "4j8p": {"radiationSensitivity": 1.1},
+    "4mxt": {
+        "exposureTime": 0.055,
+        "oscillationRange": 0.15,
+        # "radiationSensitivity": 1.3,
+        "energy": 12.2222,
+        # "aimedResolution": 2.22,
+    },
 }
 
 # Centring modes for use in centring mode pulldown.
@@ -215,11 +222,13 @@ class GphlWorkflow(HardwareObjectYaml):
         # GoniostatTranslations generated in recentring
         self._recentrings = []
 
-        # Rotation axis role names, ordered from holder towards sample
-        self.rotation_axis_roles = []
-
-        # Translation axis role names
-        self.translation_axis_roles = []
+        # instrumentation configuration data
+        self.instrument_data = {}
+        self.detector_segments = []
+        # Rotation axes, ordered from holder towards sample
+        self.rotation_axes = OrderedDict()
+        # Translation axes
+        self.translation_axes = OrderedDict()
 
         # Switch for 'move-to-fine-zoom' message for translational calibration
         self._use_fine_zoom = False
@@ -259,12 +268,8 @@ class GphlWorkflow(HardwareObjectYaml):
         file_paths["gphl_beamline_config"] = ss0
         file_paths["transcal_file"] = os.path.join(ss0, "transcal.nml")
         file_paths["diffractcal_file"] = os.path.join(ss0, "diffractcal.nml")
-        file_paths["instrumentation_file"] = fp0 = os.path.join(
-            ss0, "instrumentation.nml"
-        )
-        instrument_data = f90nml.read(fp0)["sdcp_instrument_list"]
-        self.rotation_axis_roles = instrument_data["gonio_axis_names"]
-        self.translation_axis_roles = instrument_data["gonio_centring_axis_names"]
+        file_paths["instrumentation_file"] = os.path.join(ss0, "instrumentation.nml")
+        self.load_instrumentation_data()
 
         # Adapt configuration data - must be done after file_paths setting
         if HWR.beamline.gphl_connection.ssh_options:
@@ -299,6 +304,34 @@ class GphlWorkflow(HardwareObjectYaml):
                         )
 
         self.update_state(self.STATES.READY)
+
+    def load_instrumentation_data(self):
+        """Load instrumentation.nml file  and reformat data structures
+
+        Returns: None
+
+        """
+        instrument_input = f90nml.read(self.file_paths["instrumentation_file"])
+        self.instrument_data = instrument_data = instrument_input[
+            "sdcp_instrument_list"
+        ]
+        for ii0, tag in enumerate(instrument_data["gonio_axis_names"]):
+            ii1 = 3 * ii0
+            self.rotation_axes[tag] = instrument_data["gonio_axis_dirs"][ii1 : ii1 + 3]
+        for ii0, tag in enumerate(instrument_data["gonio_centring_axis_names"]):
+            ii1 = 3 * ii0
+            self.translation_axes[tag] = instrument_data["gonio_centring_axis_dirs"][
+                ii1 : ii1 + 3
+            ]
+
+        # Move beamstop settings to top level
+        ll0 = instrument_data.get("beamstop_param_names")
+        ll1 = instrument_data.get("beamstop_param_vals")
+        if ll0 and ll1:
+            for tag, val in zip(ll0, ll1):
+                instrument_data[tag.lower()] = val
+
+        self.detector_segments = instrument_input.get("segment_list")
 
     def shutdown(self):
         """Shut down workflow and connection. Triggered on program quit."""
@@ -448,6 +481,13 @@ class GphlWorkflow(HardwareObjectYaml):
             "type": "number",
             "minimum": 0,
         }
+        fields["crystal_thickness"] = {
+            "title": "Crystal thickness (µ)",
+            "type": "number",
+            "default": data_model.crystal_thickness or 0,
+            "minimum": 0,
+            "readOnly": True,
+        }
         fields["use_cell_for_processing"] = {
             "title": "Use for indexing",
             "type": "boolean",
@@ -566,10 +606,19 @@ class GphlWorkflow(HardwareObjectYaml):
                     "ui:order": ["cell_c", "cell_gamma"],
                 },
                 "sgroup": {
-                    "ui:order": ["input_space_group", "relative_rad_sensitivity"],
+                    "ui:order": [
+                        "input_space_group",
+                        "relative_rad_sensitivity",
+                        "crystal_thickness",
+                    ],
                     "relative_rad_sensitivity": {
                         "ui:options": {
                             "decimals": 2,
+                        }
+                    },
+                    "crystal_thickness": {
+                        "ui:options": {
+                            "decimals": 1,
                         }
                     },
                 },
@@ -628,10 +677,12 @@ class GphlWorkflow(HardwareObjectYaml):
             ):
                 fields[tag]["readOnly"] = False
             ui_schema["parameters"]["column1"]["ui:order"].remove("point_groups")
+            fields["crystal_thickness"]["readOnly"] = False
 
         elif not choose_lattice:
             # Characterisation
             ui_schema["parameters"]["column1"]["ui:order"].remove("point_groups")
+            fields["crystal_thickness"]["readOnly"] = False
 
         else:
             # Acquisition
@@ -979,7 +1030,7 @@ class GphlWorkflow(HardwareObjectYaml):
         )
 
         # Make info_text and do some setting up
-        axis_names = self.rotation_axis_roles
+        axis_names = list(self.rotation_axes)
         if data_model.characterisation_done or data_model.wftype == "diffractcal":
             title_string = data_model.strategy_name
             lauegrp, ptgrp = crystal_symmetry.strategy_laue_group(
@@ -1063,10 +1114,7 @@ class GphlWorkflow(HardwareObjectYaml):
 
         # set starting and unchanging values of parameters
         resolution = HWR.beamline.resolution.get_value()
-        dose_budget = self.resolution2dose_budget(
-            resolution,
-            decay_limit=data_model.decay_limit,
-        )
+        dose_budget = data_model.recommended_dose_budget(resolution)
         # NB These default values are set just before this function is called
         default_image_width = data_model.image_width
         default_exposure = data_model.exposure_time
@@ -1605,10 +1653,8 @@ class GphlWorkflow(HardwareObjectYaml):
 
         # Get current position
         current_pos_dict = HWR.beamline.diffractometer.get_positions()
-        current_okp = tuple(current_pos_dict[role] for role in self.rotation_axis_roles)
-        current_xyz = tuple(
-            current_pos_dict[role] for role in self.translation_axis_roles
-        )
+        current_okp = tuple(current_pos_dict[role] for role in self.rotation_axes)
+        current_xyz = tuple(current_pos_dict[role] for role in self.translation_axes)
 
         # Check if sample is currently centred, and centre first sweep if not
         if (
@@ -1626,18 +1672,16 @@ class GphlWorkflow(HardwareObjectYaml):
             self._recentrings.append(translation)
             goniostatTranslations.append(translation)
             # Update current position
-            current_okp = tuple(
-                current_pos_dict[role] for role in self.rotation_axis_roles
-            )
+            current_okp = tuple(current_pos_dict[role] for role in self.rotation_axes)
             current_xyz = tuple(
-                current_pos_dict[role] for role in self.translation_axis_roles
+                current_pos_dict[role] for role in self.translation_axes
             )
             gphl_workflow_model.current_rotation_id = sweepSetting.id_
 
         elif gphl_workflow_model.characterisation_done or wftype == "diffractcal":
             # Acquisition or diffractcal; crystal is already centred
             settings = dict(sweepSetting.axisSettings)
-            okp = tuple(settings.get(x, 0) for x in self.rotation_axis_roles)
+            okp = tuple(settings.get(x, 0) for x in self.rotation_axes)
             maxdev = max(abs(okp[1] - current_okp[1]), abs(okp[2] - current_okp[2]))
 
             # Get translation setting from recentring or current (MAY be used)
@@ -1655,8 +1699,7 @@ class GphlWorkflow(HardwareObjectYaml):
                 # existing centring - take from current position
                 tol = 0.1
                 translation_settings = dict(
-                    (role, current_pos_dict.get(role))
-                    for role in self.translation_axis_roles
+                    (role, current_pos_dict.get(role)) for role in self.translation_axes
                 )
 
             if maxdev <= tol:
@@ -1692,9 +1735,7 @@ class GphlWorkflow(HardwareObjectYaml):
                     if recentring_mode == "start":
                         # We want snapshots in this mode,
                         # and the first sweepmis skipped in the loop below
-                        okp = tuple(
-                            int(settings.get(x, 0)) for x in self.rotation_axis_roles
-                        )
+                        okp = tuple(int(settings.get(x, 0)) for x in self.rotation_axes)
                         self.collect_centring_snapshots("%s_%s_%s" % okp)
 
         else:
@@ -1711,8 +1752,7 @@ class GphlWorkflow(HardwareObjectYaml):
                 rotation_settings["id_"] = orientation_id
             newRotation = GphlMessages.GoniostatRotation(**rotation_settings)
             translation_settings = dict(
-                (role, current_pos_dict.get(role))
-                for role in self.translation_axis_roles
+                (role, current_pos_dict.get(role)) for role in self.translation_axes
             )
             translation = GphlMessages.GoniostatTranslation(
                 rotation=newRotation,
@@ -1729,7 +1769,7 @@ class GphlWorkflow(HardwareObjectYaml):
             settings = dict(sweepSetting.axisSettings)
             if has_recentring_file:
                 # Update settings
-                okp = tuple(settings.get(x, 0) for x in self.rotation_axis_roles)
+                okp = tuple(settings.get(x, 0) for x in self.rotation_axes)
                 settings.update(
                     self.calculate_recentring(
                         okp, ref_xyz=current_xyz, ref_okp=current_okp
@@ -1745,7 +1785,7 @@ class GphlWorkflow(HardwareObjectYaml):
                 translation, dummy = self.execute_sample_centring(q_e, sweepSetting)
                 goniostatTranslations.append(translation)
                 gphl_workflow_model.current_rotation_id = sweepSetting.id_
-                okp = tuple(int(settings.get(x, 0)) for x in self.rotation_axis_roles)
+                okp = tuple(int(settings.get(x, 0)) for x in self.rotation_axes)
                 self.collect_centring_snapshots("%s_%s_%s" % okp)
             elif has_recentring_file and not gphl_workflow_model.characterisation_done:
                 # Not the first sweep and not gone through stratcal
@@ -1826,7 +1866,7 @@ class GphlWorkflow(HardwareObjectYaml):
             if terminated_ok:
                 if "X,Y,Z" in ss0:
                     ll0 = ss0.split()[-3:]
-                    for idx, tag in enumerate(self.translation_axis_roles):
+                    for idx, tag in enumerate(self.translation_axes):
                         result[tag] = float(ll0[idx])
                     break
 
@@ -1909,6 +1949,7 @@ class GphlWorkflow(HardwareObjectYaml):
         last_orientation = ()
         maxdev = -1
         snapshotted_rotation_ids = set()
+        scan_numbers = {}
         for scan in scans:
             sweep = scan.sweep
             acq = queue_model_objects.Acquisition()
@@ -1982,6 +2023,15 @@ class GphlWorkflow(HardwareObjectYaml):
             path_template.run_number = int(ss0) if ss0 else 1
             path_template.start_num = acq_parameters.first_image
             path_template.num_files = acq_parameters.num_images
+            if (
+                path_template.suffix.endswith("h5")
+                and gphl_workflow_model.characterisation_done
+                and len(sweep.scans) > 1
+            ):
+                # Add scan number to prefix for interleaved hdf5 files (only)
+                # NBNB Temporary fix, pending solution to hdf5 interleaving problem
+                scan_numbers[prefix] = scan_no = scan_numbers.get(prefix, 0) + 1
+                prefix += "_s%s" % scan_no
             path_template.base_prefix = prefix
 
             key = (
@@ -2478,7 +2528,7 @@ class GphlWorkflow(HardwareObjectYaml):
         centring_result = centring_entry.get_data_model().get_centring_result()
         if centring_result:
             positionsDict = centring_result.as_dict()
-            dd0 = dict((x, positionsDict[x]) for x in self.translation_axis_roles)
+            dd0 = dict((x, positionsDict[x]) for x in self.translation_axes)
             return (
                 GphlMessages.GoniostatTranslation(
                     rotation=goniostatRotation,
@@ -2554,8 +2604,7 @@ class GphlWorkflow(HardwareObjectYaml):
             )
 
         translation_settings = dict(
-            (role, collect_dict["motors"].get(role))
-            for role in self.translation_axis_roles
+            (role, collect_dict["motors"].get(role)) for role in self.translation_axes
         )
         if not self._scan_id_to_translation_id or None in translation_settings.values():
             # First sweep or not first scan in sweep
@@ -2571,7 +2620,7 @@ class GphlWorkflow(HardwareObjectYaml):
             # We have recentred. Make new translation object
             translation_settings = dict(
                 (role, HWR.beamline.diffractometer.get_motor_positions().get(role))
-                for role in self.translation_axis_roles
+                for role in self.translation_axes
             )
             translation = GphlMessages.GoniostatTranslation(
                 requestedRotationId=scan.sweep.goniostatSweepSetting.id_,
@@ -2629,12 +2678,38 @@ class GphlWorkflow(HardwareObjectYaml):
         if flux:
             flux_density = flux.get_average_flux_density(transmission=100.0)
             if flux_density:
+                crystal_thickness = (
+                    HWR.beamline.gphl_workflow._queue_entry.get_data_model().crystal_thickness
+                )
+                if crystal_thickness:
+                    beam_dim = (
+                        HWR.beamline.beam.get_beam_size()[
+                            HWR.beamline.gphl_workflow.rotation_axis_index()
+                        ]
+                        * 1000.0
+                    )
+                    # NBNB TODO beam sizes seem to come in mm. Units nowhere defined.
+                    #  FIX THIS MESS!
+                    if crystal_thickness > beam_dim:
+                        # Calculate equivalent flux density across swept crystal
+                        flux_density = flux_density * beam_dim / crystal_thickness
                 return (
                     flux_density
                     * flux.get_dose_rate_per_photon_per_mmsq(energy)
                     * 1.0e-6  # convert to MGy
                 )
         return 0
+
+    def rotation_axis_index(self):
+        """Get index of rotation axis
+
+        Rotation axis is assumed to be either X or Y
+        """
+        coords = list(abs(val) for val in list(self.rotation_axes.values())[0])
+        if coords[0] > coords[1]:
+            return 0
+        else:
+            return 1
 
     def get_emulation_samples(self):
         """Get list of lims_sample information dictionaries for mock/emulation
@@ -2692,14 +2767,11 @@ class GphlWorkflow(HardwareObjectYaml):
                     # Use "Mad, "SAD", "OSC"
                     dfp = data["diffractionPlan"] = {
                         # "diffractionPlanId": 457980,
-                        "experimentKind": "Default",
-                        "numberOfPositions": 0,
-                        "observedResolution": 0.0,
-                        "preferredBeamDiameter": 0.0,
+                        # "experimentKind": "Default",
+                        "exposureTime": 0.0,
+                        "oscillationRange": 0.0,
                         "radiationSensitivity": 1.0,
-                        "requiredCompleteness": 0.0,
-                        "requiredMultiplicity": 0.0,
-                        # "requiredResolution": 0.0,
+                        "energy": 0.0,
                     }
                     dfp["aimedResolution"] = resolution
                     dfp["diffractionPlanId"] = 5000000 + serial
