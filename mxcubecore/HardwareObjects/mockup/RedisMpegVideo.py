@@ -19,7 +19,6 @@ import psutil
 
 from mxcubecore.BaseHardwareObjects import HardwareObject
 
-
 class RedisMpegVideo(HardwareObject):
     def __init__(self, name):
         super().__init__(name)
@@ -61,8 +60,6 @@ class RedisMpegVideo(HardwareObject):
     def port(self, p):
         self._port = str(p)
 
-
-
     def get_width(self):
         w= int(self.get_property("width"))
         return w
@@ -95,8 +92,6 @@ class RedisMpegVideo(HardwareObject):
             video_sizes = [(w, h), (int(w / 2), int(h / 2)), (int(w / 4), int(h / 4))]
         except (ValueError, AttributeError):
             video_sizes = []
-
-
         return video_sizes
 
     def start_video_stream_process(self, p):
@@ -109,7 +104,6 @@ class RedisMpegVideo(HardwareObject):
             #print ("~~~ Video Streamer ~~~")
             #print(f"Type of camerra: {self.get_property("cam_type").strip()}\nURI : {self._host}\nport: {self._port}")
             #exit()
-
             self._video_stream_process = subprocess.Popen(
                 [  
                     "video-streamer",
@@ -128,8 +122,7 @@ class RedisMpegVideo(HardwareObject):
                     "-id",
                     self.stream_hash,
                     "-irc",
-                    "redis_channel" 
-
+                    "mxcubeweb"
                     # "-d",
                 ],
                 close_fds=True,
@@ -168,7 +161,6 @@ class RedisMpegVideo(HardwareObject):
         except Exception as e:
             print(f"Cannot start video streaming process ! {e}")
             exit()
-
 
     def restart_streaming(self, size):
         self.stop_streaming()
