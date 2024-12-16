@@ -1,8 +1,10 @@
 from mxcubecore.HardwareObjects.abstract.AbstractNState import AbstractNState
 from enum import Enum
 import xml.etree.ElementTree as ET
-
+import PyTango
 import logging
+import gevent
+import re
 
 class TangoMotorWPositions(AbstractNState):
     """Used solely for zoom to specify fixed zoom positions"""
@@ -13,7 +15,27 @@ class TangoMotorWPositions(AbstractNState):
         self.positions = {}
         self.position_names = []
         self.delta = 5
-        self.last_position = None
+        self._last_position = None
+        self._zoom_command = None
+        self._cmds_menu = {}
+
+    @property
+    def zoom_command(self):
+        return self._zoom_command
+
+    @zoom_command.setter
+    def zoom_command(self, value):
+        self._zoom_command = value
+
+    @property
+    def last_position(self):
+        return self._last_position
+
+    @last_position.setter
+    def last_position(self, val):
+        self._last_position = val
+
+    # Adds a special type of command channel where the command is a variable (the zoom position)
 
     def parse_xml_config(self):
         source = ET.fromstring(self.xml_source())
@@ -31,14 +53,17 @@ class TangoMotorWPositions(AbstractNState):
                 }
             }
             self.positions[user] = position_data
-    
-    
+
 
     def init(self):
         super().init()
 
-        self.focus_ho = self.get_object_by_role("focus_motor")
-        self.delta = self.get_property('delta', 5)
+        #self.focus_ho = self.get_object_by_role("focus_motor")
+        #self.delta = self.get_property('delta', 5)
+
+        self.tango_name = self.get_property("tangoname")
+        #self.tango_device = PyTango.DeviceProxy(self.tango_name)
+        self._add_position_commands()
 
         self.parse_xml_config()
 
@@ -47,8 +72,38 @@ class TangoMotorWPositions(AbstractNState):
 
         # position names on tha tango device are lowarcase without spaces
         self.position_names = [name.lower().replace(" ", '')for name in self.VALUES.__members__.keys()]
+        self._add_channels()
 
-        print("\n---|ZooM InitiateD|--- !\n")
+
+    def _add_position_commands(self):
+        for i in range(10):
+            self.add_command(
+                {"type": "tango", "name": f"Zoom_{i+1}", "tangoname": self.tangoname},
+                f"Zoom_{i+1}",
+            )
+            self._cmds_menu[f"Zoom_{i+1}"] = getattr(self, f"Zoom_{i+1}")
+
+    def _add_channels(self):
+        self._chnState = self.add_channel(
+            {
+                "type": "tango",
+                "name": "_chnState",
+                "tangoname": self.tangoname,
+                "polling": 300,
+            },
+            "State",
+        )
+
+        self._zoom_position = self.add_channel(
+            {
+                "type": "tango",
+                "name": "current_zoom",
+                "tangoname": self.tangoname,
+                "polling": 300,
+            },
+            "current_zoom",
+        )
+
 
     def initialise_values(self):
         values_dict = dict (**{item.name: item.value for item in self.VALUES })
@@ -72,8 +127,6 @@ class TangoMotorWPositions(AbstractNState):
 
 
     def motstate_to_state(self, motstate):
-
-        motstate = str(motstate)
 
         if motstate == "ON" or motstate in self.positions.keys():
             state = self.STATES.READY
@@ -101,14 +154,16 @@ class TangoMotorWPositions(AbstractNState):
         return ( (self.get_state() == self.STATES.BUSY ) or (self.get_state() == self.SPECIFIC_STATES.MOVING))
 
     def get_value(self):
+
         self.add_channel({'type':'tango', 'name' : '_pos_chan', 'tangoname': self.tangoname,}, "current_zoom")
+        a = self.get_channel_object("_pos_chan").get_value()
 
         """Read the actuator position."""
         return self.get_channel_object("_pos_chan").get_value()  #self._nominal_value
 
     def _set_value(self, value):
         """Implementation of specific set actuator logic."""
-        self.goto_position(value)
+        self.goto_position(value.name)
 
     def get_state(self):
         val = self.get_value()
@@ -125,7 +180,7 @@ class TangoMotorWPositions(AbstractNState):
 
     def validate_value(self, value):
         """Check if the value is one of the predefined values."""
-        return value in self.position_names
+        return value.name in self.position_names
 
     def get_current_name(self):
         pos = self.get_value()
@@ -170,8 +225,30 @@ class TangoMotorWPositions(AbstractNState):
         return self.position_names
 
 
-    def goto_position(self, name):
+    def goto_position(self, name, args = None):
         logging.getLogger().debug("TangoMotorWPositions (%s) / Moving to posname %s" % (self.name(), name))
+
+        import re
+        pattern = r'zoom(\d{1,2})'
+        zoom_pos = re.sub(pattern, r'Zoom_\1', name)
+
+        _cmd = self._cmds_menu.get(zoom_pos, None)
+        _cmd()
+
+        """
+        if not self.zoom_command:
+            import pdb
+            pdb.set_trace()
+
+        else:
+            self.zoom_position = re.sub(pattern, r'Zoom_\1', name)
+            self._CmdPosition()
+        self.last_position = pattern
+        gevent.sleep(5)
+
+        self.zoom_command = re.sub(pattern, r'Zoom_\1', name)
+        self._CmdPosition()
+
 
         if name in self.position_names:
             props = self.get_properties(name)
@@ -181,6 +258,8 @@ class TangoMotorWPositions(AbstractNState):
 
         try:
             abspos = props['offset']
+            print(abspos)
+            print(props)
         except:
             return
 
@@ -192,15 +271,13 @@ class TangoMotorWPositions(AbstractNState):
                 import traceback
                 logging.getLogger('HWR').exception('TangoMotorWPositions(%s). Cannot move focus' % self.name())
                 logging.getLogger('HWR').exception(traceback.format_exc())
+        """
 
         try:
-            self._nominal_value = abspos
-            self.update_value(abspos)
-            if focus_pos is not None:
-                self.focus_ho.move(focus_pos)
+            self.update_value(name)
         except:
             import traceback
-            logging.getLogger('HWR').debug("TangoMotorWPositions (%s) Error moving to offset. %s" % (self.name(), abspos))
+            logging.getLogger('HWR').debug("TangoMotorWPositions (%s) Error moving to offset. %s" % (self.name(), name))
             logging.getLogger('HWR').debug(traceback.format_exc())
 
-    moveToPosition = goto_position
+    #moveToPosition = goto_position

@@ -39,23 +39,18 @@ class RedisMpegVideo(HardwareObject):
         self._format = self.get_property("format")
 
 
-        # self._cam_type = self.get_property("cam_type")
-        #import pdb
-        #print("Check 1")
-        #pdb.set_trace()
-    
     @property
     def format(self):
         return self._format
-    
+
     @format.setter
     def format(self, format):
         self._format = format
-    
+
     @property
     def port(self):
         return self._port
-    
+
     @port.setter
     def port(self, p):
         self._port = str(p)
@@ -101,11 +96,9 @@ class RedisMpegVideo(HardwareObject):
         if (
             not self._video_stream_process
             or self._video_stream_process.poll() is not None ):
-            #print ("~~~ Video Streamer ~~~")
-            #print(f"Type of camerra: {self.get_property("cam_type").strip()}\nURI : {self._host}\nport: {self._port}")
-            #exit()
+
             self._video_stream_process = subprocess.Popen(
-                [  
+                [
                     "video-streamer",
                     "-uri",
                     "redis://195.221.8.84:6379",
@@ -143,10 +136,10 @@ class RedisMpegVideo(HardwareObject):
 
     def start_streaming(self, _format=None, size=(0, 0), port=None):
         _s = size
-     
+
         if _format:
             self.format = _format
-        
+
         if port:
             self.port = port
 
