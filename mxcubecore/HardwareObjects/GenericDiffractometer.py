@@ -333,8 +333,7 @@ class GenericDiffractometer(HardwareObject):
         self.beamstop = self.get_object_by_role("beamstop")
         self.aperture = self.get_object_by_role("aperture")
         self.capillary = self.get_object_by_role("capillary")
-        self.cryo = self.get_object_by_role("cryo")
-
+        self.cryo = self.get_object_by_role("cryo") 
         # Hardware objects ----------------------------------------------------
         # if HWR.beamline.sample_view.camera is not None:
         #     self.image_height = HWR.beamline.sample_view.camera.get_height()
@@ -346,11 +345,12 @@ class GenericDiffractometer(HardwareObject):
 
         if HWR.beamline.beam is not None:
             self.beam_position = HWR.beamline.beam.get_beam_position_on_screen()
-            self.connect(
-                HWR.beamline.beam, "beamPosChanged", self.beam_position_changed
-            )
+            # Beam position is at the center of the image regardless of zoom
+            self.beam_position[0] = 680
+            self.beam_position[1] = 512
+            self.connect(HWR.beamline.beam, "beamPosChanged", self.beam_position_changed)
+
         else:
-            self.beam_position = [0, 0]
             logging.getLogger("HWR").warning(
                 "Diffractometer: " + "BeamInfo hwobj is not defined"
             )
@@ -620,7 +620,7 @@ class GenericDiffractometer(HardwareObject):
         Returns:
             AbstractActuator
         """
-        return self.motor_hwobj_dict.get("zoom")
+        return self.get_object_by_role("zoom")
 
     def is_ready(self):
         """
@@ -773,7 +773,7 @@ class GenericDiffractometer(HardwareObject):
         """
         Descript. :
         """
-        # hacked to avoid division by zero problem
+        # hacked to avoid division by zero error
 
         print(f"This is ~~~~~ GENEGIC DEFRACTOMETER ~~~~~~\nReporting pixels per mm Y : {self.pixels_per_mm_y}\n")
         if self.pixels_per_mm_x == 0 or self.pixels_per_mm_y == 0 :
@@ -830,9 +830,15 @@ class GenericDiffractometer(HardwareObject):
         :returns: list with str
         """
         return self.phase_list
+ 
+    def prepare_centring(self):
+        """ stub. to be filled by implementing class"""
+        logging.getLogger('HWR').debug('>>> LEO GenericDiffractometer entering the prepare_centring() function')
+        pass
 
     def start_centring_method(self, method, sample_info=None, wait=False):
         """ """
+        self.prepare_centring()
 
         if self.current_centring_method is not None:
             logging.getLogger("HWR").error(

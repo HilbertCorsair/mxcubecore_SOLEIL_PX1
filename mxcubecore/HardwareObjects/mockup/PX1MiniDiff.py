@@ -6,8 +6,9 @@ import time
 from mxcubecore.HardwareObjects.GenericDiffractometer import (
     GenericDiffractometer,
 )
+#from mxcubecore.HardwareObjects import sample_centring
 
-import sample_centring
+from mxcubecore.HardwareObjects import sample_centring
 import numpy as np
 import math
 
@@ -20,7 +21,7 @@ class PX1MiniDiff(GenericDiffractometer):
     grid_direction = {"fast": (1, 0),
                       "slow": (0, 1),
                       "omega_ref" : 0}
-    
+
     def init(self):
         self.zoom = self.get_object_by_role("zoom")
         self.smargon = self.get_object_by_role("smargon")
@@ -33,7 +34,6 @@ class PX1MiniDiff(GenericDiffractometer):
         self.pixels_per_mm_x = 0
         self.pixels_per_mm_y = 0
         self.arrow_step = self.default_arrow_step
-
         GenericDiffractometer.init(self)
 
         self.centring_methods = {
@@ -44,158 +44,6 @@ class PX1MiniDiff(GenericDiffractometer):
              GenericDiffractometer.CENTRING_METHOD_MOVE_TO_BEAM: \
                  self.start_move_to_beam}
 
-    def px1_start(self, centring_motors_dict,
-            pixelsPerMm_Hor, pixelsPerMm_Ver,
-            beam_xc, beam_yc,
-            chi_angle = 0,
-            n_points = 3, phi_incr=120., sample_type="LOOP"):
-
-        global CURRENT_CENTRING
-
-        phi, phiy, phiz, sampx, sampy = sample_centring.prepare(centring_motors_dict)
-
-
-        CURRENT_CENTRING = gevent.spawn(self.px1_center,
-                                        phi,
-                                        phiy,
-                                        phiz,
-                                        sampx,
-                                        sampy,
-                                        pixelsPerMm_Hor, pixelsPerMm_Ver,
-                                        beam_xc, beam_yc,
-                                        chi_angle,
-                                        n_points, phi_incr, sample_type)
-        return CURRENT_CENTRING
-
-    def px1_center(self, phi, phiy, phiz,
-                sampx, sampy,
-                pixelsPerMm_Hor, pixelsPerMm_Ver,
-                beam_xc, beam_yc,
-                chi_angle,
-                n_points,phi_incr,sample_type):
-
-        global USER_CLICKED_EVENT
-
-        PHI_ANGLE_START = phi.get_position()
-        PhiCamera=90
-
-        X, Y, PHI = [], [], []
-        P, Q, XB, YB, ANG = [], [], [], [], []
-
-        if sample_type.upper() in ["PLATE","CHIP"]:
-            # go back half of the total range
-            logging.getLogger("user_level_log").info("centerig in plate mode / n_points %s / incr %s" % (n_points, phi_incr))
-            half_range = (phi_incr * (n_points - 1))/2.0
-            phi.sync_move_relative(-half_range)
-        else:
-            logging.getLogger("user_level_log").info("centerig in loop mode / n_points %s / incr %s " % (n_points, phi_incr))
-
-        try:
-            # OBTAIN CLICKS
-            while True:
-                USER_CLICKED_EVENT = gevent.event.AsyncResult()
-                user_info = USER_CLICKED_EVENT.get()
-                if user_info == "abort":
-                    sample_centring.bort_centring()
-                    return None
-                else:
-                    x,y = user_info
-
-
-                USER_CLICKED_EVENT = gevent.event.AsyncResult()
-
-                X.append(x)
-                Y.append(y)
-                PHI.append(phi.get_position())
-
-                if len(X) == n_points:
-                    #PHI_LAST_ANGLE = phi.get_position()
-                    #GO_ANGLE_START = PHI_ANGLE_START - PHI_LAST_ANGLE
-                    sample_centring.READY_FOR_NEXT_POINT.set()
-                    #phi.sync_move_relative(GO_ANGLE_START)
-                    break
-
-                phi.sync_move_relative(phi_incr)
-                sample_centring.READY_FOR_NEXT_POINT.set()
-
-            logging.getLogger("user_level_log").info("returning PHI to initial position %s" % PHI_ANGLE_START)
-            phi.move(PHI_ANGLE_START)
-
-            # CALCULATE
-            logging.getLogger("HWR").debug("sample_centring: INPUT for calculation")
-            logging.getLogger("HWR").debug("sample_centring:   beam_xc = %s, beam_yc = %s " % (beam_xc, beam_yc))
-            logging.getLogger("HWR").debug("sample_centring:   X = %s, Y = %s " % (str(X), str(Y)))
-            logging.getLogger("HWR").debug("sample_centring:   PHI = %s, PhiCamera = %s, n_points = %s " % (str(PHI), PhiCamera, n_points))
-
-            try:
-                for i in range(n_points):
-                    xb  = X[i] - beam_xc
-                    yb = Y[i] - beam_yc
-                    ang = math.radians(PHI[i]+PhiCamera)
-
-                    XB.append(xb); YB.append(yb); ANG.append(ang)
-
-                for i in range(n_points):
-                    y0 = YB[i] ; a0 = ANG[i]
-                    if i < (n_points-1):
-                        y1 = YB[i+1] ; a1 = ANG[i+1]
-                    else:
-                        y1 = YB[0] ; a1 = ANG[0]
-
-                    p = (y0*math.sin(a1)-y1*math.sin(a0))/math.sin(a1-a0)
-                    q = (y0*math.cos(a1)-y1*math.cos(a0))/math.sin(a0-a1)
-
-                    P.append(p);  Q.append(q)
-
-                x_echantillon = -sum(P)/n_points
-                y_echantillon = sum(Q)/n_points
-                z_echantillon = -sum(XB)/n_points
-            except:
-                import traceback
-                logging.getLogger("HWR").info("sample_centring: error while centering: %s" % traceback.format_exc())
-
-            logging.getLogger("HWR").info("sample_centring: Calculating centred position with")
-            logging.getLogger("HWR").info("sample_centring:    / x_ech: %s / y_ech: %s / z_ech: %s" % (x_echantillon, y_echantillon, z_echantillon))
-            logging.getLogger("HWR").info("sample_centring:    / sampx: %s / sampy: %s / phiy: %s" % (sampx.get_position(), sampy.get_position(), phiy.get_position()))
-            logging.getLogger("HWR").info("sample_centring:    / pixels_per_mm: %s " % (pixelsPerMm_Hor))
-
-            x_echantillon_real = x_echantillon/pixelsPerMm_Hor + sampx.get_position()
-            y_echantillon_real = y_echantillon/pixelsPerMm_Hor + sampy.get_position()
-            z_echantillon_real = z_echantillon/pixelsPerMm_Hor + phiy.get_position()
-
-            if phiy.get_limits() is not None:
-                if (z_echantillon_real + phiy.get_position() < phiy.get_limits()[0]*2) :
-                    logging.getLogger("HWR").info("sample_centring: phiy limits: %s" % str(phiy.get_limits()))
-                    logging.getLogger("HWR").info("sample_centring:  requiring: %s" % str(z_echantillon_real + phiy.get_position()))
-                    logging.getLogger("HWR").error("sample_centring: loop too long")
-
-                    self.move_motors(sample_centring.SAVED_INITIAL_POSITIONS)
-                    raise Exception()
-
-            centred_pos = sample_centring.SAVED_INITIAL_POSITIONS.copy()
-
-            centred_pos.update({ phi.motor: PHI_ANGLE_START,
-                                sampx.motor: x_echantillon_real,
-                                sampy.motor: y_echantillon_real,
-                                phiy.motor: z_echantillon_real})
-            logging.getLogger("HWR").info("sample_centring: centring result")
-
-            logging.getLogger("HWR").info("sample_centring: SampX: %s" % x_echantillon_real)
-            logging.getLogger("HWR").info("sample_centring: SampY: %s" % y_echantillon_real)
-            logging.getLogger("HWR").info("sample_centring: PhiY: %s" % z_echantillon_real)
-
-            return centred_pos
-
-        except gevent.GreenletExit:
-            logging.getLogger("HWR").debug("sample_centring.py - Centring aborted")
-
-            sample_centring.abort_centring()
-            #return None
-
-        except:
-            import traceback
-            logging.getLogger("HWR").error("sample_centring: Exception. %s" % traceback.format_exc())
-
     def set_chip_mode(self, flag):
         self.chip_mode = flag
 
@@ -203,25 +51,22 @@ class PX1MiniDiff(GenericDiffractometer):
         return self.chip_mode
 
     def prepare_centring(self, timeout=20):
-
         env_state = self.px1env_ho.get_state()
         self.px1env_ho.goto_centring_phase()
-        if env_state != "ON" and not self.px1env_ho.is_phase_centring():
+        if env_state != "ON" and not self.px1env_ho.ready_for_centring():
             self.px1env_ho.goto_centring_phase()
             gevent.sleep(0.1)
-
-        if not self.px1env_ho.is_phase_centring():
+        if not self.px1env_ho.ready_for_centring():
             t0 = time.time()
             while True:
                 env_state = self.px1env_ho.get_state()
-                if env_state != "RUNNING" and self.px1env_ho.is_phase_centring():
+                if env_state != "RUNNING" and self.px1env_ho.ready_for_centring():
                     break
                 if time.time() - t0 > timeout:
                     logging.getLogger("HWR").debug("timeout sending supervisor to sample view phase")
                     break
                 gevent.sleep(0.1)
-        #if self.lightarm_hwobj
-        self.lightarm_hwobj.adjust_light_level()
+        self.lightarm_hwobj._adjust_light_level()
 
     def mount_finished(self, wash=False):
         if not wash:
@@ -272,7 +117,7 @@ class PX1MiniDiff(GenericDiffractometer):
             self.emit("pixelsPerMmChanged", ((self.pixels_per_mm_x, self.pixels_per_mm_y),))
 
     def update_pixels_per_mm(self):
-        self.update_zoom_calibration() 
+        self.update_zoom_calibration()
 
     def _update_zoom_calibration(self):
         """
@@ -318,7 +163,7 @@ class PX1MiniDiff(GenericDiffractometer):
         centring_phi_incr = self.px1conf_ho.get_centring_phi_increment()
         centring_sample_type = self.px1conf_ho.get_centring_sample_type()
         self.current_centring_procedure = \
-                 self.px1_start({"phi": self.centring_phi,
+                sample_centring.px1_start({"phi": self.centring_phi,
                                  "phiy": self.centring_phiy,
                                  "sampx": self.centring_sampx,
                                  "sampy": self.centring_sampy,
@@ -500,7 +345,6 @@ class PX1MiniDiff(GenericDiffractometer):
     def motor_positions_to_screen(self, centred_positions_dict):
         """
         """
-        import pdb; pdb.set_trace(); 
         self.update_zoom_calibration()
         if None in (self.pixels_per_mm_x, self.pixels_per_mm_y):
             return 0, 0

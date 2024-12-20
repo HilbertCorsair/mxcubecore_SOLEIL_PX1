@@ -89,8 +89,17 @@ class Smargon(HardwareObject):
     def get_state(self):
        # if self._state_chan is None:
        #     self.init()
+        try :
 
-        state = str(self.smargon._state_chan.get_value())
+            state = str(self.smargon._state_chan.get_value())
+        except:
+            # Hack to deal with the case in which self is of class Smargon not SmargonAxis
+            if isinstance (self, Smargon):
+                state = str(self._state_chan.get_value())
+            else :
+                print("ERROR in Smargon.get_state()")
+                exit()    
+
         if state != self.state:
             self.state_changed(state)
         return state

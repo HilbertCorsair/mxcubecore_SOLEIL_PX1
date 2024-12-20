@@ -91,7 +91,7 @@ class SmargonAxis(AbstractMotor, Smargon):
         return self.state_dict.get(state,0)
 
     def get_value (self):
-        return self.smargon.motor_chanels[self.motorname].get_valeu()
+        return self.smargon.motor_channels[self.motor_name].get_value()
 
     def get_limits(self):
         if self.limits:
@@ -124,7 +124,7 @@ class SmargonAxis(AbstractMotor, Smargon):
              return 0.0
         return pos
 
-    def getPosition(self):
+    def get_position(self):
         pos = self.smargon.get_position(self.motor_name)
         pos = self.zero_neg(pos)
 
@@ -134,15 +134,15 @@ class SmargonAxis(AbstractMotor, Smargon):
 
         return pos
 
-    def syncMove(self, position, wait=True):
+    def sync_move(self, position, wait=True):
         self.smargon.wait_ready()
         self.smargon.move(self.motor_name, position, backlash=self.backlash)
         if wait:
             self.smargon.wait_ready()
 
-    def syncMoveRelative(self, position, wait=True):
-        new_pos = self.getPosition() + position
-        self.syncMove(new_pos, wait)
+    def sync_move_relative(self, position, wait=True):
+        new_pos = self.get_position() + position
+        self.sync_move(new_pos, wait)
 
     def move(self, target_position):
         """Move the motor to the required position
@@ -178,11 +178,11 @@ class SmargonAxis(AbstractMotor, Smargon):
         self.smargon.move('velocity', self.velocity_default)
         self.smargon.wait_ready()
 
-    def moveRelative(self, position):
-        new_pos = self.getPosition() + position
+    def move_relative(self, position):
+        new_pos = self.get_position() + position
         self.smargon.move(self.motor_name, new_pos, backlash=self.backlash)
 
-    def waitReady(self):
+    def wait_ready(self):
         self.smargon.wait_ready()
 
     def stop(self):
@@ -190,5 +190,5 @@ class SmargonAxis(AbstractMotor, Smargon):
 
 def test_hwo(hwo):
     print( hwo.get_motor_mnemonic())
-    print( hwo.getPosition())
-    print( hwo.getLimits())
+    print( hwo.get_position())
+    print( hwo.get_limits())

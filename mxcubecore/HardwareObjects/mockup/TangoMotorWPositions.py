@@ -58,13 +58,8 @@ class TangoMotorWPositions(AbstractNState):
     def init(self):
         super().init()
 
-        #self.focus_ho = self.get_object_by_role("focus_motor")
-        #self.delta = self.get_property('delta', 5)
-
         self.tango_name = self.get_property("tangoname")
-        #self.tango_device = PyTango.DeviceProxy(self.tango_name)
         self._add_position_commands()
-
         self.parse_xml_config()
 
         # Create Enum for VALUES
@@ -202,17 +197,6 @@ class TangoMotorWPositions(AbstractNState):
 
         return curr_name, pos, valid
 
-    """
-    def get_current_offset(self):
-        name, pos, valid = self.get_current_name()
-
-        if valid:
-            offset = self.positions[name]['offset']
-            return offset
-        else:
-            return None
-    """
-
 
     def get_properties(self, name=None):
         pos = self.get_value()
@@ -234,44 +218,6 @@ class TangoMotorWPositions(AbstractNState):
 
         _cmd = self._cmds_menu.get(zoom_pos, None)
         _cmd()
-
-        """
-        if not self.zoom_command:
-            import pdb
-            pdb.set_trace()
-
-        else:
-            self.zoom_position = re.sub(pattern, r'Zoom_\1', name)
-            self._CmdPosition()
-        self.last_position = pattern
-        gevent.sleep(5)
-
-        self.zoom_command = re.sub(pattern, r'Zoom_\1', name)
-        self._CmdPosition()
-
-
-        if name in self.position_names:
-            props = self.get_properties(name)
-        else:
-            logging.getLogger('HWR').exception('TangoMotorWPositions(%s). Cannot move : invalid position name %s.' % (self.name(), name))
-            return
-
-        try:
-            abspos = props['offset']
-            print(abspos)
-            print(props)
-        except:
-            return
-
-        focus_pos = None
-        if self.focus_ho is not None:
-            try:
-                focus_pos = props['focus_offset']
-            except:
-                import traceback
-                logging.getLogger('HWR').exception('TangoMotorWPositions(%s). Cannot move focus' % self.name())
-                logging.getLogger('HWR').exception(traceback.format_exc())
-        """
 
         try:
             self.update_value(name)

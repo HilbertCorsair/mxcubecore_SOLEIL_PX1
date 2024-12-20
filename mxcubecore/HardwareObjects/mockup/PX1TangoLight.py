@@ -152,7 +152,6 @@ class PX1TangoLight(HardwareObject):
     def _zoom_changed(self, position_name: str, pos: Any, valid: bool) -> None:
         """
         Handle zoom position changes.
-        
         Args:
             position_name: Name of the position
             pos: Position value
@@ -171,16 +170,17 @@ class PX1TangoLight(HardwareObject):
             return
 
         try:
-            props = self.zoom_hwo.get_current_position_properties()
+            props = self.zoom_hwo.get_properties()
             if 'lightLevel' not in props:
                 return
 
             light_level = float(props['lightLevel'])
-            current_light = self.light_hwo.get_position()
+
+            current_light = self.light_hwo.position_value
             
             if current_light != light_level:
                 logger.debug(f"Setting light level to {light_level}")
-                self.light_hwo.move(light_level)
+                self.light_hwo.set_value(light_level)
                 
         except Exception as e:
             logger.exception("Error adjusting light level: %s", str(e))
