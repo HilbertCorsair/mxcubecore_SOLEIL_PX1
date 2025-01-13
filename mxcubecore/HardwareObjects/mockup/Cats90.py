@@ -496,7 +496,7 @@ class Cats90(SampleChanger):
         self._chnPowered.connect_signal("update", self.cats_powered_changed)
         #self._chnPathSafe.connect_signal("update", self.cats_pathsafe_changed)
         self._chnAllLidsClosed.connect_signal("update", self.cats_lids_closed_changed)
-        self._chnLidLoadedSample.connect_signal("update", self.cats_loaded_lid_changed)
+        #self._chnLidLoadedSample.connect_signal("update", self.cats_loaded_lid_changed)
         self._chnNumLoadedSample.connect_signal("update", self.cats_loaded_num_changed)
         self._chnSampleBarcode.connect_signal("update", self.cats_barcode_changed)
         self._is_device_ready()
@@ -931,7 +931,7 @@ class Cats90(SampleChanger):
 
         if task in [SampleChangerState.Loading, SampleChangerState.Unloading]:
             logging.getLogger("HWR").warning(
-                "  ==========CATS=== load/unload operation failed :  %s" % exception
+                "  ==========CATS=== load/unload operation failed_update_loaded_sample :  %s" % exception
             )
             self.emit("taskFailed", str(exception))
 
@@ -1011,24 +1011,28 @@ class Cats90(SampleChanger):
             )
             self.basket_presence = presence
             self._update_cats_contents()
+            print("Call cats _basket : upd sample")
             self._update_loaded_sample()
 
     def cats_baskets_changed(self, value):
         logging.getLogger("HWR").warning("Baskets changed. %s" % value)
         for idx, val in enumerate(value):
             self.basket_presence[idx] = val
+        print("Call 2 upd sample basket changed ")
         self._update_cats_contents()
         self._update_loaded_sample()
 
     def cats_loaded_lid_changed(self, value):
-        cats_loaded_lid = value
-        cats_loaded_num = self._chnNumLoadedSample.get_value()
-        self._update_loaded_sample(cats_loaded_num, cats_loaded_lid)
+        self.cats_loaded_lid = value
+        self.cats_loaded_num = self._chnNumLoadedSample.get_value()
+        print("Call 3 lid changed")
+        self._update_loaded_sample()
 
     def cats_loaded_num_changed(self, value):
-        cats_loaded_lid = self._chnLidLoadedSample.get_value()
-        cats_loaded_num = value
-        self._update_loaded_sample(cats_loaded_num, cats_loaded_lid)
+        self.cats_loaded_lid = self._chnLidLoadedSample.get_value()
+        self.cats_loaded_num = value
+        print(f"Call 4 num_changed with {value}")
+        self._update_loaded_sample()
 
     def cats_barcode_changed(self, value):
 
@@ -1130,7 +1134,6 @@ class Cats90(SampleChanger):
         self.cats_state = self._chnState.get_value()
 
     def _update_state(self):
-
         has_loaded = self.has_loaded_sample()
         on_diff = self._chnSampleIsDetected.get_value()
 
@@ -1258,10 +1261,11 @@ class Cats90(SampleChanger):
         :returns: None
         :rtype: None
         """
-        cats_loaded_lid = self._chnLidLoadedSample.get_value()
-        cats_loaded_num = self._chnNumLoadedSample.get_value()
+        self.cats_loaded_lid = self._chnLidLoadedSample.get_value()
+        self.cats_loaded_num = self._chnNumLoadedSample.get_value()
         self.cats_datamatrix = str(self._chnSampleBarcode.get_value())
-        self._update_loaded_sample(cats_loaded_num, cats_loaded_lid)
+        print("Call 6 Do upd loaded smp")
+        self._update_loaded_sample()
 
     def lidsample_to_basketsample(self, lid, num):
         if self.is_isara():
@@ -1280,7 +1284,9 @@ class Cats90(SampleChanger):
             lid_offset = ((num - 1) / samples_per_basket) + 1
             sample_pos = ((num - 1) % samples_per_basket) + 1
             basket = lid_base + lid_offset
-            return basket, sample_pos
+            import math 
+
+            return math.floor(basket), sample_pos
 
     def basketsample_to_lidsample(self, basket, num):
         if self.is_isara():
@@ -1336,9 +1342,13 @@ class Cats90(SampleChanger):
 
         return ret_type
 
-    def _update_loaded_sample(self, sample_num=None, lid=None):
+    def _update_loaded_sample(self):
+     
+        loadedSampleLid = self.cats_loaded_lid
+        loadedSampleNum = self.cats_loaded_num
+        """
 
-        if None in [sample_num, lid]:
+        if None in [sample_num, lid] :
             loadedSampleNum = self._chnNumLoadedSample.get_value()
             loadedSampleLid = self._chnLidLoadedSample.get_value()
         else:
@@ -1347,11 +1357,10 @@ class Cats90(SampleChanger):
 
         self.cats_loaded_lid = loadedSampleLid
         self.cats_loaded_num = loadedSampleNum
-
+        """
         logging.getLogger("HWR").info(
             "Updating loaded sample %s:%s" % (loadedSampleLid, loadedSampleNum)
         )
-
         if -1 not in [loadedSampleLid, loadedSampleNum]:
             basket, sample = self.lidsample_to_basketsample(
                 loadedSampleLid, loadedSampleNum
@@ -1368,9 +1377,12 @@ class Cats90(SampleChanger):
         logging.getLogger("HWR").debug(
             "----- Cats90 -----.  Sample has changed. Dealing with it - new_sample = %s / old_sample = %s"
             % (new_sample, old_sample)
+
         )
+        print (f"Basket = {basket}\nsample = {sample}\nlid = {loadedSampleLid}")
 
         if old_sample != new_sample:
+            print("Old not new sample 1" )
             # remove 'loaded' flag from old sample but keep all other information
 
             if old_sample is not None:
@@ -1378,17 +1390,23 @@ class Cats90(SampleChanger):
                 loaded = False
                 has_been_loaded = True
                 old_sample._set_loaded(loaded, has_been_loaded)
+                print("Old sample not non" )
+                
 
             if new_sample is not None:
                 loaded = True
                 has_been_loaded = True
                 new_sample._set_loaded(loaded, has_been_loaded)
+            
+                print("New sample not non" )
 
             if (
                 (old_sample is None)
                 or (new_sample is None)
-                or (old_sample.get_address() != new_loaded.get_address())
+                or (old_sample.get_address() != new_sample.get_address())
             ):
+
+                print("Final Check -- trigger" )
                 self._trigger_loaded_sample_changed_event(new_sample)
                 self._trigger_info_changed_event()
 
@@ -1477,6 +1495,7 @@ class Cats90(SampleChanger):
                     sample._set_loaded(loaded, has_been_loaded)
 
         self._trigger_contents_updated_event()
+        print("CAll 5 Update Cats Contents")
         self._update_loaded_sample()
         self._trigger_info_changed_event()
 

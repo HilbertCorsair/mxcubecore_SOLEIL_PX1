@@ -1,18 +1,18 @@
 """
-Class for streaming MPEG1 video with cameras connected to
-Lima Tango Device Servers
-
+Class for streaming MPEG1 or MJPEG video with cameras Redis Pub/Sub server
 Example configuration:
 
-<device class="TangoLimaMpegVideo">
-  <username>Prosilica 1350C</username>
-  <tangoname>id23/limaccd/minidiff</tangoname>
-  <bpmname>id23/limabeamviewer/minidiff</bpmname>
-  <exposure_time>0.05</exposure_time>
-  <video_mode>RGB24</video_mode>
-</device>
+<object class="RedisMpegVideo">
+  <username>Camera redis</username>
+  <host>localhost</host>
+  <uri>redis://localhost:6379</uri>
+  <cam_type>redis</cam_type>
+  <port>8000</port>
+  <width>1360</width>
+  <height>1024</height>
+  <format>MJPEG</format>
+</object>
 """
-import os
 import subprocess
 import uuid
 import psutil
@@ -34,10 +34,18 @@ class RedisMpegVideo(HardwareObject):
         self._quality = self.get_property("compression", 10)
         self._mpeg_scale = self.get_property("mpeg_scale", 1)
         self._image_size = (self.get_width(), self.get_height())
+        self._uri = self.get_property("uri")
         self._host = self.get_property("host")
         self._port = str(self.get_property("port"))
         self._format = self.get_property("format")
 
+    @property
+    def uri(self):
+        return self._uri
+    
+    @property
+    def host(self):
+        return self._host
 
     @property
     def format(self):
@@ -92,7 +100,6 @@ class RedisMpegVideo(HardwareObject):
     def start_video_stream_process(self, p):
         print(f"STARTING ! Video stream on port: {self.port} in format: {self.format}")
 
-        # first get the format from the xml file since it is MJPEG by default
         if (
             not self._video_stream_process
             or self._video_stream_process.poll() is not None ):
@@ -101,9 +108,9 @@ class RedisMpegVideo(HardwareObject):
                 [
                     "video-streamer",
                     "-uri",
-                    "redis://195.221.8.84:6379",
+                    self.uri,
                     "-hs",
-                    "localhost",
+                    self.host,
                     "-p",
                     self.port,
                     "-q",
