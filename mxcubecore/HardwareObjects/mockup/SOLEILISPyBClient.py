@@ -17,7 +17,7 @@ class SOLEILISPyBClient(ISPyBClient2):
         self.authServerType = self.get_property("authServerType") or "ldap"
         self.loginType = self.get_property("loginType") or "proposal"
         self.loginTranslate = self.get_property("loginTranslate") or True
-        
+
         self.session_hwobj = self.get_object_by_role('session')
         if self.authServerType == "ldap":
             # Initialize ldap
@@ -30,7 +30,7 @@ class SOLEILISPyBClient(ISPyBClient2):
         self.ws_root = self.get_property('ws_root')
         self.ws_username = self.get_property('ws_username')
         self.ws_password = self.get_property('ws_password')
-        
+
         self.ws_collection = self.get_property('ws_collection')
         self.ws_shipping = self.get_property('ws_shipping')
         self.ws_tools = self.get_property('ws_tools')
@@ -39,7 +39,7 @@ class SOLEILISPyBClient(ISPyBClient2):
 
         self.connection_timeout = self.get_property('connectionTimeout')
         if not self.connection_timeout: self.connection_timeout = 3
-        
+
         logging.getLogger("HWR").info("SOLEILISPyBClient: Initializing SOLEIL ISPyB Client")
         """
 
@@ -47,13 +47,13 @@ class SOLEILISPyBClient(ISPyBClient2):
 
             if self.ws_root:
                 logging.getLogger("HWR").debug("SOLEILISPyBClient: attempting to connect to %s" % self.ws_root)
-                try: 
+                try:
                     self._shipping = self._wsdl_shipping_client()
                     self._collection = self._wsdl_collection_client()
                     self._tools_ws = self._wsdl_tools_client()
                     logging.getLogger("HWR").debug("SOLEILISPyBClient: extracted from ISPyB values for shipping, collection and tools")
                     self.enable()
-                except: 
+                except:
                     logging.getLogger("HWR").exception("SOLEILISPyBClient: %s" % _CONNECTION_ERROR_MSG)
                     self.disable()
                     return
@@ -63,11 +63,12 @@ class SOLEILISPyBClient(ISPyBClient2):
             logging.getLogger("HWR").exception(_CONNECTION_ERROR_MSG)
             return
         """
+
         # Add the porposal codes defined in the configuration xml file
         # to a directory. Used by translate()
         try:
             proposals = self.session_hwobj['proposals']
-            
+
             for proposal in proposals:
                 code = proposal.code
                 self.__translations[code] = {}
@@ -93,7 +94,7 @@ class SOLEILISPyBClient(ISPyBClient2):
     def get_identifiers_location(self):
         return self.identifiers_location
 
-    def translate(self, code, what):  
+    def translate(self, code, what):
         """
         Given a proposal code, returns the correct code to use in the GUI,
         or what to send to LDAP, user office database, or the ISPyB database.
@@ -121,9 +122,9 @@ class SOLEILISPyBClient(ISPyBClient2):
         session.auth = (self.ws_username, self.ws_password)
 
         # Create transport with the session
-        trans = HttpAuthenticated(username=self.ws_username, 
+        trans = HttpAuthenticated(username=self.ws_username,
                                 password=self.ws_password)
-        
+
         # Set the session as the transport's opener
         trans.session = session
 
@@ -135,12 +136,12 @@ class SOLEILISPyBClient(ISPyBClient2):
         loc = ws_root + locbase
 
         # Create SOAP client
-        ws_client = Client(url, 
-                        transport=trans, 
+        ws_client = Client(url,
+                        transport=trans,
                         timeout=self.connection_timeout,
-                        location=loc, 
+                        location=loc,
                         cache=None)
-        
+
         return ws_client
 
     def path_to_ispyb(self, path):
@@ -169,16 +170,16 @@ class SOLEILISPyBClient(ISPyBClient2):
     def prepare_image_for_lims(self, image_dict):
         for prop in [ 'jpegThumbnailFileFullPath', 'jpegFileFullPath']:
             try:
-                path = image_dict[prop] 
+                path = image_dict[prop]
                 ispyb_path = self.session_hwobj.path_to_ispyb( path )
                 image_dict[prop] = ispyb_path
             except:
                 pass
 '''
 def test_hwo(hwo):
-   
+
     ISPYB specific files: /nfs/ruche/proxima1-soleil/com-proxima1/ispyb_identifiers/
-   
+
     print '\n======================== TESTS ========================'
     print 'These are tests of the HardwareObject SOLEILISPyBClient'
     print '=======================================================\n'
@@ -310,7 +311,7 @@ def test_hwo(hwo):
 
     return
     proposal_code = 'mx'
-    #proposal_number = '20100023' 
+    #proposal_number = '20100023'
     #proposal_psd = 'tisabet'
 
 #    proposal_number = '20160745'
@@ -320,7 +321,7 @@ def test_hwo(hwo):
     proposal_psd = 'jkDW6U2Zuw'
 
 
-    print "Trying to login to ispyb" 
+    print "Trying to login to ispyb"
     info = hwo.login(proposal_number, proposal_psd)
     print "logging in returns: ", str(info)
 
