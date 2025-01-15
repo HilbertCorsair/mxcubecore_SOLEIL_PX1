@@ -4,7 +4,6 @@ import gevent
 from mxcubecore.HardwareObjects.abstract.AbstractMotor import AbstractMotor
 from mxcubecore.Command.Tango import DeviceProxy
 from mxcubecore.TaskUtils import task
-
 from mxcubecore.BaseHardwareObjects import HardwareObject
 
 class EnvironmentPhase:
