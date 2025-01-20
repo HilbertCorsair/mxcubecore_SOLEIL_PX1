@@ -269,7 +269,7 @@ class Smargon(HardwareObject):
         logging.getLogger("HWR").error("Smargon: Finished moving motors")
 
     def move_XYZ(self, motor_pos_dict, wait=False):
-        motor_translation = {"/sampx":"zOffset", "/sampy": "yOffset", "/phiy": "xOffset", "/omega": "omega"}
+        motor_translation = {"/sampx":"zOffset", "/sampy": "yOffset", "/phiy": "xOffset", "/omega": "omega", "/phiz":None}
         self.wait_ready()
         _t0 = time.time()
         self.set_freeze(True)
