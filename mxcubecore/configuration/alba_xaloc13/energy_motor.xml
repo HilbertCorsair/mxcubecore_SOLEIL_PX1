@@ -1,8 +1,0 @@
-<object class="SardanaMotor">
-  <username>Energy</username>
-  <taurusname>ealign</taurusname>
-  <actuator_name>energy</actuator_name>
-  <move_threshold>0.0005</move_threshold>
-  <guistep>45</guistep>
-  <!-- interval>500</interval -->
-</object>

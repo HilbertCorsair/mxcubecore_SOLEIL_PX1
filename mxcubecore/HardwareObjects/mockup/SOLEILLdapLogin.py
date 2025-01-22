@@ -4,8 +4,8 @@ import ldap
 import re
 import time
 from typing import Tuple, List, Dict, Optional
-from HardwareRepository import HardwareRepository
 from mxcubecore.BaseHardwareObjects import HardwareObject
+
 """
 <procedure class="LdapLogin">
   <ldaphost>ldaphost.mydomain</ldaphost> 195.221.10.1
@@ -29,7 +29,7 @@ class SOLEILLdapLogin(HardwareObject):
         self.ldap_host = self.get_property('ldaphost')
         self.ldap_port = self.get_property('ldapport')
         self.process_host = self.get_property('process_host')
-
+        
         if self.ldap_host is None:
             log.error("SOLEILLdapLogin: you must specify the LDAP hostname")
         else:
@@ -44,13 +44,24 @@ class SOLEILLdapLogin(HardwareObject):
 
     def open_connection(self):
         try:
-            if self.ldap_port is None:
-                log.info(f"SOLEILLdapLogin: connecting to LDAP server {self.ldap_host}")
-                self.ldap_connection = ldap.open(self.ldap_host)
-            else:
-                log.info(f"SOLEILLdapLogin: connecting to LDAP server {self.ldap_host}:{self.ldap_port}")
-                self.ldap_connection = ldap.open(self.ldap_host, int(self.ldap_port))
+            # Use ldap.initialize instead of ldap.open
+            uri = f"ldap://{self.ldap_host}"
+            if self.ldap_port is not None:
+                uri = f"{uri}:{self.ldap_port}"
+            
+            log.info(f"SOLEILLdapLogin: connecting to LDAP server {uri}")
+            self.ldap_connection = ldap.initialize(uri)
+            
+            # Set LDAP protocol version
+            self.ldap_connection.protocol_version = ldap.VERSION3
+            
+            # Set timeouts
+            self.ldap_connection.timeout = 10.0
+            self.ldap_connection.network_timeout = 5.0
+            
+            # Perform anonymous bind
             self.ldap_connection.simple_bind_s()
+            
         except ldap.LDAPError as err:
             log.error(f"SOLEILLdapLogin: LDAP connection error: {err}")
             self.ldap_connection = None
@@ -58,14 +69,18 @@ class SOLEILLdapLogin(HardwareObject):
     def reconnect(self):
         if self.ldap_connection is not None:
             try:
-                self.ldap_connection.result(timeout=0)
-            except ldap.LDAPError:
+                # Better way to check connection status
+                self.ldap_connection.whoami_s()
+            except (ldap.LDAPError, Exception):
                 self.open_connection()
 
     def cleanup(self, ex: Optional[Exception] = None, msg: Optional[str] = None) -> Tuple[bool, Optional[str]]:
         if ex is not None:
             try:
-                msg = ex.args[0]['desc']
+                if isinstance(ex, ldap.LDAPError):
+                    msg = ex.args[0].get('desc', "generic LDAP error")
+                else:
+                    msg = str(ex)
             except (IndexError, KeyError, AttributeError):
                 msg = "generic LDAP error"
         log.error(f"SOLEILLdapLogin: {msg}")
@@ -85,7 +100,6 @@ class SOLEILLdapLogin(HardwareObject):
 
     def get_uid_gid(self, username: str) -> Tuple[Optional[str], Optional[str]]:
         ok, info = self.get_info(username)
- 
         if ok:
             return info['uidNumber'], info['gidNumber']
         else:
@@ -94,29 +108,32 @@ class SOLEILLdapLogin(HardwareObject):
     def login(self, username: str, password: str, retry: bool = True) -> Tuple[bool, Optional[str]]:
         if username.isdigit() and len(username) > 8:
             username = username[:8]
-
+            
         if self.ldap_connection is None:
             return self.cleanup(msg="no LDAP server configured")
-
+            
         found = self.search_user(username, retry)
         
         if not found:
             return self.cleanup(msg=f"unknown proposal {username}")
         
-        if password == "":
+        if not password:
             return self.cleanup(msg=f"no password for {username}")
-
+            
         if not isinstance(found, list):
             log.error(f"SOLEILLdapLogin: found type: {type(found)}")
             return self.cleanup(msg=f"unknown error {username}")
         
         dn = str(found[0][0])
-
         log.debug(f"SOLEILLdapLogin: found: {dn}")
         log.debug(f"SOLEILLdapLogin: validating {username}")
-
+        
         try:
-            self.ldap_connection.simple_bind_s(dn, password)
+            # Create a new connection for user authentication
+            auth_connection = ldap.initialize(f"ldap://{self.ldap_host}")
+            auth_connection.protocol_version = ldap.VERSION3
+            auth_connection.simple_bind_s(dn, password)
+            auth_connection.unbind_s()
         except ldap.INVALID_CREDENTIALS:
             return self.cleanup(msg=f"invalid password for {username}")
         except ldap.LDAPError as err:
@@ -127,7 +144,6 @@ class SOLEILLdapLogin(HardwareObject):
                 return self.cleanup(ex=err)
 
         log.info(f"SOLEILLdapLogin: searching for {username}")
-
         try:
             log.info("SOLEIL Login: registering ssh key for processing")
             #push_key(username, password, host=self.process_host)
@@ -135,7 +151,7 @@ class SOLEILLdapLogin(HardwareObject):
             import traceback
             log.error("SOLEIL Login - cannot add ssh key for processing")
             log.debug(traceback.format_exc())
-
+            
         return True, username
 
     def search_user(self, username: str, retry: bool = True) -> Optional[List]:

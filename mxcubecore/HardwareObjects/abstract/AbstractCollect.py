@@ -84,11 +84,12 @@ class AbstractCollect(HardwareObject, object):
         self.run_offline_processing = None
         self.run_online_processing = None
         self.ready_event = None
-
+        
     def init(self):
         self.ready_event = gevent.event.Event()
 
         undulators = []
+
         try:
             for undulator in self["undulators"]:
                 undulators.append(undulator)
@@ -96,7 +97,7 @@ class AbstractCollect(HardwareObject, object):
             pass
 
         beam_div_hor, beam_div_ver = HWR.beamline.beam.get_beam_divergence()
-
+        
         self.set_beamline_configuration(
             synchrotron_name=HWR.beamline.session.synchrotron_name,
             directory_prefix=self.get_property("directory_prefix"),
@@ -112,7 +113,7 @@ class AbstractCollect(HardwareObject, object):
             detector_model=HWR.beamline.detector.get_property("model"),
             detector_px=HWR.beamline.detector.get_property("px"),
             detector_py=HWR.beamline.detector.get_property("py"),
-            detector_binning_mode=HWR.beamline.detector.get_binning_mode(),
+            detector_binning_mode=1,#HWR.beamline.detector.get_binning_mode(),
             undulators=undulators,
             focusing_optic=self.get_property("focusing_optic"),
             monochromator_type=self.get_property("monochromator"),

@@ -176,9 +176,6 @@ class PX1Collect(AbstractCollect, HardwareObject):
         self.energy_hwobj = self.get_object_by_role("energy")
         self.resolution_hwobj = self.get_object_by_role("resolution")
         self.transmission_hwobj = self.get_object_by_role("transmission")
-        import pdb
-        pdb.set_trace()
-
         self.detector_hwobj = self.get_object_by_role("detector")
 
 
@@ -190,7 +187,7 @@ class PX1Collect(AbstractCollect, HardwareObject):
         self.kappa_mot_hwobj = self.get_object_by_role("kappa")
         self.kappaphi_mot_hwobj = self.get_object_by_role("phi")
 
-        self.chip_manager_hwobj = self.get_object_by_role("chip_manager")
+        #self.chip_manager_hwobj = self.get_object_by_role("chip_manager")
 
         self.img2jpeg = self.get_property("imgtojpeg")
 
@@ -232,6 +229,7 @@ class PX1Collect(AbstractCollect, HardwareObject):
              detector_px=det_px,
              detector_py=det_py,
              undulators=undulators,
+             detector_binning_mode =self.detector_hwobj.get_binning_mode(),
              focusing_optic=self.get_property('focusing_optic'),
              monochromator_type=self.get_property('monochromator'),
              beam_divergence_vertical=self.beam_info_hwobj.get_beam_divergence_hor(),

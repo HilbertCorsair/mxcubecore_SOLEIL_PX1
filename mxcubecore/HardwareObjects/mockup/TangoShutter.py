@@ -46,11 +46,16 @@ Attention:
  (UNKNOWN, WARNING, BUSY, READY, FAULT, OFF - see in BaseHardwareObjects.py)!
 The <values> property is optional.
 """
-import ast
+
 import logging
-from enum import Enum, unique
-from mxcubecore.HardwareObjects.abstract.AbstractShutter import AbstractShutter
+import json
+from enum import (
+    Enum,
+    unique,
+)
+
 from mxcubecore.BaseHardwareObjects import HardwareObjectState
+from mxcubecore.HardwareObjects.abstract.AbstractShutter import AbstractShutter
 
 __copyright__ = """ Copyright © by the MXCuBE collaboration """
 __license__ = "LGPLv3+"
@@ -112,9 +117,7 @@ class TangoShutter(AbstractShutter):
             }
         )
         try:
-            config_values = ast.literal_eval(self.get_property("values"))
-
-
+            config_values = json.loads(self.get_property("values"))
             for key, val in config_values.items():
                 if isinstance(val, (tuple, list)):
                     values_dict.update({key: val[1]})
@@ -122,6 +125,8 @@ class TangoShutter(AbstractShutter):
                 else:
                     values_dict.update({key: val})
         except (ValueError, TypeError) as err:
+            import pdb
+            pdb.set_trace()
             logging.error(f"Exception in _initialise_values(): {err}")
 
         self.VALUES = Enum("ValueEnum", values_dict)

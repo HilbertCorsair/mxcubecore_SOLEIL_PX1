@@ -1,9 +1,0 @@
-<object class="EMBLXRFSpectrum">
-  <channel type="tine" name="chanSpectrumStatus" tinename="/P13/fluorescence-scan/fls-scan">status</channel>
-  <channel type="tine" name="chanSpectrumConsts" tinename="/P13/fluorescence-scan/fls-scan">calibration-consts</channel>
-   <channel type="tine" name="chanSpectrumError" tinename="/P13/fluorescence-scan/fls-scan" attach="datachange">error</channel>
-
-  <command type="tine" name="cmdSpectrumStart" tinename="/P13/fluorescence-scan/fls-scan">get-spectrum</command>
-  <command type="tine" name="cmdAdjustTransmission" tinename="/P13/fluorescence-scan/fls-scan">find-transmission</command>
-  <configFile>/opt/embl-hh/etc/p13/app/mxcube/HardwareObjects.xml/p13_pymca_config.cfg</configFile>
-</object>

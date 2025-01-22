@@ -60,7 +60,6 @@ class AbstractResolution(AbstractMotor):
         self._hwr_detector = (
             self.get_object_by_role("detector") or HWR.beamline.detector
         )
-
         self.connect(self._hwr_detector.distance, "stateChanged", self.update_state)
         self.connect(self._hwr_detector.distance, "valueChanged", self.update_distance)
         self.connect(HWR.beamline.energy, "valueChanged", self.update_energy)

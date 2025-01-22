@@ -1,5 +1,0 @@
-<object class="SmargonAxis">
-  <username>yOffset</username>
-  <actuator_name>yOffset</actuator_name>
-  <object href="/smargon" role="smargon"/>
-</object>

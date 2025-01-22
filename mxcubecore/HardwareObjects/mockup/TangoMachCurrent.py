@@ -1,5 +1,3 @@
-from HardwareRepository import HardwareRepository
-
 from mxcubecore.BaseHardwareObjects import HardwareObject
 import logging
 

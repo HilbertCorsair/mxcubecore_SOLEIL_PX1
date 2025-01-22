@@ -105,13 +105,12 @@ No signal is emited within this specific HWO
 -------------------------------------------------------------------------------
 | name                       | signals             | functions
 |------------------------------------------------------------------------------
-| self.distance_motor_hwobj  |                     | getPosition()
+| self.distance  |                     | getPosition()
 |                            |                     | getLimits()
 -------------------------------------------------------------------------------
 """
 import logging
 import time
-
 from mxcubecore.HardwareObjects.abstract.AbstractDetector import AbstractDetector
 
 from mxcubecore.BaseHardwareObjects import HardwareObject
@@ -137,10 +136,10 @@ class PX1Eiger(AbstractDetector, HardwareObject):
 
                   :type  name: string
         """
-        AbstractDetector.__init__(self)
+        AbstractDetector.__init__(self, name)
         HardwareObject.__init__(self, name)
 
-        self.distance_motor_hwobj = None
+        self.distance = None
         self.default_distance = None
         self.default_distance_limits = None
 
@@ -152,12 +151,16 @@ class PX1Eiger(AbstractDetector, HardwareObject):
         """
         Descript. : Init method
         """
-        self.distance_motor_hwobj = self.get_object_by_role("distance_motor")
+
+        self.distance = self.get_object_by_role("distance_motor")
 
         self.state_chan = self.get_channel_object("state")
 
         exp_time_limits = self.get_property("exposure_limits")
         self.exp_time_limits = map(float, exp_time_limits.strip().split(","))
+        self._binning_mode = self.get_property("binning")
+
+    
 
     def state_changed(self, state):
         """
@@ -208,8 +211,8 @@ class PX1Eiger(AbstractDetector, HardwareObject):
         """
         distance = self.default_distance
         try:
-            if self.distance_motor_hwobj is not None:
-                distance = self.distance_motor_hwobj.get_position()
+            if self.distance is not None:
+                distance = self.distance.get_position()
 
         except:
             pass
@@ -231,8 +234,8 @@ class PX1Eiger(AbstractDetector, HardwareObject):
         """
         Descript. : Returns detector distance limits in mm
         """
-        if self.distance_motor_hwobj is not None:
-            return self.distance_motor_hwobj.get_limits()
+        if self.distance is not None:
+            return self.distance.get_limits()
         else:
             return self.default_distance_limits
 
