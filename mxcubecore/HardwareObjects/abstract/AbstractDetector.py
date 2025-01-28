@@ -238,7 +238,7 @@ class AbstractDetector(HardwareObject):
             )
         except (AttributeError, KeyError):
             beam_position = (None, None)
-
+        
         return beam_position
 
     def get_radius(self, distance=None):
@@ -295,6 +295,10 @@ class AbstractDetector(HardwareObject):
         Returns:
             (dict): metadata
         """
+        self._metadata["ax"] = -0.003579583
+        self._metadata["ay"] = -0.004106302
+        self._metadata["bx"] = 2052.060
+        self._metadata["by"] = 2232.887
         self._metadata["width"] = self.get_width()
         self._metadata["height"] = self.get_height()
 

@@ -120,7 +120,7 @@ __credits__ = ["SOLEIL"]
 __version__ = "2.3."
 __category__ = "General"
 
-class PX1Eiger(AbstractDetector, HardwareObject):
+class PX1Eiger(AbstractDetector):
     """
     Descript. : Detector class. Contains all information about detector
                 - states are 'OK', and 'BAD'
@@ -136,31 +136,33 @@ class PX1Eiger(AbstractDetector, HardwareObject):
 
                   :type  name: string
         """
-        AbstractDetector.__init__(self, name)
-        HardwareObject.__init__(self, name)
+        super().__init__(name)
 
-        self.distance = None
         self.default_distance = None
         self.default_distance_limits = None
-
         self.exp_time_limits = None
 
-        self.headers = {}
-
     def init(self):
+        super().init()
         """
         Descript. : Init method
         """
-
-        self.distance = self.get_object_by_role("distance_motor")
-
         self.state_chan = self.get_channel_object("state")
-
         exp_time_limits = self.get_property("exposure_limits")
         self.exp_time_limits = map(float, exp_time_limits.strip().split(","))
         self._binning_mode = self.get_property("binning")
 
-    
+    """
+    def get_radius(self):
+        self.det_width = self.get_property("width")
+        self.det_height = self.get_property("height")
+        beam_x, beam_y = self.get_beam_centre()
+        radius =  min(self.det_width - beam_x, self.det_height - beam_y, beam_x, beam_y)
+        
+        import pdb
+        pdb.set_trace()
+        return radius
+    """
 
     def state_changed(self, state):
         """
@@ -212,7 +214,7 @@ class PX1Eiger(AbstractDetector, HardwareObject):
         distance = self.default_distance
         try:
             if self.distance is not None:
-                distance = self.distance.get_position()
+                distance = self.distance.get_value()
 
         except:
             pass
@@ -255,9 +257,6 @@ class PX1Eiger(AbstractDetector, HardwareObject):
         """
         Descript. : Returns boolean on the FAULT state of the device
         """
-        return ( str(self.get_state()) == 'FAULT' )
-
-    def get_threshold(self):
         """
         Descript. : Returns the value of the photon energy threshold
         """
@@ -365,7 +364,7 @@ class PX1Eiger(AbstractDetector, HardwareObject):
             pass
 
         return default_exp_time
-
+    
     def get_minimum_exposure_time(self):
         """
         Descript. : Returns the minimum exposure time possible

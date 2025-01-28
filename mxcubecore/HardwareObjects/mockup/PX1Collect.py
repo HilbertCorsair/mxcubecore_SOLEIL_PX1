@@ -1346,43 +1346,22 @@ class PX1Collect(AbstractCollect, HardwareObject):
 
         kappa_angle = self.kappa_hwobj.get_position()
 
-        if self.detector_hwobj.get_detector_type() == 'pilatus':
-            _settings = [
-                ["Wavelength %.5f", wavlen],
-                ["Detector_distance %.4f", dist/1000.],
-                ["Beam_x %.2f", ax*dist + bx],
-                ["Beam_y %.2f", ay*dist + by],
-                ["Alpha %.2f", 49.64],
-                ["Start_angle %.4f", start_angle],
-                ["Angle_increment %.4f", img_range],
-                ["Oscillation_axis %s", "Omega"],
-                ["Detector_2theta %.4f", 0.0],
-                ["Polarization %.3f", 0.990],
-                ["Kappa %.4f", kappa_angle],
-                ["Phi %.4f", self.phi_hwobj.get_position()],
-                ["Chi %.4f", start_angle],
-                ]
+        chi_start = osc_seq['kappaStart']
+        phi_start = osc_seq['phiStart']
 
-            self.detector_hwobj.set_image_headers(_settings)
+        _settings = [
+            str(start_angle),
+            str(img_range),
+            str(dist/1000),
+            str(wavlen),
+            str(ax*dist + bx),
+            str(ay*dist + by),
+            str(chi_start),
+            str(phi_start),
+            ]
 
-        elif self.detector_hwobj.get_detector_type() == 'Eiger_X':
-
-            chi_start = osc_seq['kappaStart']
-            phi_start = osc_seq['phiStart']
-
-            _settings = [
-                str(start_angle),
-                str(img_range),
-                str(dist/1000),
-                str(wavlen),
-                str(ax*dist + bx),
-                str(ay*dist + by),
-                str(chi_start),
-                str(phi_start),
-                ]
-
-            self.set_image_headers(_settings)
-            self.wait_not_disabled()
+        self.set_image_headers(_settings)
+        self.wait_not_disabled()
 
     def check_shutters(self):
         # Check safety shutter

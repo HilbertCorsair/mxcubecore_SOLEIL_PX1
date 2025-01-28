@@ -321,7 +321,6 @@ class PX1MiniDiff(GenericDiffractometer):
 
     def is_ready(self):
         val = str(self.smargon._state_chan.get_value())
-        print(f"Got the state value from SMARGON and it is : {val}")
 
         return val == "STANDBY"
 

@@ -421,12 +421,16 @@ def px1_center(phi, phiy, phiz, sampx, sampy,
                 ang.append(ang_val)
 
             for i in range(n_points):
-                y0, a0 = yb[i], ang[i]
-                y1, a1 = yb[(i + 1) % n_points], ang[(i + 1) % n_points]
+                try: 
+                    y0, a0 = yb[i], ang[i]
+                    y1, a1 = yb[(i + 1) % n_points], ang[(i + 1) % n_points]
 
-                p_val = (y0 * math.sin(a1) - y1 * math.sin(a0)) / math.sin(a1 - a0)
-                q_val = (y0 * math.cos(a1) - y1 * math.cos(a0)) / math.sin(a0 - a1)
+                    p_val = (y0 * math.sin(a1) - y1 * math.sin(a0)) / math.sin(a1 - a0)
+                    q_val = (y0 * math.cos(a1) - y1 * math.cos(a0)) / math.sin(a0 - a1)
 
+                except Exception as e:
+                    print(e)
+                    
                 p.append(p_val)
                 q.append(q_val)
 
@@ -435,11 +439,18 @@ def px1_center(phi, phiy, phiz, sampx, sampy,
             z_sample = -sum(xb) / n_points
         except Exception:
             logging.getLogger("HWR").error("Error while centering", exc_info=True)
+        
 
-        x_sample_real = x_sample / pixels_per_mm_hor + sampx.get_position()
-        y_sample_real = y_sample / pixels_per_mm_hor + sampy.get_position()
-        z_sample_real = z_sample / pixels_per_mm_hor + phiy.get_position()
+        try:
+            x_sample_real = x_sample / pixels_per_mm_hor + sampx.get_position()
+            y_sample_real = y_sample / pixels_per_mm_hor + sampy.get_position()
+            z_sample_real = z_sample / pixels_per_mm_hor + phiy.get_position()
+        except Exception as e :
+            print(e)
 
+            import pdb
+            pdb.set_trace()
+        
         if phiy.get_limits() is not None:
             if z_sample_real + phiy.get_position() < phiy.get_limits()[0] * 2:
                 logging.getLogger("HWR").error("Loop too long")

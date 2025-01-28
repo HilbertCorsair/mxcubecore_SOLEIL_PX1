@@ -1,28 +1,22 @@
 from mxcubecore.BaseHardwareObjects import HardwareObject
 from PyTango import DeviceProxy
 
+from mxcubecore.HardwareObjects.abstract.AbstractEnergy import AbstractEnergy
 import logging
 import os
 import time
 import gevent
 
-class PX1Energy(HardwareObject):
-    
-    energy_state = {'ALARM': 'ready',
-                    'FAULT': 'error',
-                    'RUNNING': 'moving',
-                    'MOVING': 'moving',
-                    'STANDBY': 'ready',
-                    'DISABLE': 'error',
-                    'UNKNOWN': 'unknown',
-                    'EXTRACT': 'outlimits'}
+class PX1Energy(AbstractEnergy):
 
+    def __init__(self, name):
+        super().__init__(name)
+    
     def init(self):
         self.moving = False
         self.doBacklashCompensation = False
         self.current_energy = None
         self.current_state = None
-        
         try:    
             self.monodevice = DeviceProxy(self.get_property("mono_device"))
         except:    
@@ -40,6 +34,21 @@ class PX1Energy(HardwareObject):
 
         self.state_chan = self.get_channel_object("state") 
         self.state_chan.connect_signal("update", self.state_changed)
+        
+        
+    def motstate_to_state(self, motstate):
+        motstate = str(motstate)
+        if motstate in ["ON", "STANDBY", "ALARM"]: #normal for PX11Energy
+            state = self.STATES.READY
+        elif motstate in ["MOVING", "RUNNING", "EXTRACT"]:
+            state = self.STATES.BUSY
+        elif motstate in ["FAULT", "DISABLE"]:
+            state = self.STATES.FAULT
+        elif motstate == "OFF":
+            state = self.STATES.OFF
+        else:
+            state = self.STATES.UNKNOWN
+        return state
 
     def connect_notify(self, signal):
         if signal == 'energyChanged':
@@ -65,9 +74,9 @@ class PX1Energy(HardwareObject):
         if self.current_state == 'MOVING' or self.moving == True:
             if str_state != 'MOVING':
                 self.move_energy_cmd_finished() 
-                     
-        self.current_state = str_state
-        self.emit('stateChanged', self.energy_state[str_state])
+        print(f"Current PX1EN state is {str_state}")            
+        self.current_state = self.motstate_to_state(str_state)
+        self.emit('stateChanged', self.current_state)
         
     def energy_changed(self, value):
         if self.current_energy is not None and abs(self.current_energy - value) < 0.0001:
@@ -78,6 +87,9 @@ class PX1Energy(HardwareObject):
         wav = self.get_current_wavelength()
         if wav is not None:
             self.emit('energyChanged', (value, wav))
+    
+    def get_value(self):
+        return self.get_energy()
             
     def is_spec_connected(self):
         return True
@@ -106,8 +118,12 @@ class PX1Energy(HardwareObject):
     def get_energy(self):
         return self.energy_chan.get_value()
 
+
     def get_state(self):
-        return str(self.state_chan.get_value())
+        tango_string_state = str(self.state_chan.get_value())
+        HO_state = self.motstate_to_state(tango_string_state)
+        return HO_state
+
 
     def get_energy_computed_from_current_gap(self):
         return self.und_device.energy
@@ -116,6 +132,7 @@ class PX1Energy(HardwareObject):
         return self.und_device.gap
             
     def get_wavelength(self):
+        print("Reading  WL value in PX1EN: ", self.monodevice.read_attribute("lambda").value)
         return self.monodevice.read_attribute("lambda").value
 
     def get_current_wavelength(self):
@@ -126,6 +143,7 @@ class PX1Energy(HardwareObject):
 
     def get_energy_limits(self):
         chan_info = self.energy_chan.get_info()
+        print("Getting EN limits:" , (float(chan_info.min_value), float(chan_info.max_value)))
         return (float(chan_info.min_value), float(chan_info.max_value))
     
     def get_wavelength_limits(self):
@@ -133,6 +151,7 @@ class PX1Energy(HardwareObject):
        
         max_lambda = self.energy_to_lambda(energy_min)
         min_lambda = self.energy_to_lambda(energy_max)
+        print('Calculating min max lambda', (min_lambda, max_lambda))
 
         return (min_lambda, max_lambda)
             

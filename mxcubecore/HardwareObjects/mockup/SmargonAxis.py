@@ -51,16 +51,8 @@ class SmargonAxis(AbstractMotor, Smargon):
         self.connect(self.smargon, self.signal_name, self.position_changed)
         self.connect(self.smargon, "stateChanged", self.state_changed)
         log.debug("SmargonAxis. Initiating motor: %s" % (self.motor_name))
-        print(f'SmargonAxis initiating \n============================\n')
-
-
-    #def position_changed(self, value):
-    #    if value != self.current_position:
-    #        self.current_position = value
-    #        self.emit('positionChanged', (value,))
 
     def is_ready(self):
-        prtint('Checking rediness .... ')
         return self.state == 'STANDBY'
 
     def connect_notify(self, signal):
@@ -104,15 +96,12 @@ class SmargonAxis(AbstractMotor, Smargon):
         return self.name()
 
     def is_moving(self):
-        print (f'Checking if Motor {self.name()} is in motion !')
         state = self.smargon.get_state()
         self.state = state
-        print(state == "MOVING")
         return( state == "MOVING" )
 
     def position_changed(self, newpos):
         newpos = self.zero_neg(newpos)
-        print(f"{self.name()} at {self.current_position} moving to {newpos}")
 
         if newpos != self.current_position:
             # avoid near 0 negative values
@@ -152,7 +141,6 @@ class SmargonAxis(AbstractMotor, Smargon):
         """
         target_position = float(target_position)
         current_position = self.smargon.get_position(self.motor_name)
-        print(f"AsgonAxis moving motor {self.motor_name}")
 
         if abs(target_position - current_position) < 0.001:
             log.debug("SmargonAxis.py -  Movement for %s too small. Not moving" % self.motor_name)

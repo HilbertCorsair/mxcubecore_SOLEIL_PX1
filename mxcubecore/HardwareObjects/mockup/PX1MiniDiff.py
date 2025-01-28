@@ -128,7 +128,7 @@ class PX1MiniDiff(GenericDiffractometer):
         zoom_motor = self.motor_hwobj_dict['zoom']
         self.get_pixels_per_mm()
 
-        props = zoom_motor.get_properties()
+        props = zoom_motor.get_properties()["calibrationData"]
 
         if props is None:
             logging.getLogger("HWR").debug("PX1MiniDiff. no valid zoom position. calibration is invalid")
@@ -149,8 +149,8 @@ class PX1MiniDiff(GenericDiffractometer):
         # log.debug("  - arrow step for this zoom is %s mm" % self.arrow_step)
 
         if 'beamPositionX' in props.keys() and 'beamPositionY' in props.keys():
-            self.beam_xc = float(props['beamPositionX'])
-            self.beam_yc = float(props['beamPositionY'])
+            self.beam_x = float(props['beamPositionX'])
+            self.beam_y = float(props['beamPositionY'])
 
 
     def px1_manual_centring(self, sample_info=None, wait_result=None):
@@ -269,8 +269,8 @@ class PX1MiniDiff(GenericDiffractometer):
         mot_x = self.motor_hwobj_dict.get("sampx")
         mot_phiy = self.motor_hwobj_dict.get("phiy")
 
-        dx = (x-self.beam_xc) / self.pixels_per_mm_x
-        dy = (y-self.beam_yc) / self.pixels_per_mm_y
+        dx = (x-self.beam_x) / self.pixels_per_mm_x
+        dy = (y-self.beam_y) / self.pixels_per_mm_y
 
         d_sy = math.cos(math.radians(phi_angle)) * dy
         d_sx = math.sin(math.radians(phi_angle)) * dy
@@ -383,8 +383,8 @@ class PX1MiniDiff(GenericDiffractometer):
 
     def get_centred_point_from_coord(self, x, y, return_by_names=None):
 
-        dx = (x - self.beam_xc) / self.pixels_per_mm_x
-        dy = (y - self.beam_yc) / self.pixels_per_mm_y
+        dx = (x - self.beam_x) / self.pixels_per_mm_x
+        dy = (y - self.beam_y) / self.pixels_per_mm_y
 
         motor_pos = self.get_motor_positions()
 

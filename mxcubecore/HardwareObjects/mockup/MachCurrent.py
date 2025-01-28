@@ -59,6 +59,10 @@ class MachCurrent(AbstractMachineInfo):
         except Exception as err:
             logging.getLogger("HWR").exception(err)
     
+    @property
+    def current(self):
+        return self._current
+    
     def get_current(self) -> float:
         """Read the ring current.
         Returns:
@@ -116,8 +120,6 @@ class MachCurrent(AbstractMachineInfo):
             opmsg, fillmode, value, refill = ("", "", -1, -1)
 
         if opmsg and opmsg != self._message:
-            print("YEY! SUCCESS! ")
-
             values = {}
             self._message = opmsg
             self._current = self.get_current()
@@ -125,7 +127,7 @@ class MachCurrent(AbstractMachineInfo):
             self._lifetime = self.get_life_time()
             values["message"] = self._message
             values["current"] = self._current
-            #values.update(self.get_value())
+            values.update(self.get_value())
             self.update_value(values)
             logging.getLogger("user_level_log").info(self._message)
-        #self.emit("valueChanged", (value, opmsg, fillmode, refill))
+            self.emit("valueChanged", (self.current))

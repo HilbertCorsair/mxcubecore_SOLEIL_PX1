@@ -269,17 +269,21 @@ class Smargon(HardwareObject):
         logging.getLogger("HWR").error("Smargon: Finished moving motors")
 
     def move_XYZ(self, motor_pos_dict, wait=False):
-        motor_translation = {"/sampx":"zOffset", "/sampy": "yOffset", "/phiy": "xOffset", "/omega": "omega", "/phiz":None}
+        print (motor_pos_dict)
+
+        motor_translation = {"/sampx":"zOffset", "/sampy": "yOffset", "/phiy": "xOffset", "/omega": "omega"}
         self.wait_ready()
         _t0 = time.time()
         self.set_freeze(True)
         try:
-            for motor_name, target_pos in motor_pos_dict.items():
+            for motor_name in [key for key in motor_pos_dict.keys() if not key == "/phiz"]:
+                target_pos = motor_pos_dict[motor_name]
                 logging.getLogger("HWR").debug( "Smargon.move_XYZ Setting %s -> %s to: %.4f" % \
                             (motor_name, motor_translation[motor_name], target_pos))
                 #self.move(motor_name, target_pos, wait=False)
                 self.motor_channels[motor_translation[motor_name]].set_value(target_pos)
-        except:
+        except Exception as e:
+            print(f"ERROR in setting motor value: {e}")
             import traceback
             logging.getLogger("HWR").error("Smargon: Error moving motor %s" % motor_name)
             logging.getLogger("HWR").error( traceback.format_exc())
@@ -289,8 +293,7 @@ class Smargon(HardwareObject):
 
         if wait:
             self.wait_ready()
-
-        logging.getLogger("HWR").error("Smargon.move_XYZ: Time to finished moving motors: %.3f" % (time.time()-_t0))
+            logging.getLogger("HWR").error("Smargon.move_XYZ: Time to finished moving motors: %.3f" % (time.time()-_t0))
 
 
     def set_freeze(self, onoff):

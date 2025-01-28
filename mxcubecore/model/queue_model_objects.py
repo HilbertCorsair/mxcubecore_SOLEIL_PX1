@@ -2180,6 +2180,7 @@ class GphlWorkflow(TaskNode):
         if self.detector_setting is None:
             resolution = resolution or self.aimed_resolution
         if resolution:
+    
             distance = HWR.beamline.resolution.resolution_to_distance(
                 resolution, wavelength
             )

@@ -3,7 +3,8 @@ from mxcubecore.HardwareObjects.abstract.AbstractResolution import AbstractResol
 
 DETECTOR_DIAMETER = 424.0
 NOTINITIALIZED, UNUSABLE, READY, MOVESTARTED, MOVING, ONLIMIT = (0, 1, 2, 3, 4, 5)
-
+from PyTango import DeviceProxy
+from mxcubecore import HardwareRepository as HWR
 class PX1Resolution(AbstractResolution):
     state_dict = {
         "UNKNOWN": 0,
@@ -26,6 +27,7 @@ class PX1Resolution(AbstractResolution):
         self.minimum_dist_chan = self.get_channel_object("minimum_distance")
         self.state_chan = self.get_channel_object("state")
         self.stop_command = self.get_command_object("stop")
+        self._detector = self.get_object_by_role("detector")
 
         self.distance_chan.connect_signal("update", self.distance_changed)
         self.resolution_chan.connect_signal("update", self.resolution_changed)
@@ -52,13 +54,13 @@ class PX1Resolution(AbstractResolution):
 
     def equipment_ready(self):
         self.emit("deviceReady")
-
+        from mxcubecore import HardwareRepository as HWR
     def equipment_not_ready(self):
         self.emit("deviceNotReady")
 
     def motstate_to_state(self, motstate):
         motstate = str(motstate)
-        if motstate == "ON":
+        if motstate in ["ON", "STANDBY"]:
             state = self.STATES.READY
         elif motstate == "MOVING":
             state = self.STATES.BUSY
@@ -73,9 +75,9 @@ class PX1Resolution(AbstractResolution):
     def get_state(self, value=None):
         if value is None:
             value = self.state_chan.get_value()
-        state_str = str(value)
-        print(f"Motor state is {state_str}")
-        return self.motstate_to_state(state_str)
+            HO_state = self.motstate_to_state(str(value))
+            return HO_state
+        
 
     def calculate_resolution(self, radius=None, distance=None, wavelength=None):
         return self.get_value()
@@ -108,7 +110,42 @@ class PX1Resolution(AbstractResolution):
     def resolution_changed(self, value=None):
         self.recalculate_resolution()
 
+
     def recalculate_resolution(self):
+        print("PRINT 3 recalculate resolution")
+        distance = self.distance_chan.get_value()
+        resolution = self.resolution_chan.get_value()
+
+        if resolution is None or distance is None:
+            return
+
+        if (self._nominal_value is not None) and abs(
+            resolution - self._nominal_value
+        ) > 0.001:
+            self._nominal_value = resolution
+            self.emit("resolutionChanged", (resolution,))
+
+        if (self.current_distance is not None) and abs(
+            distance - self.current_distance
+        ) > 0.001:
+            self.current_distance = distance
+            self.emit("distanceChanged", (distance,))
+
+        '''
+        self.det_width = self._detector.get_property("width")
+        self.det_height = self._detector.get_property("height")
+        beam_x = DeviceProxy(self._detector).beamCenterX
+        beam_y = DeviceProxy(self._detector).beamCenterY
+        #beam_x, beam_y = self._detector.get_beam_centre()
+
+        radius =  min(self.det_width - beam_x, self.det_height - beam_y, beam_x, beam_y)
+        import pdb 
+        pdb.set_trace()
+
+        wl = self._detector.get_wavelength()
+        dist = self.get_channel_object("distance").get_value()
+        self._calculate_resolution(radius=radius, wavelength= wl, distance = dist)
+        """
         distance = self.distance_chan.get_value()
         resolution = self.resolution_chan.get_value()
         if resolution is None or distance is None:
@@ -123,6 +160,8 @@ class PX1Resolution(AbstractResolution):
         ) > 0.001:
             self.current_distance = distance
             self.emit("distanceChanged", (distance,))
+        """
+        '''
 
     def get_distance_limits(self):
         chan_info = self.distance_chan.get_info()

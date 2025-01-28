@@ -220,8 +220,8 @@ class GenericDiffractometer(HardwareObject):
         "sampy",
         "kappa",
         "kappa_phi",
-        "beam_x",
-        "beam_y",
+        #"beam_x",
+        #"beam_y",
         "zoom",
     ]
 
@@ -775,7 +775,7 @@ class GenericDiffractometer(HardwareObject):
         """
         # hacked to avoid division by zero error
 
-        print(f"This is ~~~~~ GENEGIC DEFRACTOMETER ~~~~~~\nReporting pixels per mm Y : {self.pixels_per_mm_y}\n")
+        #print(f"This is ~~~~~ GENEGIC DEFRACTOMETER ~~~~~~\nReporting pixels per mm Y : {self.pixels_per_mm_y}\n")
         if self.pixels_per_mm_x == 0 or self.pixels_per_mm_y == 0 :
             zoom = self.get_object_by_role("zoom")
             position = self.get_object_by_role("zoom").get_value()
@@ -880,17 +880,6 @@ class GenericDiffractometer(HardwareObject):
                 logging.getLogger("HWR").exception(
                     "Diffractometer: problem aborting the centring method"
                 )
-            try:
-                # TODO... do we need this at all?
-                # fun = self.cancel_centring_methods[self.current_centring_method]
-                pass
-            except KeyError:
-                self.emit_centring_failed()
-            else:
-                try:
-                    fun()
-                except Exception:
-                    self.emit_centring_failed()
         else:
             self.emit_centring_failed()
         self.emit_progress_message("")
