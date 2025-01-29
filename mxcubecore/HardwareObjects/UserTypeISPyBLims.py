@@ -1,6 +1,5 @@
 from __future__ import print_function
 
-import itertools
 import logging
 import sys
 
@@ -9,7 +8,7 @@ from suds.client import Client
 from suds.sudsobject import asdict
 
 from mxcubecore.HardwareObjects.abstract.ISPyBAbstractLims import ISPyBAbstractLIMS
-from mxcubecore.mxcubecore.model.lims_session import LimsSessionManager
+from mxcubecore.model.lims_session import LimsSessionManager
 
 try:
     from urllib2 import URLError
@@ -28,7 +27,7 @@ logging.getLogger("suds").setLevel(logging.INFO)
 
 class UserTypeISPyBLims(ISPyBAbstractLIMS):
     """
-    ISPyB proposal-based client
+    ISPyB user-based client
     """
 
     def __init__(self, name):
@@ -92,13 +91,6 @@ class UserTypeISPyBLims(ISPyBAbstractLIMS):
         proposal_number = ""
         self.user_name = loginID
 
-        # For porposal login, split the loginID to code and numbers
-        if self.loginType == "proposal":
-            proposal_code = "".join(
-                itertools.takewhile(lambda c: not c.isdigit(), loginID)
-            )
-            proposal_number = loginID[len(proposal_code) :]
-
         # if translation of the loginID is needed, need to be tested by ESRF
         if self.loginTranslate is True:
             login_name = self._translate(proposal_code, "ldap") + str(proposal_number)
@@ -121,20 +113,10 @@ class UserTypeISPyBLims(ISPyBAbstractLIMS):
             msg = "%s." % msg.capitalize()
             # refuse Login
             logging.getLogger("HWR").error("ISPyB login not ok")
-            raise "Error lims authentication"
-            # return ProposalTuple(Status(code="error", msg=msg))
+            raise Exception("Error lims authentication")
 
         # login succeed, get proposal and sessions
-        if self.loginType == "proposal":
-            # get the proposal ID
-            _code = self._translate(proposal_code, "ispyb")
-            return self.adapter.get_sessions_by_code_and_number(
-                _code, proposal_number, self.beamline_name
-            )
-        elif self.loginType == "user":
-            return self.adapter.get_sessions_by_username(
-                loginID, self.beamline_name
-            )  # get_proposal_by_username(loginID)
+        self.adapter.get_sessions_by_username(loginID, self.beamline_name)
 
     def get_proposals_by_user(self, user_name):
         proposal_list = []
