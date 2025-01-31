@@ -40,7 +40,7 @@ class EnvironmentState:
 
     @staticmethod
     def to_string(state):
-        return SampleChangerState.state_desc.get(state, "Unknown")
+        return SampleChangerState.state_desc.get(state, "UNKNOWN")
 
 class PX1Environment(HardwareObject):
     def __init__(self, name):

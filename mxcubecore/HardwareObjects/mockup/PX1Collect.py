@@ -60,7 +60,6 @@ from pathlib import Path
 
 from PyTango import DeviceProxy
 
-from mxcubecore.BaseHardwareObjects import HardwareObject
 from mxcubecore.TaskUtils import * 
 from mxcubecore.HardwareObjects.abstract.AbstractCollect import AbstractCollect
 from CreateDirClient import CreateDirectoryClient
@@ -72,7 +71,7 @@ __version__ = "2.3"
 log = logging.getLogger("HWR")
 user_log = logging.getLogger("user_level_log")
 
-class PX1Collect(AbstractCollect, HardwareObject):
+class PX1Collect(AbstractCollect):
     """
     Descript. : Main data collection class. Inherited from AbstractMulticollect
                 Collection is done by setting collection parameters and
@@ -95,12 +94,9 @@ class PX1Collect(AbstractCollect, HardwareObject):
         Descript. : __init__ method
 
                   :param name: name of the object
-
                   :type  name: string
         """
         AbstractCollect.__init__(self, name)
-        HardwareObject.__init__(self, name)
-
         self._error_msg = ""
         self.owner = None
         self.osc_id = None
@@ -139,7 +135,8 @@ class PX1Collect(AbstractCollect, HardwareObject):
         """
         Init method
         """
-
+        super().init()
+        
         self.collect_devname = self.get_property("tangoname")
         self.collect_device = DeviceProxy(self.collect_devname)
         self.collect_device.set_timeout_millis(20000)
@@ -240,13 +237,6 @@ class PX1Collect(AbstractCollect, HardwareObject):
         self.emit("collectConnected", (True,))
         self.emit("collectReady", (True, ))
 
-        #try:
-        #   self.adxv_connect()
-        #except Exception, err:
-        #   self.adxv_socket = None
-        #   logging.error("PX1Collect: ADXV1: msg= %s" % err)
-
-
     def data_collection_hook(self):
         """Main collection hook
         """
@@ -311,15 +301,7 @@ class PX1Collect(AbstractCollect, HardwareObject):
             self.collect_failed('prepare collect exception')
             return
 
-        # for progressBar brick
-        #self.emit("progressInit", "Collection", osc_seq['number_of_images'])
-
-        #
-        # Run
-        #
-
         self.prepare_directories()
-
         if self.check_aborted(): return 
  
         self.latest_imgnum = 0
@@ -368,50 +350,6 @@ class PX1Collect(AbstractCollect, HardwareObject):
                 user_log.info("Waiting for last image in disk...")
                 log.info("Waiting for last image in disk...")
                 log.debug("   directory: %s" % directory)
-
-                if self.do_merge_cbf:
-                    waiting_for_last_image = True
-                    template_glob = "%s*merged_*.%s" % (template.split("%0")[0], "cbf")
-                    showing_img = ""
-                    start_wait = time.time()
-                    timeout = 60
-                    #while waiting_for_last_image:
-                    #    img_list = sorted(glob(os.path.join(directory, template_glob)))
-                    #    if len(img_list) < number_of_images:
-                    #        log.debug("Characterization waiting for last CBF merged image... %s" % str(img_list))
-                    #        gevent.sleep(0.1)
-                    #    else:
-                    #        self.adxv_sync_image(img_list[-1])
-                    #        waiting_for_last_image = False                    
-                    #    if (time.time() - start_wait) > timeout:
-                    #        user_log.error(" timeout. giving up on waiting for last image")
-                    #        waiting_for_last_image = False
-                    #    if len(img_list):
-                    #       _limg = img_list[-1]
-                    #       if (_limg != showing_img):
-                    #           showing_img = _limg
-                    #           self.adxv_sync_image(showing_img)
-
-                if self.do_merge_hdf5:
-                    # do not wait merged image to finish collection
-                    pass
-
-                    # code to wait for last merged image on disk code (tested)
-                    #  waiting_for_last_image = True
-                    #  directory = self.current_dc_parameters['fileinfo']['directory']
-                    #  last_image = "%s_sum10_data_000001.h5" % (template.split("%0")[0])
-                    #  last_image = os.path.join(directory,last_image)
-                    #  start_waiting = time.time()
-                    #  while waiting_for_last_image:
-                    #      log.debug("Characterization waiting for last HDF5 merged image... %s" % str(last_image))
-                    #      if os.path.exists(last_image):
-                    #          log.debug("Characterization last HDF5 merged image found on disk")
-                    #          waiting_for_last_image = False
-                    #  
-                    #      if time.time() - start_waiting > 60:
-                    #          log.debug("Timeout waiting for characterization HDF5 merged image. ")
-                    #          waiting_for_last_image = False
-                    #      time.sleep(0.2)
 
             self.data_collection_end()
             self.collection_finished()
@@ -620,16 +558,6 @@ class PX1Collect(AbstractCollect, HardwareObject):
             thumb_info = self.do_store_image_in_lims(thumb_pars)
             thumbs[thumb_name] = thumb_info
             thumbno += 1
-   
-        #-- remove this
-        #o-- log.info("Storing image %s in lims\n", first_imgno)
-        #o-- info = self.do_store_image_in_lims(first_imgno)
-        #o-- thumbs['image0'] = info
-        #o-- 
-        #o-- log.info("Storing image %s in lims\n", last_imgno)
-        #o-- info = self.do_store_image_in_lims(last_imgno)
-        #o-- thumbs['image1'] = info
-        #-- until here
 
         self.current_dc_parameters['thumbnails'] = thumbs
 
@@ -706,8 +634,6 @@ class PX1Collect(AbstractCollect, HardwareObject):
         first_h5_data = "%s_data_%06d.h5" % (h5_root, datafile_number)
         first_h5_datapath = os.path.join( fileinfo['directory'], first_h5_data )
 
-        #thumbs_up = self.generate_thumbnails(first_h5_datapath, first_image_jpegpath, first_image_thumbpath)
-        #if thumbs_up:
         self.store_image_in_lims(first_imgno)
 
         nb_frames_file = self.collect_device.fileNbFrames
@@ -721,8 +647,6 @@ class PX1Collect(AbstractCollect, HardwareObject):
             imgno = datafile_number * nb_frames_file + first_imgno  
             last_image_jpegpath = os.path.join(archive_dir, jpeg_template) # % imgno)
             last_image_thumbpath = os.path.join(archive_dir, thumb_template) # % imgno)
-            #thumbs_up = self.generate_thumbnails(last_h5_datapath, last_image_jpegpath, last_image_thumbpath)
-            #if thumbs_up:
             self.store_image_in_lims(imgno)
 
     def prepare_characterization(self):
@@ -856,7 +780,7 @@ class PX1Collect(AbstractCollect, HardwareObject):
             logging.getLogger("HWR").info("PX1Collect: collect server cannot be stopped" + str(e))
             
         try:
-            self.fastshut_hwobj.closeShutter()
+            self.fastshut_hwobj.close_cmd()
         except BaseException as e:
             logging.getLogger("HWR").info("PX1Collect: fast shutter cannot be closed" + str(e))
 
@@ -867,8 +791,8 @@ class PX1Collect(AbstractCollect, HardwareObject):
         logging.getLogger("HWR").info("PX1Collect: finishing data collection ")
         # return omega to initial position
         if self.omega_pos_before:
-            self.omega_hwobj.syncMove(self.omega_pos_before)
-        self.fastshut_hwobj.closeShutter()
+            self.omega_hwobj.sync_move(self.omega_pos_before)
+        self.fastshut_hwobj.close_cmd()
 
         # self.graphics_manager_hwobj.select_camera('oav')
 
@@ -905,7 +829,6 @@ class PX1Collect(AbstractCollect, HardwareObject):
             XYZ_end   = arg["2"]["phiy"], arg["2"]["phiz"], arg["2"]["sampx"]
             self.collect_device.helicalStart = map(float, XYZ_start)
             self.collect_device.helicalEnd =   map(float, XYZ_end)
-            #self.helical_positions = XYZ_start + XYZ_end
             logging.info("PX1Collect: set_helical_pos done.")
         except Exception as err:
             logging.info("PX1Collect Helical_Pos: ERR = %s" % err)
@@ -971,7 +894,7 @@ class PX1Collect(AbstractCollect, HardwareObject):
             logging.getLogger("HWR").debug("PX1Collect:  - PX1Env state is:  %s" % self.px1env_hwobj.get_state())
             self.current_dc_parameters["take_snapshots"] = 0
             return
-        self.lightarm_hwobj.adjustLightLevel() 
+        self.lightarm_hwobj._adjust_light_level() 
         gevent.sleep(0.3) # allow time to refresh display after
 
         self.graphics_manager_hwobj.save_scene_snapshot(filename)
@@ -1015,7 +938,6 @@ class PX1Collect(AbstractCollect, HardwareObject):
         if self.lims_client_hwobj and not self.current_dc_parameters['in_interleave']:
             file_location = self.current_dc_parameters["fileinfo"]["directory"]
             image_file_template = self.current_dc_parameters['fileinfo']['template']
-            #o-- filename = image_file_template #% frame_number
             filename = image_file_template + "_%04d" % frame_number
             lims_image = {'dataCollectionId': self.current_dc_parameters.get("collection_id"),
                           'fileName': filename,
@@ -1214,25 +1136,6 @@ class PX1Collect(AbstractCollect, HardwareObject):
 
         return ret,msg
 
-        #from xmlrpclib import ServerProxy
-#
-        #logging.getLogger("HWR").debug("PX1Collect.py / Creating base project directory: %s" % \
-                   ##project_dir)
-        #username = os.getenv('USER')
-#
-        #try:
-            #serv = ServerProxy(self.mxcube_createdir_server)
-            #ret, msg = serv.mxcube_createdir(project_dir, username)
-            #if ret.lower() == 'error':
-                #logging.getLogger("HWR").debug("     - base project directory error. %s" % msg)
-                #return False, msg
-            #else:
-                #logging.getLogger("HWR").debug("     - base project directory created.")
-                #return True
-        #except BaseException, e:
-            #logging.getLogger("HWR").debug("     - base project directory excep. %s" % str(e))
-            #return False, "error talking with mxcube_createdir_server: " + str(e)
-         
     def prepare_input_files(self):
         """
         Descript. :
@@ -1320,18 +1223,12 @@ class PX1Collect(AbstractCollect, HardwareObject):
             if not success:
                 logging.getLogger("HWR").info("PX1Collect: Cannot set COLLECT phase")
                 return False
-
-        # self.graphics_manager_hwobj.select_camera('mount')
-
         return True
 
     def prepare_headers(self):
-
         logging.getLogger("HWR").info("PX1Collect: prepare_headers")
         osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
-
         ax, ay, bx, by = self.get_beam_configuration()
-
         dist   = self.resolution_hwobj.get_distance()
         wavlen = self.energy_hwobj.get_wavelength()
         logging.getLogger("HWR").info("PX1Collect: prepare_headers. det distance is %s" % dist)
@@ -1343,9 +1240,7 @@ class PX1Collect(AbstractCollect, HardwareObject):
         else:
             img_range = float(osc_seq['range']) / self.characterization_nb_merged_images
         exp_time = osc_seq['exposure_time']
-
         kappa_angle = self.kappa_hwobj.get_position()
-
         chi_start = osc_seq['kappaStart']
         phi_start = osc_seq['phiStart']
 
@@ -1372,25 +1267,22 @@ class PX1Collect(AbstractCollect, HardwareObject):
               return False
 
     def check_shutter_opened(self, shut_hwo, shutter_name="shutter"):
-        if shut_hwo.isShutterOpened():
+        if shut_hwo.is_open():
             return True
 
-        if shut_hwo.get_state() == 'disabled':
+        if str(shut_hwo.get_state()) == 'DISABLED':
             logging.getLogger("user_level_log").warning("%s disabled. NO BEAM" % shutter_name)
             return False 
 
-        elif shut_hwo.get_state() in ['fault', 'alarm', 'error']:
+        elif str(shut_hwo.get_state()) in ['FAULT', 'ALARM', 'ERROR']:
             logging.getLogger("user_level_log").warning("%s is in fault state. NO BEAM" % shutter_name)
             return False
-        #elif shut_hwo.isShutterClosed():
-        #    shut_hwo.openShutter()
-        #    return shut_hwo.waitShutter('opened')
         else: 
             logging.getLogger("user_level_log").warning("%s is in an unhandled state. BEAM delivery uncertain" % shutter_name)
             return False
 
     def close_fast_shutter(self):
-        self.fastshut_hwobj.closeShutter()
+        self.fastshut_hwobj.close_cmd()
 
     def close_safety_shutter(self):
         pass
@@ -1416,7 +1308,6 @@ class PX1Collect(AbstractCollect, HardwareObject):
 
     def wait_collect_ready(self, timeout=10):
         collection_type = self.current_dc_parameters['experiment_type']
-
         t0 = time.time()
         while self.is_moving():
             #if collection_type == 'Characterization':
@@ -1453,10 +1344,10 @@ class PX1Collect(AbstractCollect, HardwareObject):
 
     ## PX1 ENVIRONMENT PHASE HANDLING ##
     def is_collect_phase(self):
-        return self.px1env_hwobj.isPhaseCollect()
+        return self.px1env_hwobj.is_phase_collect()
 
     def go_to_collect(self, timeout=180):
-        self.px1env_hwobj.gotoCollectPhase()
+        self.px1env_hwobj.goto_collect_phase()
         gevent.sleep(0.5)
 
         t0 = time.time()
@@ -1469,13 +1360,13 @@ class PX1Collect(AbstractCollect, HardwareObject):
                 break
             gevent.sleep(0.2)
 
-        return self.px1env_hwobj.isPhaseCollect()
+        return self.px1env_hwobj.is_phase_collect()
 
     def is_sampleview_phase(self):
-        return self.px1env_hwobj.isPhaseVisuSample()
+        return self.px1env_hwobj.is_phase_visu_sample()
 
     def go_to_sampleview(self, timeout=180):
-        self.px1env_hwobj.gotoSampleViewPhase()
+        self.px1env_hwobj.goto_sample_view_phase()
 
         gevent.sleep(0.5)
 
@@ -1489,7 +1380,7 @@ class PX1Collect(AbstractCollect, HardwareObject):
                 break
             gevent.sleep(0.2)
 
-        self.lightarm_hwobj.adjust_light_level() 
+        self.lightarm_hwobj._adjust_light_level() 
         return self.is_sampleview_phase()
 
     ## PX1 ENVIRONMENT PHASE HANDLING (END) ##
@@ -1522,7 +1413,6 @@ class PX1Collect(AbstractCollect, HardwareObject):
         """
         Descript. : resolution is a motor in out system
         """
-        #self.resolution_hwobj.move(value)
         # just store the value. 
         # delay move resolution after preparing diff phase
         self.resolution_target = value
@@ -1530,7 +1420,8 @@ class PX1Collect(AbstractCollect, HardwareObject):
     def do_set_resolution(self):
         value = self.resolution_target
         self.resolution_hwobj.sync_move(value)
-
+    
+    # Check if in use in other classes ? -method might be depricated 
     def move_detector(self,value):
         self.detector_hwobj.move_distance(value)
 
@@ -1667,7 +1558,7 @@ class PX1Collect(AbstractCollect, HardwareObject):
         """
         Descript. :
         """
-        return self.get_measured_intensity()
+        return self.get_measured_intensity(glob)
 
     ## OTHER HARDWARE OBJECTS (END) ##
 
@@ -1702,9 +1593,7 @@ class PX1Collect(AbstractCollect, HardwareObject):
                 self.adxv_latest_refresh = time.time()
 
     def adxv_sync_image(self, imgname):
-
         adxv_send_cmd = "\nload_image %s\n" + chr(32)
-
         try:
             if not self.adxv_socket:
                 try:

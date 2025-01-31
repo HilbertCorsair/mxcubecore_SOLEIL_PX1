@@ -108,8 +108,8 @@ class PX1Flux(AbstractFlux):
     def value_changed(self, value):
         
         if self.pv:
-            cond = abs(self.pv - value)/self.pv > self.delta_trig
-            if self.delta_trig  and cond:
+            cond = abs(self.pv - value)/self.pv > self._delta_trig
+            if self._delta_trig  and cond:
                 self.cv = value
                 print(f"CHANGING FLUX VALUE TO {value}")
                 self.emit('valueChanged', value)            

@@ -321,21 +321,29 @@ class PX1MiniDiff(GenericDiffractometer):
 
         self.wait_device_ready(timeout)
         #logging.getLogger("HWR").info("PX1MiniDiff.move_motors: motor_positions= %s" % motor_positions)
-        for motor in motor_positions.keys():
+       
+        for motor in list(motor_positions.keys()):
             #logging.getLogger("HWR").info("PX1MiniDiff.move_motors: INP motor= %s name= %s" % (motor, motor.name()))
             position = motor_positions[motor]
-            if type(motor) in (str, unicode):
+
+
+            # CHECK IF FUNCTIONAL !!! is it changing existing values or is it adding new ones? 
+            if isinstance(motor, str):
                 motor_role = motor
                 motor = self.motor_hwobj_dict.get(motor_role)
                 del motor_positions[motor_role]
-                if None in (motor, position):
+                if not motor or motor.name() == "/zoom":
                     continue
                 motor_positions[motor] = position
             #logging.getLogger("HWR").info("PX1MiniDiff.move_motors: OUT motor= %s" % motor)
             self.wait_device_ready(timeout)
             try:
+                print(motor)
                 motor.sync_move(position)
             except:
+                import pdb
+                pdb.set_trace()
+
                 import traceback
                 logging.getLogger("HWR").debug("  / error moving motor on diffractometer. state is %s" % (self.smargon_state))
                 logging.getLogger("HWR").debug("     / %s " % traceback.format_exc())

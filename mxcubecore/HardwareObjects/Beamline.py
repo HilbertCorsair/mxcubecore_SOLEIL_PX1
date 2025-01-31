@@ -444,6 +444,24 @@ class Beamline(ConfiguredObject):
 
 
     @property
+    def beamstop(self):
+        """Environment specifique PX1"""
+
+        return self._objects.get("beamstop")
+
+    __content_roles.append("beamstop")
+    
+    
+    @property
+    def capillary(self):
+        """Environment specifique PX1"""
+
+        return self._objects.get("capillary")
+
+    __content_roles.append("capillary")
+    
+    
+    @property
     def resolution(self):
         """Resolution Hardware object
 
