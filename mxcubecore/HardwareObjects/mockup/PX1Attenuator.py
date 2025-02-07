@@ -124,6 +124,7 @@ class PX1Attenuator(AbstractTransmission):
         except:
             logging.getLogger("HWR").error('%s set Transmission : received value on channel is not valid', str(self.name()))
             value=None
+        self.update_value(value)
         return value
 
     set_value = set_transmission

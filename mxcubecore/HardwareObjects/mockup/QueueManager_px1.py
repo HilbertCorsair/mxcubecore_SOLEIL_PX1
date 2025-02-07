@@ -15,7 +15,8 @@ import gevent
 import gevent.event
 import queue_entry
 
-from HardwareRepository.BaseHardwareObjects import HardwareObject
+from mxcubecore.BaseHardwareObjects import HardwareObject
+#from HardwareRepository.BaseHardwareObjects import HardwareObject
 from queue_entry import QueueEntryContainer
 
 """

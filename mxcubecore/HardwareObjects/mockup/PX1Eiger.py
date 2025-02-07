@@ -158,9 +158,6 @@ class PX1Eiger(AbstractDetector):
         self.det_height = self.get_property("height")
         beam_x, beam_y = self.get_beam_centre()
         radius =  min(self.det_width - beam_x, self.det_height - beam_y, beam_x, beam_y)
-        
-        import pdb
-        pdb.set_trace()
         return radius
     """
 

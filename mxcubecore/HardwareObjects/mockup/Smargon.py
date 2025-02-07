@@ -98,7 +98,6 @@ class Smargon(HardwareObject):
                 state = str(self._state_chan.get_value())
             else :
                 print("ERROR in Smargon.get_state()")
-                exit()    
 
         if state != self.state:
             self.state_changed(state)

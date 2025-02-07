@@ -231,7 +231,7 @@ class PX1Cryotong(Cats90):
 
         elif dev_state == PyTango.DevState.UNKNOWN:
             _state = SampleChangerState.Unknown
-
+           
         elif has_loaded ^ on_diff:
             # go to Unknown state if a sample is detected on the gonio but not registered in the internal database
             # or registered but not on the gonio anymore

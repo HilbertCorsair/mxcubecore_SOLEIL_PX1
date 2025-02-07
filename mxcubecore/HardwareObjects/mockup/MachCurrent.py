@@ -72,8 +72,7 @@ class MachCurrent(AbstractMachineInfo):
             return self.get_channel_object("current").get_value()
         except Exception as err:
             logging.getLogger("HWR").exception(err)
-            print("OOL")
-            exit()
+            print("EOL")
             return -1
 
     def get_message(self) -> str:
@@ -114,8 +113,6 @@ class MachCurrent(AbstractMachineInfo):
             refill = self.get_life_time()
         except Exception as err:
             print("OH NO! ")
-            import pdb
-            pdb.set_trace()
             logging.getLogger("HWR").exception(err)
             opmsg, fillmode, value, refill = ("", "", -1, -1)
 

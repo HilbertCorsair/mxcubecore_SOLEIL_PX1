@@ -2,14 +2,32 @@
 import logging
 import time
 
-from BeamlineSetup import BeamlineSetup
+from typing import OrderedDict as TOrderedDict
+from typing import (
+    Tuple,
+    Type,
+    Union,
+)
+from Beamline import Beamline
 
+from mxcubecore.BaseHardwareObjects import HardwareObject
 log = logging.getLogger("HWR")
 
-class PX1Beamline(BeamlineSetup):
+class PX1Beamline(Beamline, HardwareObject):
+
+    def __init__(self, name):
+        Beamline.__init__(self, name)
+        HardwareObject.__init__(self, name)
+
+        #self.__objects_names: list[Union[str, None]] = []
 
     def get_run_processing_default(self):
         return self.autoprocessing_hwobj.get_run_processing_default()
+    
+    def name(self):
+        return self.name
+
+
 
     def close_and_quit(self):
 
@@ -27,7 +45,7 @@ class PX1Beamline(BeamlineSetup):
 
             if self.environment_hwobj is not None:
                 log.debug("PX1Beamline. moving px1environment to default phase ")
-                self.environment_hwobj.gotoDefaultPhase()
+                self.environment_hwobj.goto_default_phase()
             
             time.sleep(1) # allow some time on quit to allow actions to be triggered
         except BaseException as e:

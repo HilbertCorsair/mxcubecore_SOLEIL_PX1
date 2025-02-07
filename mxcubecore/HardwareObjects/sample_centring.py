@@ -448,9 +448,6 @@ def px1_center(phi, phiy, phiz, sampx, sampy,
         except Exception as e :
             print(e)
 
-            #import pdb
-            #pdb.set_trace()
-        
         if phiy.get_limits() is not None:
             if z_sample_real + phiy.get_position() < phiy.get_limits()[0] * 2:
                 logging.getLogger("HWR").error("Loop too long")

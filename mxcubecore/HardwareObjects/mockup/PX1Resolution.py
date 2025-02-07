@@ -114,54 +114,34 @@ class PX1Resolution(AbstractResolution):
     def recalculate_resolution(self):
         print("PRINT 3 recalculate resolution")
         distance = self.distance_chan.get_value()
+        print (f"New distance value from res. distance_chan: {distance}")
         resolution = self.resolution_chan.get_value()
+        print (f"New res value from res. distance_chan: {resolution}")
+
 
         if resolution is None or distance is None:
+            print("One is None")
             return
+        try :
 
-        if (self._nominal_value is not None) and abs(
-            resolution - self._nominal_value
-        ) > 0.001:
-            self._nominal_value = resolution
-            self.emit("resolutionChanged", (resolution,))
+            if (self._nominal_value is not None) and abs(
+                resolution - self._nominal_value
+            ) > 0.001:
+                self._nominal_value = resolution
+                self.emit("resolutionChanged", (resolution,))
+        except : 
+            print("Loop 1")
+        try:
 
-        if (self.current_distance is not None) and abs(
-            distance - self.current_distance
-        ) > 0.001:
-            self.current_distance = distance
-            self.emit("distanceChanged", (distance,))
+            if (self.current_distance is not None) and abs(
+                distance - self.current_distance
+            ) > 0.001:
+                self.current_distance = distance
+                self.emit("distanceChanged", (distance,))
+        except : 
+            print("Loop 2")
 
-        '''
-        self.det_width = self._detector.get_property("width")
-        self.det_height = self._detector.get_property("height")
-        beam_x = DeviceProxy(self._detector).beamCenterX
-        beam_y = DeviceProxy(self._detector).beamCenterY
-        #beam_x, beam_y = self._detector.get_beam_centre()
 
-        radius =  min(self.det_width - beam_x, self.det_height - beam_y, beam_x, beam_y)
-        import pdb 
-        pdb.set_trace()
-
-        wl = self._detector.get_wavelength()
-        dist = self.get_channel_object("distance").get_value()
-        self._calculate_resolution(radius=radius, wavelength= wl, distance = dist)
-        """
-        distance = self.distance_chan.get_value()
-        resolution = self.resolution_chan.get_value()
-        if resolution is None or distance is None:
-            return
-        if (self._nominal_value is not None) and abs(
-            resolution - self._nominal_value
-        ) > 0.001:
-            self._nominal_value = resolution
-            self.emit("resolutionChanged", (resolution,))
-        if (self.current_distance is not None) and abs(
-            distance - self.current_distance
-        ) > 0.001:
-            self.current_distance = distance
-            self.emit("distanceChanged", (distance,))
-        """
-        '''
 
     def get_distance_limits(self):
         chan_info = self.distance_chan.get_info()

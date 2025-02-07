@@ -60,24 +60,24 @@ class AbstractResolution(AbstractMotor):
         self._hwr_detector = (
             self.get_object_by_role("detector") or HWR.beamline.detector
         )
-
         self.connect(self._hwr_detector.distance, "stateChanged", self.update_state)
         self.connect(self._hwr_detector.distance, "valueChanged", self.update_distance)
         self.connect(HWR.beamline.energy, "valueChanged", self.update_energy)
         self.connect(HWR.beamline.energy, "stateChanged", self.update_state)
 
         self.update_state(self.get_state())
-
+        
         # initialise the limits
         self._nominal_limits = self.get_limits()
-
+    '''
     def get_state(self):
         """Get the state of the distance motor.
         Returns:
             (enum 'HardwareRepositoryStates'): The state.
         """
+    
         return self._hwr_detector.distance.get_state()
-
+    '''
     def get_value(self):
         """Read the value.
         Returns:
@@ -97,7 +97,8 @@ class AbstractResolution(AbstractMotor):
 
         Returns:
             (tuple): two floats tuple (low limit, high limit).
-        """
+        """        
+        
         _low, _high = self._hwr_detector.distance.get_limits()
 
         return (
@@ -138,10 +139,10 @@ class AbstractResolution(AbstractMotor):
         distance = self.resolution_to_distance(value)
         msg = f"Move resolution to {value} ({distance} mm)"
         logging.getLogger().info(msg)
-        self._hwr_detector.distance.set_value(distance)
-
+        self._hwr_detector.distance._set_value(distance)
+    """
     def _calculate_resolution(self, radius, distance, wavelength=None):
-        """Calculate the resolution as function of the detector radius and
+        Calculate the resolution as function of the detector radius and
         the distance.
         Args:
             radius (float): Detector radius [mm]
@@ -149,32 +150,43 @@ class AbstractResolution(AbstractMotor):
             wavelength (float): Wavelength [Å] (defaults to current wavelength)
         Returns:
             (float): Resolution [Å]
-        """
+        
         wavelength = wavelength or HWR.beamline.energy.get_wavelength()
         try:
             ttheta = atan(radius / distance)
+            #ttheta = 2 * math.asin(self.getWavelength() / (2 * res))
             if ttheta:
                 return wavelength / (2 * sin(ttheta / 2))
+            
         except (TypeError, ZeroDivisionError):
             logging.getLogger().exception("Error while calculating resolution")
         return None
-
+    
+    #def distance_to_resolution(self, distance=None):
+    """    
+    
     def distance_to_resolution(self, distance=None, wavelength=None):
+    
         """Convert distance to resolution.
         Args:
             distance (float): Distance [mm]. Defaults to current distance
             wavelength (float): Wavelength [Å] (defaults to current wavelength)
         Returns:
             (float): Resolution [Å].
+
         """
-        distance = distance or self._hwr_detector.distance.get_value()
+        print('PRINT 1 distance to resolution')
+        #distance = distance or self._hwr_detector.distance.get_value()
+        #wavelength = wavelength or self._hwr_detector.get_wavelength()
+        return self.recalculate_resolution()
+            #self._hwr_detector.get_radius(), distance, wavelength
 
-        return self._calculate_resolution(
-            self._hwr_detector.get_radius(distance), distance, wavelength
-        )
+    
 
+    
     def resolution_to_distance(self, resolution=None, wavelength=None):
-        """Convert resolution to distance.
+        """print('PRINT 2 resolution to distance')
+        Convert resolution to distance.
         Args:
             resolution(float): Resolution [Å]. Defaults to nominal value
             wavelength (float): Wavelength [Å] (defaults to current wavelength)
@@ -188,22 +200,21 @@ class AbstractResolution(AbstractMotor):
             distance = self._hwr_detector.get_radius() / (
                 tan(2 * asin(wavelength / (2 * resolution)))
             )
-            return round(
-                self._hwr_detector.get_radius(distance)
-                / (tan(2 * asin(wavelength / (2 * resolution)))),
-                2,
-            )
+            return round(distance,2)
         except (KeyError, ZeroDivisionError):
             return None
+    
 
+    """
     def get_value_at_corner(self):
-        """Get the resolution at the corners of the detector.
+       Get the resolution at the corners of the detector.
         Returns:
             (float): Resolution [Å]
-        """
+        
         _distance = self._hwr_detector.distance.get_value()
         corner_distance = self._hwr_detector.get_outer_radius()
         return self._calculate_resolution(corner_distance, _distance)
+    """
 
     def update_distance(self, value=None):
         """Update the resolution when distance changed.
@@ -222,7 +233,7 @@ class AbstractResolution(AbstractMotor):
         value = value or HWR.beamline.energy.get_value()
         _wavelength = HWR.beamline.energy.calculate_wavelength(value)
         _distance = self._hwr_detector.distance.get_value()
-        _radius = self._hwr_detector.get_radius(_distance)
+        _radius = self._hwr_detector.get_radius()
         try:
             ttheta = atan(_radius / _distance)
             if ttheta:

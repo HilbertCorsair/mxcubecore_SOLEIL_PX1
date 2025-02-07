@@ -208,12 +208,17 @@ class PX1Environment(HardwareObject):
 
     def goto_loading_phase(self):
         if not self.ready_for_transfer():
-            self.get_command_object("GoToTransfertPhase")()
+            self.get_command_object("GoToTransfertPhase")
             time.sleep(0.1)
 
     def goto_manual_loading_phase(self):
         if not self.ready_for_transfer():
-            self.get_command_object("GoToManualTransfertPhase")()
+            self.get_command_object("GoToManualTransfertPhase")
+            time.sleep(0.1)
+
+    def goto_default_phase(self):
+        if not self.ready_for_default_position():
+            self.get_command_object("GoToDefaultPhase")()
             time.sleep(0.1)
 
     def goto_sample_view_phase(self):

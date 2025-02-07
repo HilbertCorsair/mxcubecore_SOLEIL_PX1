@@ -341,9 +341,6 @@ class PX1MiniDiff(GenericDiffractometer):
                 print(motor)
                 motor.sync_move(position)
             except:
-                import pdb
-                pdb.set_trace()
-
                 import traceback
                 logging.getLogger("HWR").debug("  / error moving motor on diffractometer. state is %s" % (self.smargon_state))
                 logging.getLogger("HWR").debug("     / %s " % traceback.format_exc())

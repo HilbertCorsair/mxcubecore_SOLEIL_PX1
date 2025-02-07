@@ -125,8 +125,6 @@ class TangoShutter(AbstractShutter):
                 else:
                     values_dict.update({key: val})
         except (ValueError, TypeError) as err:
-            import pdb
-            pdb.set_trace()
             logging.error(f"Exception in _initialise_values(): {err}")
 
         self.VALUES = Enum("ValueEnum", values_dict)

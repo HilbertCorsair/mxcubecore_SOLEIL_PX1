@@ -24,6 +24,7 @@
 All HardwareObjects
 """
 
+
 from __future__ import (
     absolute_import,
     division,
@@ -43,7 +44,7 @@ __license__ = "LGPLv3+"
 __author__ = "Rasmus H Fogh"
 
 import logging
-
+import xml.etree.ElementTree as ET
 from mxcubecore.BaseHardwareObjects import (
     ConfiguredObject,
     HardwareObject,
@@ -938,9 +939,35 @@ class Beamline(ConfiguredObject):
 
         return path_template
 
+    def parse_xml_config(self, xml_txt):
+        source = ET.fromstring(xml_txt)
+        for p in source.findall(".//position"):
+            user = p.find("username").text
+            position_data = {
+                "offset" : float(p.find("offset").text),
+                "focus_offset": float(p.find("focus_offset").text),
+                "lightLevel" : int(p.find("lightLevel").text),
+                "calibrationData" : {
+                    "pixelsPerMmY": int(p.find("calibrationData/pixelsPerMmY").text),
+                    "pixelsPerMmZ": int(p.find("calibrationData/pixelsPerMmZ").text),
+                    "beamPositionX": int(p.find("calibrationData/beamPositionX").text),
+                    "beamPositionY": int(p.find("calibrationData/beamPositionY").text),
+                }
+            }
+            self.positions[user] = position_data
     def get_default_characterisation_parameters(self):
-        return self.characterisation.get_default_characterisation_parameters()
+            carac_params ={"exposure_time": 0.1,
+                           "start_angle": 0.0,
+                           "range" : 1,
+                           "number_of_passes": 1, 
+                           "start_image_number": 1,
+                           "run_number" : 1,
+                           "overlap": 0, 
+                           "number_of_images" : 4,
+                           "detector_mode" : 1}
+            return carac_params
 
+  
     def force_emit_signals(self):
         for role in self.all_roles:
             hwobj = getattr(self, role)

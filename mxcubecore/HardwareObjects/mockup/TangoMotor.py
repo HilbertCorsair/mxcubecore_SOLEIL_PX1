@@ -200,16 +200,19 @@ class TangoMotor(AbstractMotor):
         :param value: float
         :return:
         """
+        print(f"<> ><  <>  >< <>{value} VAlue sent to Eiger ")
         self.log.debug("TangoMotor.py - Moving motor %s to %s" % (self.name(), value))
         if self.is_simulation:
              self.simulated_pos = value
         else:
+             print("Comencing movement")
              self.start_moving()
+             print("Setting Value via chan_position")
              self.chan_position.set_value(value)
 
     def start_moving(self):
         self.motor_state_changed("MOVING")
-
+    
         if self.auto_on:
             state = str(self.chan_state.get_value())
             if state == "OFF":

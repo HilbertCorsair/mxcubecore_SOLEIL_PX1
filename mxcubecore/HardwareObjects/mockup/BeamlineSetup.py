@@ -24,8 +24,8 @@ class BeamlineSetup(HardwareObject):
         self.sample_changer_hwobj = None
         self.plate_manipulator_hwobj = None
         self.chip_manager_hwobj = None
-
-        for role in self.getRoles():
+        for role in self.get_roles():
+            
             self._get_object_by_role(role)
 
         self._object_by_path['/beamline/energy'] = self.energy_hwobj
@@ -34,7 +34,7 @@ class BeamlineSetup(HardwareObject):
 
         self.advanced_methods = []
         try:
-           self.advanced_methods = eval(self.getProperty("advancedMethods"))
+           self.advanced_methods = eval(self.get_property("advancedMethods"))
         except:
            pass
 
@@ -44,7 +44,7 @@ class BeamlineSetup(HardwareObject):
         <role>_hwobj to the current instance.
         """
         try:
-            value = self.getObjectByRole(role)
+            value = self.get_object_by_role(role)
         except:
             value = None
             logging.getLogger('HWR').exception('Could not get object with ' +\
@@ -131,7 +131,7 @@ class BeamlineSetup(HardwareObject):
         tw = False
 
         try:
-            tw = bool(self.getProperty('tunable_wavelength'))
+            tw = bool(self.get_property('tunable_wavelength'))
         except TypeError:
             tw = False
 
@@ -144,7 +144,7 @@ class BeamlineSetup(HardwareObject):
         ap = False
 
         try:
-            ap = bool(self.getProperty('has_aperture'))
+            ap = bool(self.get_property('has_aperture'))
         except TypeError:
             ap = False
 
@@ -159,7 +159,7 @@ class BeamlineSetup(HardwareObject):
         disable_num_passes = False
 
         try:
-            disable_num_passes = self.getProperty('disable_num_passes')
+            disable_num_passes = self.get_property('disable_num_passes')
 
             if disable_num_passes is None:
                 disable_num_passes = False
@@ -176,12 +176,12 @@ class BeamlineSetup(HardwareObject):
         acq_parameters = queue_model_objects.AcquisitionParameters()
         parent_key = "default_characterisation_values"
 
-        img_start_num = self[parent_key].getProperty('start_image_number')
-        num_images = self[parent_key].getProperty('number_of_images')
-        osc_range = round(float(self[parent_key].getProperty('range')), 2)
-        overlap = round(float(self[parent_key].getProperty('overlap')), 2)
-        exp_time = round(float(self[parent_key].getProperty('exposure_time')), 4)
-        num_passes = int(self[parent_key].getProperty('number_of_passes'))
+        img_start_num = self[parent_key].get_property('start_image_number')
+        num_images = self[parent_key].get_property('number_of_images')
+        osc_range = round(float(self[parent_key].get_property('range')), 2)
+        overlap = round(float(self[parent_key].get_property('overlap')), 2)
+        exp_time = round(float(self[parent_key].get_property('exposure_time')), 4)
+        num_passes = int(self[parent_key].get_property('number_of_passes'))
         shutterless = self.detector_has_shutterless()
         try:
             detector_mode = self.detector_hwobj.default_mode() 
@@ -215,8 +215,8 @@ class BeamlineSetup(HardwareObject):
         """
         :returns: A CharacterisationsParameters object with default parameters.
         """
-        input_fname = self.data_analysis_hwobj.edna_default_file
-        hwr_dir = HardwareRepository().getHardwareRepositoryPath()
+        input_fname = "test_file_name.txt" #self.data_analysis_hwobj.edna_default_file
+        hwr_dir = self._path #HardwareRepository.get_hardware_repository_path()
 
         with open(os.path.join(hwr_dir, input_fname), 'r') as f:
             edna_default_input = ''.join(f.readlines())
@@ -230,11 +230,11 @@ class BeamlineSetup(HardwareObject):
 
         # Optimisation parameters
         char_params.use_aimed_resolution = False
-        char_params.aimed_resolution = diff_plan.getAimedResolution().getValue()
+        char_params.aimed_resolution = diff_plan.getAimedResolution().get_value()
         char_params.use_aimed_multiplicity = False
-        #char_params.aimed_multiplicity = diff_plan.getAimedMultiplicity().getValue()
-        char_params.aimed_i_sigma = diff_plan.getAimedIOverSigmaAtHighestResolution().getValue()
-        char_params.aimed_completness = diff_plan.getAimedCompleteness().getValue()
+        #char_params.aimed_multiplicity = diff_plan.getAimedMultiplicity().get_value()
+        char_params.aimed_i_sigma = diff_plan.getAimedIOverSigmaAtHighestResolution().get_value()
+        char_params.aimed_completness = diff_plan.getAimedCompleteness().get_value()
         char_params.strategy_complexity = 0
         char_params.induce_burn = False
         char_params.use_permitted_rotation = False
@@ -243,8 +243,8 @@ class BeamlineSetup(HardwareObject):
         char_params.low_res_pass_strat = False
 
         # Crystal
-        char_params.max_crystal_vdim = edna_sample.getSize().getY().getValue()
-        char_params.min_crystal_vdim = edna_sample.getSize().getZ().getValue()
+        char_params.max_crystal_vdim = edna_sample.getSize().getY().get_value()
+        char_params.min_crystal_vdim = edna_sample.getSize().getZ().get_value()
         char_params.max_crystal_vphi = 90
         char_params.min_crystal_vphi = 0.0
         char_params.space_group = ""
@@ -263,7 +263,7 @@ class BeamlineSetup(HardwareObject):
         char_params.burn_osc_interval = 3
 
         # Radiation damage model
-        char_params.rad_suscept = edna_sample.getSusceptibility().getValue()
+        char_params.rad_suscept = edna_sample.getSusceptibility().get_value()
         char_params.beta = 1
         char_params.gamma = 0.06
 
@@ -285,12 +285,12 @@ class BeamlineSetup(HardwareObject):
            logging.warning("No key %s in beamline setup, using %s", parent_key, default_key)
            parent_key = default_key
 
-        img_start_num = self[parent_key].getProperty('start_image_number')
-        num_images = self[parent_key].getProperty('number_of_images')
-        osc_range = round(float(self[parent_key].getProperty('range')), 2)
-        overlap = round(float(self[parent_key].getProperty('overlap')), 2)
-        exp_time = round(float(self[parent_key].getProperty('exposure_time')), 4)
-        num_passes = int(self[parent_key].getProperty('number_of_passes'))
+        img_start_num = self[parent_key].get_property('start_image_number')
+        num_images = self[parent_key].get_property('number_of_images')
+        osc_range = round(float(self[parent_key].get_property('range')), 2)
+        overlap = round(float(self[parent_key].get_property('overlap')), 2)
+        exp_time = round(float(self[parent_key].get_property('exposure_time')), 4)
+        num_passes = int(self[parent_key].get_property('number_of_passes'))
         shutterless = self.detector_has_shutterless()
         try:
             detector_mode = self.detector_hwobj.default_mode() 
@@ -324,35 +324,35 @@ class BeamlineSetup(HardwareObject):
         limits = {}
 
         try:
-            exp_time_limit = self[parent_key].getProperty('exposure_time')
+            exp_time_limit = self[parent_key].get_property('exposure_time')
             if exp_time_limit is not None:
                 limits['exposure_time'] = exp_time_limit
         except:
             pass
 
         try:
-            range_limit = self[parent_key].getProperty('osc_range')
+            range_limit = self[parent_key].get_property('osc_range')
             if range_limit is not None:
                 limits['osc_range'] = range_limit
         except:
             pass
 
         try:
-            num_images_limit = self[parent_key].getProperty('number_of_images')
+            num_images_limit = self[parent_key].get_property('number_of_images')
             if num_images_limit is not None:
                 limits['number_of_images'] = num_images_limit
         except:
             pass
 
         try:
-            kappa_limit = self[parent_key].getProperty('kappa')
+            kappa_limit = self[parent_key].get_property('kappa')
             if kappa_limit is not None:
                 limits['kappa'] = kappa_limit
         except:
             pass
 
         try:
-            kappa_phi_limit = self[parent_key].getProperty('kappa_phi')
+            kappa_phi_limit = self[parent_key].get_property('kappa_phi')
             if kappa_phi_limit is not None:
                 limits['kappa_phi'] = kappa_phi_limit
         except:
@@ -373,20 +373,20 @@ class BeamlineSetup(HardwareObject):
         path_template.mad_prefix = ''
         path_template.reference_image_prefix = ''
         path_template.wedge_prefix = ''
-        path_template.run_number = self[parent_key].getProperty('run_number')
-        path_template.suffix = self.session_hwobj["file_info"].getProperty('file_suffix')
+        path_template.run_number = self[parent_key].get_property('run_number')
+        path_template.suffix = self.session_hwobj["file_info"].get_property('file_suffix')
 
         """
         path_template.precision = '04'
         try:
-           if self.session_hwobj["file_info"].getProperty('precision'):
-               path_template.precision = eval(self.session_hwobj["file_info"].getProperty('precision'))
+           if self.session_hwobj["file_info"].get_property('precision'):
+               path_template.precision = eval(self.session_hwobj["file_info"].get_property('precision'))
         except:
            pass
         """
         
-        path_template.start_num = int(self[parent_key].getProperty('start_image_number'))
-        path_template.num_files = int(self[parent_key].getProperty('number_of_images'))
+        path_template.start_num = int(self[parent_key].get_property('start_image_number'))
+        path_template.num_files = int(self[parent_key].get_property('number_of_images'))
 
         return path_template
 
@@ -398,7 +398,7 @@ class BeamlineSetup(HardwareObject):
 
     def _get_energy(self):
         try:
-            energy = self.energy_hwobj.getCurrentEnergy()
+            energy = self.energy_hwobj.get_current_energy()
             #energy = round(float(energy), 4)
         except AttributeError:
             energy = 0
@@ -409,7 +409,7 @@ class BeamlineSetup(HardwareObject):
 
     def _get_transmission(self):
         try:
-            transmission = self.transmission_hwobj.getAttFactor()
+            transmission = self.transmission_hwobj.get_att_factor()
             #transmission = round(float(transmission), 2)
         except AttributeError:
             transmission = 0
@@ -420,7 +420,7 @@ class BeamlineSetup(HardwareObject):
 
     def _get_resolution(self):
         try:
-            resolution = self.resolution_hwobj.getPosition()
+            resolution = self.resolution_hwobj.get_position()
             #resolution = round(float(resolution), 3)
         except AttributeError:
             resolution = 0
@@ -442,13 +442,13 @@ class BeamlineSetup(HardwareObject):
         result = 0
 
         try:
-            result = round(float(self.omega_axis_hwobj.getPosition()), 2)
+            result = round(float(self.omega_axis_hwobj.get_position()), 2)
         except TypeError:
             parent_key = "default_acquisition_values"
-            result = round(float(self[parent_key].getProperty('start_angle')), 2)
+            result = round(float(self[parent_key].get_property('start_angle')), 2)
         except AttributeError:
             parent_key = "default_acquisition_values"
-            result = round(float(self[parent_key].getProperty('start_angle')), 2)
+            result = round(float(self[parent_key].get_property('start_angle')), 2)
 
         return result
 
@@ -458,7 +458,7 @@ class BeamlineSetup(HardwareObject):
         """
         result = 0
         try:
-            result = round(float(self.kappa_axis_hwobj.getPosition()), 2)
+            result = round(float(self.kappa_axis_hwobj.get_position()), 2)
         except:
             pass
         return result
@@ -469,7 +469,7 @@ class BeamlineSetup(HardwareObject):
         """
         result = 0
         try:
-            result = round(float(self.kappa_phi_axis_hwobj.getPosition()), 2)
+            result = round(float(self.kappa_phi_axis_hwobj.get_position()), 2)
         except:
             pass
         return result
@@ -500,7 +500,7 @@ class BeamlineSetup(HardwareObject):
     def check_collection_parameters(self, parameters_list):
         invalid_parameters_list = []
         for parameter_item in parameters_list:
-            (bottom, top) = self.energy_hwobj.getEnergyLimits()
+            (bottom, top) = self.energy_hwobj.get_energy_limits()
             if parameter_item['energy'] > top or \
                parameter_item['energy'] < bottom:
                invalid_parameters_list.append('Energy')

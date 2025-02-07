@@ -720,13 +720,13 @@ class AbstractCollect(HardwareObject, object):
             try:
                 self.current_dc_parameters[
                     "actualSampleBarcode"
-                ] = HWR.beamline.sample_changer.getLoadedSample().getID()
+                ] = HWR.beamline.sample_changer.get_loaded_sample().get_id()
                 self.current_dc_parameters["actualContainerBarcode"] = (
-                    HWR.beamline.sample_changer.getLoadedSample().getContainer().getID()
+                    HWR.beamline.sample_changer.get_loaded_sample().get_container().get_id()
                 )
 
                 logging.getLogger("user_level_log").info("Getting loaded sample coords")
-                basket, vial = HWR.beamline.sample_changer.getLoadedSample().getCoords()
+                basket, vial = HWR.beamline.sample_changer.get_loaded_sample().get_coords()
 
                 self.current_dc_parameters["actualSampleSlotInContainer"] = vial
                 self.current_dc_parameters["actualContainerSlotInSC"] = basket
@@ -747,7 +747,7 @@ class AbstractCollect(HardwareObject, object):
                 if isinstance(motor, str):
                     positions_str += " %s=%f" % (motor, position)
                 else:
-                    positions_str += " %s=%f" % (motor.getMotorMnemonic(), position)
+                    positions_str += " %s=%f" % (motor.get_motor_mnemonic(), position)
         self.current_dc_parameters["actualCenteringPosition"] = positions_str
         self.move_motors(self.current_dc_parameters["motors"])
 

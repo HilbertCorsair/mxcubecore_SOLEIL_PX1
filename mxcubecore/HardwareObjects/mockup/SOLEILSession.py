@@ -3,19 +3,20 @@ import os
 import time
 import logging
 from typing import Optional, Tuple, Dict
-
-from HardwareRepository import HardwareRepository
-import Session
+from mxcubecore import HardwareRepository as HWR
+#from HardwareRepository import HardwareRepository
+from mxcubecore.HardwareObjects.Session import Session
 #import queue_model_objects_v1 as queue_model_objects
 
 log = logging.getLogger("HWR")
 
-class SOLEILSession(Session.Session):
+class SOLEILSession(Session):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.ldap_ho = None
         self.ssh_name = None
         self.latest_projuser = ""
+        self.set_test_user_info()
 
     def init(self):
         super().init()
@@ -54,6 +55,12 @@ class SOLEILSession(Session.Session):
         log.debug(f"SOLEILSession set_user_info. uid={uid}, gid={gid}")
 
         super().set_user_info(username, uid, gid, projuser)
+
+    def set_test_user_info(self):
+        self.username = "idtest0"
+        self.projuser = "idtest0"
+        self.user_id = "5265"
+        self.group_id = "g5265"
 
     def get_user_info(self) -> Dict[str, str]:
         return {
@@ -126,7 +133,7 @@ class SOLEILSession(Session.Session):
         basedir = os.path.dirname(path) if not os.path.isdir(path) else path
         ruchepath = basedir.replace(self["file_info"].get_property('base_directory'), '').lstrip(os.path.sep)
         return f"{usertype} {self.username} {self.user_id} {self.group_id} {basedir} {ruchepath}\n"
-
+""" 
 def test_hwo(hwo):
     print('\n======================== TESTS ========================')
     print('These are tests of the HardwareObject SOLEILSession')
@@ -217,3 +224,4 @@ def test_hwo(hwo):
 
 if __name__ == '__main__':
     test_hwo('test')
+"""

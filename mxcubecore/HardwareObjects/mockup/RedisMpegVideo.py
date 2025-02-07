@@ -13,10 +13,21 @@ Example configuration:
   <format>MJPEG</format>
 </object>
 """
+import logging
 import subprocess
 import uuid
 import psutil
-
+from typing import (
+    List,
+    Tuple,)
+import struct
+from  PyTango import DeviceProxy
+from PIL import Image
+import io
+import redis
+import numpy as np
+import cv2
+from datetime import datetime
 from mxcubecore.BaseHardwareObjects import HardwareObject
 
 class RedisMpegVideo(HardwareObject):
@@ -27,17 +38,30 @@ class RedisMpegVideo(HardwareObject):
         self.stream_hash = str(uuid.uuid1())
         self._quality_str = "High"
         self._QUALITY_STR_TO_INT = {"High": 4, "Medium": 10, "Low": 20, "Adaptive": -1}
+        self._redis = None
 
     def init(self):
         super().init()
+        self._last_image = None
         self._debug = self.get_property("debug", False)
         self._quality = self.get_property("compression", 10)
         self._mpeg_scale = self.get_property("mpeg_scale", 1)
-        self._image_size = (self.get_width(), self.get_height())
+        self._image_size = (self.get_width(), self.get_height() )
         self._uri = self.get_property("uri")
         self._host = self.get_property("host")
         self._port = str(self.get_property("port"))
         self._format = self.get_property("format")
+        self.tangoname = self.get_property("tangoname")
+        try:
+            self._video_mode = self.get_property("video_mode", "RGB24")
+            self.device = DeviceProxy(self.tangoname)
+            # try a first call to get an exception if the device
+            # is not exported
+            self.device.ping()
+        except Exception as e :
+            logging.getLogger("HWR").error("%s: %s", str(self.name()), e)
+        self.set_cam_redis()
+       
 
     @property
     def uri(self):
@@ -69,6 +93,9 @@ class RedisMpegVideo(HardwareObject):
     def get_height(self):
         h= int(self.get_property("height"))
         return h
+    
+    def set_cam_redis(self):
+        self._redis = self._uri.startswith("redis")
 
     def get_quality(self):
         return self._quality_str
@@ -128,8 +155,57 @@ class RedisMpegVideo(HardwareObject):
                 close_fds=True,
             )
             with open("/tmp/mxcube.pid", "a") as f:
-                f.write("%s " % self._video_stream_process.pid)
+                f.write("%s " % self._video_stream_process.pid)\
 
+    def poll_image(self): #, device, video_mode, FORMATS):
+
+        if self._redis:
+            try:
+                r = redis.Redis(host="195.221.8.84", port=6379, decode_responses=False)
+                latest_frame = r.xrevrange("mxcubeweb", count=1)
+                if not latest_frame:
+                    print("NO FRAMES")
+                    return None
+                frame_data = latest_frame[0][1][b'frame']
+                print(type(frame_data), "--------------- data")
+                image = Image.open(io.BytesIO(frame_data))
+                print("C1")
+                frame_rgb = np.array(image.convert('RGB'))
+                print("C2")
+                return frame_rgb
+            except Exception as e:
+                print(f"Error retrieving frame: {str(e)}")
+                return None
+
+
+        """
+        img_data = device.video_last_image
+
+        hfmt = ">IHHqiiHHHH"
+        hsize = struct.calcsize(hfmt)
+        _, _, img_mode, frame_number, width, height, _, _, _, _ = struct.unpack(
+            hfmt, img_data[1][:hsize]
+        )
+
+        raw_data = img_data[1][hsize:]
+        _from, _to = FORMATS.get(video_mode, (None, None))
+
+        if _from and _to:
+            img = Image.frombuffer(_from, (height, width), raw_data, "raw", _from, 0, 1)
+
+            img_bytes = io.BytesIO()
+            img.save(img_bytes, format=_to)
+            img = img.tobytes()
+        else:
+            img = raw_data
+        return img, width, height
+        """
+
+    def get_last_image(self):
+        rgb = self.poll_image()
+        return rgb, self.get_width, self.get_height
+            
+    
     def stop_streaming(self):
         if self._video_stream_process:
             ps = psutil.Process(self._video_stream_process.pid).children() + [
@@ -160,7 +236,6 @@ class RedisMpegVideo(HardwareObject):
             self.start_video_stream_process(str(self.port))
         except Exception as e:
             print(f"Cannot start video streaming process ! {e}")
-            exit()
 
     def restart_streaming(self, size):
         self.stop_streaming()

@@ -243,25 +243,32 @@ class PX1Collect(AbstractCollect):
         collection_type = self.current_dc_parameters['experiment_type']
         logging.getLogger("HWR").info("PX1Collect: Running PX1 data collection hook. Type is %s" % collection_type )
         self.emit("collectStarted", (None, 1))
+        print("Collect started")
 
         user_info = self.session_hwobj.get_user_info()
 
         self.current_dc_parameters['user_info'] = user_info
 
         if self.check_aborted():
+            print("Nothing Happens !")
             return
 
         ready = self.prepare_devices_for_collection()
 
         if not ready:
+            print("NO ! I'm Not ready yet !")
             self.collection_failed("Cannot prepare collection")
             self.stop_collect()
+            
             return
 
         try:
             if collection_type != 'Characterization':  # standard
+                print("Colection type : STANDARD")
                 if self.diffractometer_hwobj.in_chip_mode(): 
+                     print("Diffractometer in CHIP mode")
                      if not self.chip_range_allowed():
+                         print("OH, NO!, range not allowed: ")
                          self.collection_failed("Collection range too large for chips")
                          self.stop_collect()
                          return
@@ -481,10 +488,11 @@ class PX1Collect(AbstractCollect):
 
     def start_helical_collection(self):
         #if not self.collect_device.helicalScan:
+        #self.collect_device.Start()
         #    self.collect_device.helicalScan = True
         #self.emit("collectStarted", (self.owner, 1))
-        #self.detector_hwobj.start_collection()
-        #self.collect_device.Start()
+        #self.detector_hwobj.start_collection()  <object href="/mxcollect" role="collect"/>
+
         pass
 
     def chip_range_allowed(self):
@@ -896,10 +904,9 @@ class PX1Collect(AbstractCollect):
             return
         self.lightarm_hwobj._adjust_light_level() 
         gevent.sleep(0.3) # allow time to refresh display after
-
-        self.graphics_manager_hwobj.save_scene_snapshot(filename)
+        self.graphics_manager_hwobj.save_snapshot(filename)
         filename_noshape = filename.replace("snapshot.jpeg", "snapshot_noshape.jpeg")
-        self.graphics_manager_hwobj.save_scene_snapshot(filename_noshape, include_items=False)
+        self.graphics_manager_hwobj.save_snapshot(filename_noshape)     #, include_items=False)
         logging.getLogger("HWR").debug("PX1Collect:  - snapshot saved to %s" % filename)
 
     def generate_thumbnails_old(self, filename, jpeg_filename, thumbnail_filename):
@@ -1267,8 +1274,12 @@ class PX1Collect(AbstractCollect):
               return False
 
     def check_shutter_opened(self, shut_hwo, shutter_name="shutter"):
-        if shut_hwo.is_open():
-            return True
+        try:
+            if shut_hwo.is_open():
+                return True
+        except TypeError:
+            if shut_hwo.is_open:
+                return True
 
         if str(shut_hwo.get_state()) == 'DISABLED':
             logging.getLogger("user_level_log").warning("%s disabled. NO BEAM" % shutter_name)

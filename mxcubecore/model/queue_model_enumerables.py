@@ -62,9 +62,9 @@ EXPERIMENT_TYPE_STR = ExperimentType(
 StrategyOption = namedtuple("StrategyOption", ["AVG"])
 STRATEGY_OPTION = StrategyOption(0)
 
-CollectionOrigin = namedtuple("CollectionOrigin", ["MXCUBE", "EDNA", "WORKFLOW"])
-COLLECTION_ORIGIN = CollectionOrigin(0, 1, 2)
-COLLECTION_ORIGIN_STR = CollectionOrigin("mxcube", "edna", "workflow")
+CollectionOrigin = namedtuple("CollectionOrigin", ["MXCUBE"])#, "EDNA", "WORKFLOW"])
+COLLECTION_ORIGIN = CollectionOrigin(0)
+COLLECTION_ORIGIN_STR = CollectionOrigin("mxcube")#, "edna", "workflow")
 
 EDNARefImages = namedtuple("EDNARefImages", ["FOUR", "TWO", "ONE", "NONE"])
 EDNA_NUM_REF_IMAGES = EDNARefImages(0, 1, 2, 3)

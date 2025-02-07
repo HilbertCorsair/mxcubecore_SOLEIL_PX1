@@ -150,6 +150,10 @@ class CharacterisationQueueEntry(BaseQueueEntry):
             reference_image_collection = char.reference_image_collection
 
             if HWR.beamline.characterisation is not None:
+                px1collect =  HWR.beamline.characterisation.get_object_by_role("collect")
+                print("Characterisation : starting collect hook")
+                px1collect.data_collection_hook()
+                """
                 edna_input = HWR.beamline.characterisation.input_from_params(
                     reference_image_collection, characterisation_parameters
                 )
@@ -201,7 +205,7 @@ class CharacterisationQueueEntry(BaseQueueEntry):
                 else:
                     self.get_view().setText(1, "Charact. Failed")
                     log.error("EDNA-Characterisation completed with a failure.")
-
+                """
         char.set_executed(True)
         self.get_view().setHighlighted(True)
 

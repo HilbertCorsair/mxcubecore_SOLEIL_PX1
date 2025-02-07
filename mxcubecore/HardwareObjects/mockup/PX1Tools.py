@@ -45,11 +45,6 @@ class PX1Tools(AbstractShutter):
             self.config_values = json.loads(self.get_property("values"))
         except:
             self.config_values = None
-        """
-        if self.name() == "/beamstop":
-            import pdb
-            pdb.set_trace()
-        """
 
     def _update_value(self, value):
 

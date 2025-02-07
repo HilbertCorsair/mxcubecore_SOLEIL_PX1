@@ -261,9 +261,8 @@ class AbstractDetector(HardwareObject):
         pixel_x, pixel_y = self.get_pixel_size()
         rrx = min(self.get_width() - beam_x, beam_x) * pixel_x
         rry = min(self.get_height() - beam_y, beam_y) * pixel_y
-        radius = min(rrx, rry)
-
-        return radius
+        #radius = min(rrx, rry)
+        return rry
 
     def get_outer_radius(self, distance=None):
         """Get distance from beam_position to the furthest point on the detector.
