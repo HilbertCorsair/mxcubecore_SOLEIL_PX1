@@ -15,6 +15,8 @@ import math
 log = logging.getLogger("HWR")
 
 class PX1MiniDiff(GenericDiffractometer):
+  
+
 
     default_arrow_step = 0.1   # 100 microns default for arrow movements. otherwise configure in zoom.xml with arrowStep
 
@@ -36,6 +38,14 @@ class PX1MiniDiff(GenericDiffractometer):
         self.arrow_step = self.default_arrow_step
         GenericDiffractometer.init(self)
 
+        self.phase_list = [
+                GenericDiffractometer.PHASE_TRANSFER,
+                GenericDiffractometer.PHASE_CENTRING,
+                GenericDiffractometer.PHASE_COLLECTION,
+                GenericDiffractometer.PHASE_DEFAULT,
+                GenericDiffractometer.PHASE_UNKNOWN,
+                GenericDiffractometer.PHASE_PARTY,]
+
         self.centring_methods = {
              GenericDiffractometer.CENTRING_METHOD_MANUAL: \
                  self.px1_manual_centring,
@@ -50,6 +60,29 @@ class PX1MiniDiff(GenericDiffractometer):
     def in_chip_mode(self):
         return self.chip_mode
 
+    def set_phase(self, phase, timeout=None):
+        print (f"PHASE is {phase} ~~~~~~ ")
+        """Sets ENVIRONMENT to selected phase
+        """
+        translation_to_env = {"TRANSFER" :0,
+                              "CENTRING" :1,
+                              "COLLECT" : 2, 
+                              "DEFAULT" : 3 }
+    
+  
+        if timeout:
+            self.px1env_ho.ready_event.clear()
+            
+            self.px1env_ho.cmds.get(translation_to_env[phase])()            
+            #self.px1env_ho.set_phase(phase)
+            self.px1env_ho.ready_event.wait()
+            self.px1env_ho.ready_event.clear()
+        else:
+            cmd = self.px1env_ho.cmds.get(translation_to_env[phase])
+            if cmd is not None:
+                logging.debug(f"PX1environment.goto_phase state {self.get_state()}")
+                cmd()
+            
     def prepare_centring(self, timeout=20):
         env_state = self.px1env_ho.get_state()
         self.px1env_ho.goto_centring_phase()

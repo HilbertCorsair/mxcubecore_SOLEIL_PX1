@@ -162,20 +162,40 @@ class RedisMpegVideo(HardwareObject):
         if self._redis:
             try:
                 r = redis.Redis(host="195.221.8.84", port=6379, decode_responses=False)
-                latest_frame = r.xrevrange("mxcubeweb", count=1)
+                print(r.info()['redis_version'])
+                latest_frame = r.lrange("mxcubeweb", 0, 0)
                 if not latest_frame:
                     print("NO FRAMES")
                     return None
-                frame_data = latest_frame[0][1][b'frame']
-                print(type(frame_data), "--------------- data")
-                image = Image.open(io.BytesIO(frame_data))
-                print("C1")
+                
+                # Assuming the frame data is stored directly as bytes
+                frame_data = latest_frame[0]  # Just take the first element
+                
+                print(f"Frame data type: {type(frame_data)}")
+                
+                # Add validation for frame_data
+                if not frame_data:
+                    print("Empty frame data")
+                    return None
+                    
+                try:
+                    image = Image.open(io.BytesIO(frame_data))
+                except IOError as img_error:
+                    print(f"Error opening image data: {str(img_error)}")
+                    return None
+                    
                 frame_rgb = np.array(image.convert('RGB'))
-                print("C2")
                 return frame_rgb
-            except Exception as e:
-                print(f"Error retrieving frame: {str(e)}")
+                
+            except redis.ConnectionError as conn_err:
+                print(f"Redis connection error: {str(conn_err)}")
                 return None
+            except redis.RedisError as redis_err:
+                print(f"Redis error: {str(redis_err)}")
+                return None
+            except Exception as e:
+                print(f"Unexpected error: {str(e)}")
+                return None          
 
 
         """

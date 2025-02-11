@@ -794,26 +794,28 @@ class AbstractCollect(HardwareObject, object):
                 self.current_dc_parameters[
                     "xtalSnapshotFullPath%i" % (snapshot_index + 1)
                 ] = snapshot_filename
-                self._take_crystal_snapshot(snapshot_filename)
-                if number_of_snapshots > 1:
-                    HWR.beamline.diffractometer.move_omega_relative(90)
 
-        if (
-            not HWR.beamline.diffractometer.in_plate_mode()
-            and self.current_dc_parameters.get("take_video")
-        ):
-            # Add checkbox to allow enable/disable creation of gif
-            logging.getLogger("user_level_log").info("Collection: Saving animated gif")
-            animation_filename = os.path.join(
-                snapshot_directory,
-                "%s_%s_animation.gif"
-                % (
-                    self.current_dc_parameters["fileinfo"]["prefix"],
-                    self.current_dc_parameters["fileinfo"]["run_number"],
-                ),
-            )
-            self.current_dc_parameters["xtalSnapshotFullPath2"] = animation_filename
-            self._take_crystal_animation(animation_filename, duration_sec=1)
+                #self._take_crystal_snapshot(snapshot_filename)
+                
+                #if number_of_snapshots > 1:
+                #    HWR.beamline.diffractometer.move_omega_relative(90)
+
+        #if (
+        #    not HWR.beamline.diffractometer.in_plate_mode()
+        #    and self.current_dc_parameters.get("take_video")
+        #):
+        #    # Add checkbox to allow enable/disable creation of gif
+        #    logging.getLogger("user_level_log").info("Collection: Saving animated gif")
+        #    animation_filename = os.path.join(
+        #        snapshot_directory,
+        #        "%s_%s_animation.gif"
+        #        % (
+        #            self.current_dc_parameters["fileinfo"]["prefix"],
+        #            self.current_dc_parameters["fileinfo"]["run_number"],
+        #        ),
+        #    )
+        #    self.current_dc_parameters["xtalSnapshotFullPath2"] = animation_filename
+        #    self._take_crystal_animation(animation_filename, duration_sec=1)
 
     @abc.abstractmethod
     @task

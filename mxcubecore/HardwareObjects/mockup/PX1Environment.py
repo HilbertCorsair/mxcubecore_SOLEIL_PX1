@@ -202,10 +202,18 @@ class PX1Environment(HardwareObject):
             time.sleep(0.1)
 
     def goto_collect_phase(self):
+      
         if not self.ready_for_collect() or self.get_phase() != "COLLECT":
-            self.get_command_object("GoToCollectPhase")()
-            time.sleep(0.1)
-
+            self.get_command_object("GoToCollectPhase")
+            if not self.get_command_object("GoToCollectPhase"):
+                try :
+                    self._collect = self.add_command( {"type": "tango", "name": "GoToCollectPhase", "tangoname": self.tangoname}, "GoToCollectPhase", )
+                    self._collect()
+                    time.sleep(0.1)
+                except :
+                    pass
+                    
+            
     def goto_loading_phase(self):
         if not self.ready_for_transfer():
             self.get_command_object("GoToTransfertPhase")

@@ -243,11 +243,13 @@ class GenericDiffractometer(HardwareObject):
     MANUAL3CLICK_MODE = CENTRING_METHOD_MANUAL
     C3D_MODE = CENTRING_METHOD_AUTO
 
-    PHASE_TRANSFER = "Transfer"
-    PHASE_CENTRING = "Centring"
-    PHASE_COLLECTION = "DataCollection"
-    PHASE_BEAM = "BeamLocation"
-    PHASE_UNKNOWN = "Unknown"
+    PHASE_TRANSFER = "TRANSFER"
+    PHASE_CENTRING = "CENTRING "
+    PHASE_COLLECTION = "COLLECT"
+    PHASE_BEAM = "---"
+    PHASE_DEFAULT = "DEFAULT"
+    PHASE_UNKNOWN = "UNKNOWN"
+    PHASE_PARTY = "PARTY"
 
     def __init__(self, name):
         HardwareObject.__init__(self, name)

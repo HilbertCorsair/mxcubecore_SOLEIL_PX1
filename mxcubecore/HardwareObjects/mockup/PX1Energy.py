@@ -266,7 +266,7 @@ class PX1Energy(AbstractEnergy):
     startMoveEnergy = move_energy
     startMoveWavelength = move_wavelength
 
-    def wait_energy_ready(self, timeout=61):
+    def wait_energy_ready(self, timeout=1):
         _state = self.get_state()
 
         t0 = time.time()
