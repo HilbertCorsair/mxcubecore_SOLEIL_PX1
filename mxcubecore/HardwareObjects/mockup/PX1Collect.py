@@ -105,8 +105,8 @@ class PX1Collect(AbstractCollect):
 
         self.diffractometer_hwobj = None
         self.omega_hwobj = None
-        self.kappa_hwobj = None
-        self.phi_hwobj = None
+        self.kappa_mot_hwobj = None
+        self.kappaphi_mot_hwobj = None
         self.lims_client_hwobj = None
         self.machine_info_hwobj = None
         self.energy_hwobj = None
@@ -165,8 +165,8 @@ class PX1Collect(AbstractCollect):
         self.mxlocal_object = self.get_object_by_role("beamline_configuration")
 
         self.omega_hwobj = self.get_object_by_role("omega")
-        self.kappa_hwobj = self.get_object_by_role("kappa")
-        self.phi_hwobj = self.get_object_by_role("phi")
+        #self.kappa_hwobj = self.get_object_by_role("kappa")
+        #self.phi_hwobj = self.get_object_by_role("phi")
 
         self.lims_client_hwobj = self.get_object_by_role("lims_client")
         self.machine_info_hwobj = self.get_object_by_role("machine_info")
@@ -293,6 +293,7 @@ class PX1Collect(AbstractCollect):
             self._collecting = True
 
             osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
+
     
             logging.getLogger("HWR").info("  / position requested for chi is: %s " % osc_seq['kappaStart'])
             logging.getLogger("HWR").info("  / position requested for phi is: %s " % osc_seq['phiStart'])
@@ -525,6 +526,7 @@ class PX1Collect(AbstractCollect):
         return [first_thumb, last_thumb]
 
     def thumbnails_characterization(self):
+        
         osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
         merged_images = self.characterization_nb_merged_images
         nb_trigger = osc_seq['number_of_images']
@@ -538,7 +540,7 @@ class PX1Collect(AbstractCollect):
         return thumblist
 
     def generate_thumbnails(self, thumblist):
-    #o-- def generate_thumbnails(self):
+        #o-- def generate_thumbnails(self):
         thumbs = {}
 
         template = self.current_file_template
@@ -570,19 +572,41 @@ class PX1Collect(AbstractCollect):
         self.current_dc_parameters['thumbnails'] = thumbs
 
     def do_store_image_in_lims(self, thumb_info):
-        imgno, nb_images = thumb_info
-    #def do_store_image_in_lims(self, imgno):
-        log.info("Storing image %s in lims\n", imgno)
-        image_id, img_info = self.store_image_in_lims(imgno)
-        info = {'image_id': image_id,
-                'image_no': imgno, 
-                'nb_images': nb_images, 
-                'thumb_path': img_info['jpegThumbnailFileOrigPath'], 
-                'jpeg_path': img_info['jpegFileOrigPath'], 
-                'thumb_ispyb': img_info['jpegThumbnailFileFullPath'], 
-                'jpeg_ispyb': img_info['jpegFileFullPath'], 
-                }
-        return info
+        if not thumb_info:
+            print("NO THUMB_INFO")
+            pass
+        else:
+            try:
+                imgno, nb_images = thumb_info
+            except:
+                import pdb
+                pdb.set_trace()
+            log.info("Storing image %s in lims\n", imgno)
+
+
+            # Hack to bypass store_image_in_lims
+            try:
+                image_id, img_info = self.store_image_in_lims(imgno)
+            except:
+                info = {'image_id': "_007",
+                    'image_no': 5, 
+                    'nb_images': 4, 
+                    'thumb_path': "/tmp/", 
+                    'jpeg_path': "/tmp/", 
+                    'thumb_ispyb': "/tmp/", 
+                    'jpeg_ispyb': "/tmp/", 
+                    }
+                return info
+
+            info = {'image_id': image_id,
+                    'image_no': imgno, 
+                    'nb_images': nb_images, 
+                    'thumb_path': img_info['jpegThumbnailFileOrigPath'], 
+                    'jpeg_path': img_info['jpegFileOrigPath'], 
+                    'thumb_ispyb': img_info['jpegThumbnailFileFullPath'], 
+                    'jpeg_ispyb': img_info['jpegFileFullPath'], 
+                    }
+            return info
       
     def store_first_last_in_lims(self):
         # NOT USED
@@ -657,7 +681,7 @@ class PX1Collect(AbstractCollect):
             last_image_thumbpath = os.path.join(archive_dir, thumb_template) # % imgno)
             self.store_image_in_lims(imgno)
 
-    def prepare_characterization(self):
+    def prepare_characterization(self): 
         _templ = self.current_dc_parameters['fileinfo']['template']
         if "%" in _templ:
              self.current_dc_parameters['fileinfo']['template'] = _templ.split("%")[0][:-1]
@@ -942,6 +966,11 @@ class PX1Collect(AbstractCollect):
         """
         Descript. :
         """
+        #import pdb
+        #pdb.set_trace()
+
+        # If the condition is not met the methode returns None ---> error (non itterable)
+
         if self.lims_client_hwobj and not self.current_dc_parameters['in_interleave']:
             file_location = self.current_dc_parameters["fileinfo"]["directory"]
             image_file_template = self.current_dc_parameters['fileinfo']['template']
@@ -1236,7 +1265,7 @@ class PX1Collect(AbstractCollect):
         logging.getLogger("HWR").info("PX1Collect: prepare_headers")
         osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
         ax, ay, bx, by = self.get_beam_configuration()
-        dist   = self.resolution_hwobj.get_distance()
+        dist   = self.resolution_hwobj._hwr_detector.distance.get_value()
         wavlen = self.energy_hwobj.get_wavelength()
         logging.getLogger("HWR").info("PX1Collect: prepare_headers. det distance is %s" % dist)
         start_angle = osc_seq['start']
@@ -1246,10 +1275,9 @@ class PX1Collect(AbstractCollect):
             img_range = osc_seq['range']
         else:
             img_range = float(osc_seq['range']) / self.characterization_nb_merged_images
-        exp_time = osc_seq['exposure_time']
-        kappa_angle = self.kappa_hwobj.get_position()
-        chi_start = osc_seq['kappaStart']
-        phi_start = osc_seq['phiStart']
+        
+        chi_start = osc_seq['kappaStart'] if osc_seq['kappaStart'] else 0
+        phi_start = osc_seq['phiStart'] if osc_seq['phiStart'] else 0
 
         _settings = [
             str(start_angle),
@@ -1261,7 +1289,7 @@ class PX1Collect(AbstractCollect):
             str(chi_start),
             str(phi_start),
             ]
-
+      
         self.set_image_headers(_settings)
         self.wait_not_disabled()
 
@@ -1333,6 +1361,8 @@ class PX1Collect(AbstractCollect):
         t0 = time.time()
         while self.is_disabled():
             elapsed = time.time() - t0
+            print(f"COLLECT DISABLED: waiting ..... {elapsed}")
+            
             if elapsed > timeout:
                  break
             gevent.sleep(0.05)
@@ -1430,17 +1460,23 @@ class PX1Collect(AbstractCollect):
 
     def do_set_resolution(self):
         value = self.resolution_target
-        self.resolution_hwobj.sync_move(value)
+        self.resolution_hwobj.resolution_to_distance(value)
     
     # Check if in use in other classes ? -method might be depricated 
     def move_detector(self,value):
         self.detector_hwobj.move_distance(value)
 
-    def move_kappa(self,value):
-        self.kappa_mot_hwobj.sync_move(value)
+    def move_kappa(self, value):
+        if value < 0.1:
+            pass
+        else:
+            self.kappa_mot_hwobj.sync_move(value)
 
     def move_phi(self,value):
-        self.kappaphi_mot_hwobj.sync_move(value)
+        if value < 0.1:
+            pass
+        else:
+            self.kappaphi_mot_hwobj.sync_move(value)
 
     @task
     def move_motors(self, motor_position_dict):
@@ -1471,7 +1507,7 @@ class PX1Collect(AbstractCollect):
             Called to save resolution in lims
         """
         if self.resolution_hwobj is not None:
-            return self.resolution_hwobj.get_position()
+            return self.resolution_hwobj._hwr_detector.distance.get_value()
 
     def get_transmission(self):
         """

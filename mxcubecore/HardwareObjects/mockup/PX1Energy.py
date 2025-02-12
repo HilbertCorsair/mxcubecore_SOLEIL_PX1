@@ -68,11 +68,11 @@ class PX1Energy(AbstractEnergy):
          
     def state_changed(self, value):
         str_state = str(value)
-        if str_state == 'MOVING':
+        if str_state == 'BUSY':
             self.move_energy_cmd_started()
 
-        if self.current_state == 'MOVING' or self.moving == True:
-            if str_state != 'MOVING':
+        if self.current_state == 'BUSY' or self.moving == True:
+            if str_state != 'BUSY':
                 self.move_energy_cmd_finished() 
         print(f"Current PX1EN state is {str_state}")            
         self.current_state = self.motstate_to_state(str_state)
@@ -169,7 +169,7 @@ class PX1Energy(AbstractEnergy):
         backlash = 0.1  # en mm
         gaplimite = 5.5  # en mm
         
-        if self.get_state() != "MOVING":
+        if self.get_state() != "BUSY":
             if self.doBacklashCompensation:
                 try:
                     self.und_device.energy = value
@@ -266,13 +266,12 @@ class PX1Energy(AbstractEnergy):
     startMoveEnergy = move_energy
     startMoveWavelength = move_wavelength
 
-    def wait_energy_ready(self, timeout=1):
+    def wait_energy_ready(self, timeout=60):
         _state = self.get_state()
-
         t0 = time.time()
         last_msg_time = 0
 
-        while _state != "STANDBY":
+        while _state.name != "READY":
             gevent.sleep(1)
             elapsed = time.time() - t0
             _state = self.get_state()
