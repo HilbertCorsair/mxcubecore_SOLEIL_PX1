@@ -33,7 +33,7 @@ nosetests.xml
 coverage.xml
 *,cover
 *.log
-
+*log.*
 local.crt
 local.key
 .DS_Store

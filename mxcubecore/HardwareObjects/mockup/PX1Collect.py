@@ -579,8 +579,7 @@ class PX1Collect(AbstractCollect):
             try:
                 imgno, nb_images = thumb_info
             except:
-                import pdb
-                pdb.set_trace()
+                print("EXCEPTION in PX1Collect l 582")
             log.info("Storing image %s in lims\n", imgno)
 
 

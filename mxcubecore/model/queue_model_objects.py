@@ -688,7 +688,7 @@ class DataCollection(TaskNode):
         return self.acquisitions[0].acquisition_parameters
 
     def get_path_template(self):
-        return self.acquisitions[0].path_template
+        return
 
     def get_files_to_be_written(self):
         path_template = self.acquisitions[0].path_template
@@ -2594,42 +2594,6 @@ def addXrayCentring(parent_node, **centring_parameters):
 # Collect hardware object utility function.
 #
 def to_collect_dict(data_collection, sample, centred_pos=None):
-    """ return [{'comment': '',
-          'helical': 0,
-          'motors': {},
-          'take_video': False,
-          'take_snapshots': False,
-          'fileinfo': {'directory': '/data/id14eh4/inhouse/opid144/' +\
-                                    '20120808/RAW_DATA',
-                       'prefix': 'opid144', 'run_number': 1,
-                       'process_directory': '/data/id14eh4/inhouse/' +\
-                                            'opid144/20120808/PROCESSED_DATA'},
-          'in_queue': 0,
-          'detector_binning_mode': 2,
-          'shutterless': 0,
-          'sessionId': 32368,
-          'do_inducedraddam': False,
-          'sample_reference': {},
-          'processing': 'False',
-          'residues': '',
-          'dark': True,
-          'scan4d': 0,
-          'input_files': 1,
-          'oscillation_sequence': [{'exposure_time': 1.0,
-                                    'kappaStart': 0.0,
-                                    'phiStart': 0.0,
-                                    'start_image_number': 1,
-                                    'number_of_images': 1,
-                                    'overlap': 0.0,
-                                    'start': 0.0,
-                                    'range': 1.0,
-                                    'number_of_passes': 1}],
-          'nb_sum_images': 0,
-          'EDNA_files_dir': '',
-          'anomalous': 'False',
-          'file_exists': 0,
-          'experiment_type': 'SAD',
-          'skip_images': 0}]"""
 
     acquisition = data_collection.acquisitions[0]
     acq_params = acquisition.acquisition_parameters
