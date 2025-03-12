@@ -1,130 +1,98 @@
+
 import logging
+import requests
 import os
-import traceback
-from collections import namedtuple
 
-import urllib2
-from cookielib import CookieJar
-from ISPyBClient import (
-    _CONNECTION_ERROR_MSG,
-    ISPyBClient,
-)
-from suds.client import Client
 from suds.transport.http import HttpAuthenticated
+from suds.client import Client
 
-from mxcubecore import HardwareRepository as HWR
+from ISPyBClient2 import  ISPyBClient2, _CONNECTION_ERROR_MSG
 
-# The WSDL root is configured in the hardware object XML file.
-# _WS_USERNAME, _WS_PASSWORD have to be configured in the HardwareObject XML file.
-_WSDL_ROOT = ""
-_WS_BL_SAMPLE_URL = _WSDL_ROOT + "ToolsForBLSampleWebService?wsdl"
-_WS_SHIPPING_URL = _WSDL_ROOT + "ToolsForShippingWebService?wsdl"
-_WS_COLLECTION_URL = _WSDL_ROOT + "ToolsForCollectionWebService?wsdl"
-_WS_AUTOPROC_URL = _WSDL_ROOT + "ToolsForAutoprocessingWebService?wsdl"
-_WS_USERNAME = None
-_WS_PASSWORD = None
-
-SampleReference = namedtuple(
-    "SampleReference",
-    ["code", "container_reference", "sample_reference", "container_code"],
-)
-
-
-class SOLEILISPyBClient(ISPyBClient):
-    def __init__(self, name):
-        ISPyBClient.__init__(self, name)
-
-        logger = logging.getLogger("ispyb_client")
-        print("ISPYB")
-
-        try:
-            formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-            hdlr = logging.FileHandler(
-                "/home/experiences/proxima2a/com-proxima2a/MXCuBE_v2_logs/ispyb_client.log"
-            )
-            hdlr.setFormatter(formatter)
-            logger.addHandler(hdlr)
-        except Exception:
-            pass
-
-        logger.setLevel(logging.INFO)
+class SOLEILISPyBClient(ISPyBClient2):
 
     def init(self):
         """
         Init method declared by HardwareObject.
         """
         self.authServerType = self.get_property("authServerType") or "ldap"
-        if self.authServerType == "ldap":
-            # Initialize ldap
-            self.ldapConnection = self.get_object_by_role("ldapServer")
-            if self.ldapConnection is None:
-                logging.getLogger("HWR").debug("LDAP Server is not available")
-
         self.loginType = self.get_property("loginType") or "proposal"
         self.loginTranslate = self.get_property("loginTranslate") or True
-        self.beamline_name = HWR.beamline.session.beamline_name
-        print("self.beamline_name init", self.beamline_name)
 
-        self.ws_root = self.get_property("ws_root")
-        self.ws_username = self.get_property("ws_username")
-        if not self.ws_username:
-            self.ws_username = _WS_USERNAME
-        self.ws_password = self.get_property("ws_password")
-        if not self.ws_password:
-            self.ws_password = _WS_PASSWORD
+        self.session_hwobj = self.get_object_by_role('session')
+        if self.authServerType == "ldap":
+            # Initialize ldap
+            self.ldap_connection=self.get_object_by_role('ldapServer')
+            if self.ldap_connection is None:
+                logging.getLogger("HWR").debug('LDAP Server is not available')
 
-        self.ws_collection = self.get_property("ws_collection")
-        self.ws_shipping = self.get_property("ws_shipping")
-        self.ws_tools = self.get_property("ws_tools")
+        self.beamline_name = self.session_hwobj.beamline_name
 
-        logging.info("SOLEILISPyBClient: Initializing SOLEIL ISPyB Client")
-        logging.info("   - using http_proxy = %s " % os.environ["http_proxy"])
+        self.ws_root = self.get_property('ws_root')
+        self.ws_username = self.get_property('ws_username')
+        self.ws_password = self.get_property('ws_password')
+
+        self.ws_collection = self.get_property('ws_collection')
+        self.ws_shipping = self.get_property('ws_shipping')
+        self.ws_tools = self.get_property('ws_tools')
+
+        self.identifiers_location = self.get_property("ispyb_identifiers_location")
+
+        self.connection_timeout = self.get_property('connectionTimeout')
+        if not self.connection_timeout: self.connection_timeout = 3
+
+        logging.getLogger("HWR").info("SOLEILISPyBClient: Initializing SOLEIL ISPyB Client")
+        """
 
         try:
 
             if self.ws_root:
-                logging.info(
-                    "SOLEILISPyBClient: attempting to connect to %s" % self.ws_root
-                )
-                print("SOLEILISPyBClient: attempting to connect to %s" % self.ws_root)
-
+                logging.getLogger("HWR").debug("SOLEILISPyBClient: attempting to connect to %s" % self.ws_root)
                 try:
                     self._shipping = self._wsdl_shipping_client()
                     self._collection = self._wsdl_collection_client()
                     self._tools_ws = self._wsdl_tools_client()
-                    logging.debug(
-                        "SOLEILISPyBClient: extracted from ISPyB values for shipping, collection and tools"
-                    )
-                except Exception:
-                    print(traceback.print_exc())
-                    logging.exception("SOLEILISPyBClient: %s" % _CONNECTION_ERROR_MSG)
+                    logging.getLogger("HWR").debug("SOLEILISPyBClient: extracted from ISPyB values for shipping, collection and tools")
+                    self.enable()
+                except:
+                    logging.getLogger("HWR").exception("SOLEILISPyBClient: %s" % _CONNECTION_ERROR_MSG)
+                    self.disable()
                     return
-        except Exception:
-            print(traceback.print_exc())
+        except:
+            import traceback
+            print (traceback.print_exc())
             logging.getLogger("HWR").exception(_CONNECTION_ERROR_MSG)
             return
+        """
+
+        # Add the porposal codes defined in the configuration xml file
+        # to a directory. Used by translate()
         try:
-            proposals = HWR.beamline.session["proposals"]
+            proposals = self.session_hwobj['proposals']
 
             for proposal in proposals:
                 code = proposal.code
-                self._translations[code] = {}
+                self.__translations[code] = {}
                 try:
-                    self._translations[code]["ldap"] = proposal.ldap
+                    self.__translations[code]['ldap'] = proposal.ldap
                 except AttributeError:
                     pass
                 try:
-                    self._translations[code]["ispyb"] = proposal.ispyb
+                    self.__translations[code]['ispyb'] = proposal.ispyb
                 except AttributeError:
                     pass
                 try:
-                    self._translations[code]["gui"] = proposal.gui
+                    self.__translations[code]['gui'] = proposal.gui
                 except AttributeError:
                     pass
         except IndexError:
             pass
-        except Exception:
+        except:
             pass
+            #import traceback
+            #traceback.print_exc()
+
+    def get_identifiers_location(self):
+        return self.identifiers_location
 
     def translate(self, code, what):
         """
@@ -133,7 +101,10 @@ class SOLEILISPyBClient(ISPyBClient):
         """
         if what == "ispyb":
             return "mx"
+        if what == "gui":
+            return "mx"
         return ""
+        # return code
 
     def _wsdl_shipping_client(self):
         return self._wsdl_client(self.ws_shipping)
@@ -145,96 +116,215 @@ class SOLEILISPyBClient(ISPyBClient):
         return self._wsdl_client(self.ws_collection)
 
     def _wsdl_client(self, service_name):
+        # Create a session to handle cookies and authentication
+        session = requests.Session()
+        session.cookies = requests.cookies.RequestsCookieJar()
+        session.auth = (self.ws_username, self.ws_password)
 
-        # Handling of redirection at soleil needs cookie handling
-        cj = CookieJar()
-        url_opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
+        # Create transport with the session
+        trans = HttpAuthenticated(username=self.ws_username,
+                                password=self.ws_password)
 
-        trans = HttpAuthenticated(username=self.ws_username, password=self.ws_password)
-        logging.info("_wsdl_client service_name %s - trans %s" % (service_name, trans))
-        print("_wsdl_client service_name %s - trans %s" % (service_name, trans))
+        # Set the session as the transport's opener
+        trans.session = session
 
-        trans.urlopener = url_opener
+        # Build URLs
+        ws_root = self.ws_root.strip()
         urlbase = service_name + "?wsdl"
         locbase = service_name
-
-        ws_root = self.ws_root.strip()
-
         url = ws_root + urlbase
         loc = ws_root + locbase
 
-        print("_wsdl_client, url", url)
-        ws_client = Client(url, transport=trans, timeout=3, location=loc, cache=None)
+        # Create SOAP client
+        ws_client = Client(url,
+                        transport=trans,
+                        timeout=self.connection_timeout,
+                        location=loc,
+                        cache=None)
 
         return ws_client
+
+    def path_to_ispyb(self, path):
+        return self.session_hwobj.path_to_ispyb( path )
 
     def prepare_collect_for_lims(self, mx_collect_dict):
         # Attention! directory passed by reference. modified in place
 
-        prop = "EDNA_files_dir"
-        path = mx_collect_dict[prop]
-        ispyb_path = HWR.beamline.session.path_to_ispyb(path)
-        mx_collect_dict[prop] = ispyb_path
-
-        prop = "process_directory"
-        path = mx_collect_dict["fileinfo"][prop]
-        ispyb_path = HWR.beamline.session.path_to_ispyb(path)
-        mx_collect_dict["fileinfo"][prop] = ispyb_path
-
         for i in range(4):
             try:
-                prop = "xtalSnapshotFullPath%d" % (i + 1)
+                prop = f'xtalSnapshotFullPath{i+1}'
+                orig_prop = f'xtalSnapshotOrigPath{i+1}'
+                logging.getLogger("HWR").debug(f" checking for snapshot {prop}")
                 path = mx_collect_dict[prop]
-                ispyb_path = HWR.beamline.session.path_to_ispyb(path)
-                logging.debug("SOLEIL ISPyBClient - %s is %s " % (prop, ispyb_path))
+                ispyb_path = self.session_hwobj.path_to_ispyb(path)
+                logging.debug(f"SOLEIL ISPyBClient - {prop} is {ispyb_path}")
+                mx_collect_dict[orig_prop] = path
                 mx_collect_dict[prop] = ispyb_path
-            except Exception:
+            except KeyError:
                 pass
+            except:
+                import traceback
+                logging.getLogger("HWR").debug(f" prepare_collect_for_lims. {traceback.format_exc()}")
+
 
     def prepare_image_for_lims(self, image_dict):
-        for prop in ["jpegThumbnailFileFullPath", "jpegFileFullPath"]:
+        for prop in [ 'jpegThumbnailFileFullPath', 'jpegFileFullPath']:
             try:
                 path = image_dict[prop]
-                ispyb_path = HWR.beamline.session.path_to_ispyb(path)
+                ispyb_path = self.session_hwobj.path_to_ispyb( path )
                 image_dict[prop] = ispyb_path
-            except Exception:
+            except:
                 pass
-
-
+'''
 def test_hwo(hwo):
-    proposal_code = "mx"
-    proposal_number = "20100023"
-    proposal_psd = "tisabet"
 
-    # proposal_number = '20160745'
-    # proposal_psd = '087D2P3252'
+    ISPYB specific files: /nfs/ruche/proxima1-soleil/com-proxima1/ispyb_identifiers/
 
-    print("Trying to login to ispyb")
-    info = hwo.login(proposal_number, proposal_psd)
-    print("logging in returns: ", str(info))
+    print '\n======================== TESTS ========================'
+    print 'These are tests of the HardwareObject SOLEILISPyBClient'
+    print '=======================================================\n'
 
+    print '-------------------------------------------------------'
+    print 'Defining some generic variables for all the tests'
+    proposal_code = 'mx'
+    proposal_type = 'ispyb'
+    proposal_username = '20100023'
+    proposal_username = '20160745'
+    proposal_username = '2018160411011250'
+#    proposal_number = '20181604'
+    proposal_psd = 'jkDW6U2Zuw'
 
-def test():
-    hwr = HWR.get_hardware_repository()
+    print '  proposal code     : %s' % proposal_code
+    print '  proposal new code : %s' % proposal_type
+    print '  proposal username : %s' % proposal_username
+    print '-------------------------------------------------------'
+
+    print '\n-------------------------------------------------------'
+    print 'Checking for the connection to ISPyB.'
+    print 'This includes functions:'
+    print '   - _wsdl_shipping_client'
+    print '   - _wsdl_client'
+    print '   - _wsdl_collection_client'
+    print '   - _wsdl_tools_client'
+    print '-------------------------------------------------------'
+    import os
+    hwr_directory = os.environ["MXCUBE_XML_PATH"]
+    hwr = HardwareRepository.HardwareRepository(os.path.abspath(hwr_directory))
     hwr.connect()
+    dbconnection = hwr.getHardwareObject("/dbconnection")
 
-    db = HWR.beamline.lims
+    print '\n-------------------------------------------------------'
+    print 'checking for get_login_type function'
+    print '-------------------------------------------------------'
+#    loginType = hwo.get_login_type()
+#    print 'found login type: %s' % loginType
 
-    print("db", db)
-    print("dir(db)", dir(db))
-    # print 'db._SOLEILISPyBClientShipping', db._SOLEILISPyBClientShipping
-    # print 'db.Shipping', db.Shipping
+    print '\n-------------------------------------------------------'
+    print 'checking for get_dc_display_link function'
+    print '-------------------------------------------------------'
+    ispybLink = dbconnection.get_dc_display_link()
+    print 'found ISPyB link: %s' % ispybLink
 
-    proposal_code = "mx"
-    proposal_number = "20100023"
-    proposal_psd = "tisabet"
+    print '\n-------------------------------------------------------'
+    print 'checking for translate function'
+    print '-------------------------------------------------------'
+    new_code = dbconnection.translate(proposal_code, proposal_type)
+    print 'translated the code of type : %s to be : %s' % (proposal_type, new_code)
 
-    info = db.get_proposal(proposal_code, proposal_number)  # proposal_number)
-    print(info)
+    print '\n-------------------------------------------------------'
+    print 'checking for clear_daily_email function'
+    print '-------------------------------------------------------'
+    try:
+        clear_answer = dbconnection.clear_daily_email()
+        print 'daily email status: %s' % clear_answer
+    except Exception as e:
+        print 'some issues happened with this function : %s' % e
 
-    info = db.login(proposal_number, proposal_psd)
-    print(info)
+    print '\n-------------------------------------------------------'
+    print 'checking for send_email function'
+    print '-------------------------------------------------------'
+    try:
+        send_answer = dbconnection.send_email()
+        print 'daily email status: %s' % send_answer
+    except Exception as e:
+        print 'some issues happened with this function : %s' % e
+
+    print '\n-------------------------------------------------------'
+    print 'checking for get_proposal function'
+    print '-------------------------------------------------------'
+    proposal = dbconnection.get_proposal(proposal_code, proposal_username)
+    if proposal:
+        print '\nobtained all information from proposal : %s resulting in :\n %s' % (proposal_username, proposal)
+    else:
+        print '\ndifficulties in getting informatoin for proposal : %s' % proposal_username
+
+    print '\n===== DEVELOPMENT PART ====='
+    try:
+        tmp = dbconnection.get_proposal(proposal_code, proposal_username)
+        print tmp
+    except Exception as e:
+        print 'ERROR found : %s' % e
+
+    print '\n-------------------------------------------------------'
+    print 'need to check for folling functions:'
+    print '    get_proposal_by_username(username)'
+    print '    get_session_local_contact(session_id)'
+    print '    _ispybLogin(loginID, psd)'
+    print '    login(loginID, psd, ldap_connection=None)'
+    print '    get_todays_session(prop)'
+    print '    store_data_collection(*args, **kwargs)'
+    print '    _store_data_collection(mx_collection, beamline_setup = None)'
+    print '    store_beamline_setup(session_id, beamline_setup)'
+    print '    update_data_collection(mx_collection, wait = False)'
+    print '    update_bl_sample(bl_sample)'
+    print '    store_image(image_dict)'
+    print '    __find_sample(sample_ref_list, code = None, location = None)'
+    print '    get_samples(proposal_id, session_id)'
+    print '    get_session_samples(proposal_id, session_id, sample_refs)'
+    print '    get_bl_sample(bl_sample_id)'
+    print '    create_session(session_dict)'
+    print '    update_session(session_dict)'
+    print '    store_energy_scan(energyscan_dict)'
+    print '    associate_bl_sample_and_energy_scan(entry_dict)'
+    print '    get_data_collection(data_collection_id)'
+    print '    get_data_collection_id(dc_dict)'
+    print '    get_sample_last_data_collection(blsampleid)'
+    print '    get_session(session_id)'
+    print '    store_xfe_spectrum(xdespectrum_dict)'
+    print '    disable()'
+    print '    enable()'
+    print '    isInhouseUser(proposal_code, proposal_number)'
+    print '    find_detector(type, manufacturer, model, mode)'
+    print '    store_data_collection_group(mx_collection)'
+    print '    _store_data_collection_group(group_data)'
+    print '    get_proposals_by_user(user_name)'
+    print '    store_autoproc_program(autoproc_program_dict)'
+    print '    store_workflow(*args, **kwargs)'
+    print '    store_workflow_step(*args, **kwargs)'
+    print '    _store_workflow(info_dict)'
+    print '    _store_workflow_step(worflow_info_dict)'
+    print '    store_image_quality_indicators(image_dict)'
+    print '    set_image_quality_indicators_plot(collection_id, plot_path, csv_path)'
+    print '    store_robot_action(robot_action_dict)'
+    print '    '
+    print '-------------------------------------------------------'
+
+    return
+    proposal_code = 'mx'
+    #proposal_number = '20100023'
+    #proposal_psd = 'tisabet'
+
+#    proposal_number = '20160745'
+#    proposal_psd = '087D2P3252'
+    proposal_number = '2018160411011250'
+#    proposal_number = '20181604'
+    proposal_psd = 'jkDW6U2Zuw'
 
 
-if __name__ == "__main__":
-    test()
+    print "Trying to login to ispyb"
+    info = hwo.login(proposal_number, proposal_psd)
+    print "logging in returns: ", str(info)
+
+if __name__ == '__main__':
+    test_hwo('test')
+ '''

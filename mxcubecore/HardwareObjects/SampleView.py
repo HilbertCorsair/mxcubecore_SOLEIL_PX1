@@ -67,6 +67,8 @@ class SampleView(AbstractSampleView):
 
     def init(self):
         super(SampleView, self).init()
+        
+
         self._camera = self.get_object_by_role("camera")
         self._last_oav_image = None
 
@@ -74,6 +76,8 @@ class SampleView(AbstractSampleView):
         for motor_name, motor_ho in HWR.beamline.diffractometer.get_motors().items():
             if motor_ho:
                 motor_ho.connect("stateChanged", self._update_shape_positions)
+    
+    
 
     def _update_shape_positions(self, *args, **kwargs):
 
@@ -176,7 +180,7 @@ class SampleView(AbstractSampleView):
         Add the shape <shape> to the dictionary of handled shapes.
 
         Args:
-            param (shape): Shape to add.
+            param (shape): Shavaluespe to add.
             type (shape): Shape object.
         """
         self.shapes[shape.id] = shape
@@ -260,7 +264,7 @@ class SampleView(AbstractSampleView):
         Select the shape <shape>.
 
         Args:
-            sid (str): Id of the shape to select.
+            sid (str): Id shapesof the shape to select.
         """
         shape = self.shapes.get(sid, None)
 
@@ -377,6 +381,9 @@ class SampleView(AbstractSampleView):
         return grid
 
     def get_shape(self, sid):
+        #import pdb
+        #pdb.set_trace()
+
         """
         Get Shape with id <sid>.
 
@@ -399,10 +406,13 @@ class SampleView(AbstractSampleView):
             (dict): The first selected grid as a dictionary
         """
         grid = None
+        c = 0 
 
         for shape in self.get_shapes():
             if isinstance(shape, Grid):
                 grid = shape.as_dict()
+                c +=1
+                print(c)
                 break
 
         return grid
@@ -484,6 +494,7 @@ class Shape(object):
         self.shapes_hw_object = None
 
         self.add_cp_from_mp(mpos_list)
+        print("Init Shape")
 
     def get_centred_positions(self):
         """
@@ -532,23 +543,46 @@ class Shape(object):
         for key, value in shape_dict.items():
             if hasattr(self, key):
                 setattr(self, key, value)
-
-    def as_dict(self):
+    
+    """def as_dict(self):
         cpos_list = []
-
+        import pdb
+        pdb.set_trace()
         for cpos in self.cp_list:
-            cpos_list.append(cpos.as_dict())
-
+            cpos_list.append( cpos.as_dict() )
         d = copy.deepcopy(vars(self))
-
         # Do not serialize Shapes HW Object
         d.pop("shapes_hw_object")
-
         # replace cpos_list with a list of motor positions
         d.pop("cp_list")
         d["motor_positions"] = str(cpos_list)
+        return d"""
+    
 
-        return d
+    def as_dict(self):
+        """
+        Convert the object to a dictionary representation,
+        including motor positions from control points.
+        """
+        # Create a new dictionary with only the needed attributes
+        result = {}
+        
+        # Collect the motor positions from control points
+        motor_positions = []
+        for control_point in self.cp_list:
+            motor_positions.append(control_point.as_dict())
+        
+     
+        # Add all instance variables except those we want to exclude
+        for key, value in vars(self).items():
+            # Skip the hardware object and control points list which we handle separately
+            if key != "shapes_hw_object" and key != "cp_list":
+                result[key] = value
+        
+        # Add the formatted motor positions
+        result["motor_positions"] = str(motor_positions)
+        
+        return result
 
 
 class Point(Shape):
@@ -560,6 +594,7 @@ class Point(Shape):
         self.t = "P"
         self.label = "Point"
         self.set_id(Point.SHAPE_COUNT)
+        print("Init Point")
 
     def mpos(self):
         return self.cp_list[0].as_dict()
@@ -635,6 +670,7 @@ class Grid(Shape):
         self.beam_width = 0
         self.beam_height = 0
         self.hide_threshold = 5
+        print(f"INIt Grig shape: \n{self.label}\n{self.select}\n{self.pixels_per_mm}")
 
         self.set_id(Grid.SHAPE_COUNT)
 
@@ -656,6 +692,7 @@ class Grid(Shape):
         return self.cp_list[0]
 
     def get_grid_range(self):
+        print('Getting grid shape')
         return (
             float(self.cell_width * (self.num_cols - 1)),
             float(self.cell_height * (self.num_rows - 1)),
@@ -678,12 +715,13 @@ class Grid(Shape):
 
     def get_result(self):
         return self.result
+    
 
     def as_dict(self):
+        print("Turning to dict")
         d = Shape.as_dict(self)
         # replace cpos_list with the motor positions
         d["motor_positions"] = self.cp_list[0].as_dict()
-
         pixels_per_mm = HWR.beamline.diffractometer.get_pixels_per_mm()
         beam_pos = HWR.beamline.beam.get_beam_position_on_screen()
         size_x, size_y, shape, _label = HWR.beamline.beam.get_value()

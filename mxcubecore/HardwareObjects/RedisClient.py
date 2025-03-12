@@ -33,22 +33,23 @@ NBNB OBSOLETE there is no longer a beamline_setup
 </object>
 """
 
-import logging
-
 import gevent
+import logging
 import jsonpickle
-import redis
-
-from mxcubecore import HardwareRepository as HWR
+from RedisStreamer import RedisStreamer
 from mxcubecore.BaseHardwareObjects import HardwareObject
+from mxcubecore import HardwareRepository as HWR
+import queue
+import threading
 
 __version__ = "2.3."
 __category__ = "General"
 
 
-class RedisClient(HardwareObject):
+class RedisClient(HardwareObject, RedisStreamer):
     def __init__(self, name):
-        HardwareObject.__init__(self, name)
+        super().__init__(name)
+        RedisStreamer.__init__(self)
 
         self.host = None
         self.port = None
@@ -56,6 +57,23 @@ class RedisClient(HardwareObject):
         self.proposal_id = None
         self.beamline_name = None
         self.redis_client = None
+
+        # From MDCameraMockup
+        self._format = "RGB8Packed"
+        self.stream_hash = "abc123"
+        self.udiffVER_Ok = False
+        self.badimg = 0
+        self.pollInterval = 500
+        self.connected = False
+        #self.image_name = self.get_property("image_name")
+        #self.image = HWR.get_hardware_repository().find_in_repository(self.image_name)
+
+        self.is_ready()
+        self._video_stream_process = None
+        ###################################
+        self.q = queue.Queue()
+        self.output_thread = None
+
 
     def init(self):
         self.host = self.get_property("host")
@@ -66,13 +84,17 @@ class RedisClient(HardwareObject):
         if self.port is None:
             self.port = 6379
 
-        self.redis_client = redis.StrictRedis(host=self.host, port=self.port, db=0)
+        self.redis_client = self.connect() #redis.StrictRedis(host=self.host, port=self.port, db=0)
 
         try:
             if self.redis_client.ping():
                 self.active = True
+                print(f"YEY : {self.active}")
+
         except Exception:
+            print("Redis Client not active")
             self.active = False
+
 
         if self.active:
             logging.getLogger("HWR").info(
@@ -95,11 +117,126 @@ class RedisClient(HardwareObject):
 
         if self.active:
             self.init_beamline_setup()
+        print('rrrrrrrrrrrrrrrrrrr   REDIS CLIENT initiated rrrrrrrrrrrr\n')
+
+    def connect(self):
+        return self._connect()
 
     def save_queue(self):
         """Saves queue in RedisDB"""
         if self.active:
             gevent.spawn(self.save_queue_task)
+
+    def get_available_stream_sizes(self):
+        try:
+            w, h = self.get_width(), self.get_height()
+            video_sizes = [(w, h), (int(w / 2), int(h / 2)), (int(w / 4), int(h / 4))]
+        except (valueerror, attributeerror):
+            video_sizes = []
+
+        return video_sizes
+
+    def get_width(self):
+        # return 768 #JN ,20140807,adapt the MD2 screen to mxCuBE2
+        return 659
+
+    def get_height(self):
+        # return 576 # JN ,20140807,adapt the MD2 screen to mxCuBE2
+        return 493
+
+    def set_live(self, state):
+        self.liveState = state
+        return True
+
+
+    def get_stream_size(self):
+        return self.get_width(), self.get_height(), 1
+
+    def start_video_stream_process(self, size):
+        print(f'Starting video streaming process')
+        try:
+            print(f"process is: {self._video_stream_process}")
+            print(f"poll is: {self._video_stream_process.poll} ")
+        except Exception as e:
+            print(f"There was a problem : {e}")
+
+        if (
+            not self._video_stream_process
+            or self._video_stream_process.poll() is not none
+        ):
+            try:
+
+                self._video_stream_process = subprocess.popen(
+                    [
+                        "video-streamer",
+                        "-tu",
+                        "test",
+                        "-hs",
+                        "localhost",
+                        "-p",
+                        self._port,
+                        "-of",
+                        self._format,
+                        "-q",
+                        "4",
+                        "-s",
+                        "%s,%s" % size,
+                        "-id",
+                        self.stream_hash,
+                    ],
+                    close_fds=true,
+                )
+            except Exception as e:
+                print (f'There was a probem 2: {e}')
+
+    def stop_streaming(self):
+        if self._video_stream_pocess:
+            ps = [self._video_stream_process] + psutil.Process(self._video_stream_process.pid).cildren()
+            for p in ps:
+                p.kill()
+            self._video_stream_process = None
+
+#    def start_streaming(self, _format = "MPEG1", size = (0,0), port = "4042" ):
+#        self._format = _format
+#        self._port = port
+#        print(f"Starting redis stream ...\nformat --> {format}\nsize --> {size}\nport --> {port}\n")
+#
+#        if not size[0]:
+#            print ("size[0] NOT FOUND")
+#            _s = int(self.get_width()) , int(self.get_height())
+#            print (f"retreaved size: {_s}")
+#        else:
+#            print(f'Found size: {_s}')
+#            _s = size
+#        print("initializing process...")
+#        try:
+#            self.start_video_streaming_process(_s)
+#        except Exception as e :
+#            print(e)
+#            #print(f'process failed : {e}\n{os.path.basename(__file__)}\n')
+    def handle_output(self):
+        print("Stream go")
+        while True:
+            data = self.q.get()
+            if not data:
+                print("Sniff! NO DATA ")
+                break
+            else:
+                print ('We have DATA , YEY !')
+                #exit()
+
+    def start_streaming(self):
+        self.output_thread = threading.Thread(target=self.handle_output)
+        self.output_thread.start()
+
+        try:
+            self.poll_image(self.q)
+        except Exception as e:
+            print(f"Error during polling: {e}")
+        finally:
+            output_queue.put(None)
+            #output_thread.join()
+
 
     def save_queue_task(self):
         """Queue saving tasks"""

@@ -19,9 +19,9 @@
 TangoMotor class defines motor in the Tango control system (used and tested in DESY/P11
 """
 
-import gevent
-
 from mxcubecore.HardwareObjects.abstract.AbstractMotor import AbstractMotor
+
+import gevent
 
 __credits__ = ["DESY P11"]
 __license__ = "LGPLv3+"
@@ -29,7 +29,7 @@ __category__ = "Motor"
 
 
 class TangoMotor(AbstractMotor):
-    """TangoMotor class defines motor in the Tango control system"""
+    """TINEMotor class defines motor in the TINE control system"""
 
     default_polling = 500
 
@@ -50,7 +50,7 @@ class TangoMotor(AbstractMotor):
         self.step_limits = None
 
     def init(self):
-        """Connects to all Tango channels and commands"""
+        """Connects to all Tine channels and commands"""
         self.polling = self.get_property("polling", TangoMotor.default_polling)
         self.actuator_name = self.get_property("actuator_name", self.name())
         self._tolerance = self.get_property("tolerance", 1e-3)
@@ -132,6 +132,18 @@ class TangoMotor(AbstractMotor):
         self.motor_state_changed()
         self.update_value()
 
+    def PconnectNotify(self, signal): #Not to be used !
+        """
+        :param signal: signal
+        :type signal: signal
+        """
+        if signal == "stateChanged":
+            self.motor_state_changed()
+        elif signal == "limitsChanged":
+            self.update_limits()
+        elif signal == "valueChanged":
+            self.update_value()
+
     def get_value(self):
         if self.is_simulation:
              return self.simulated_pos
@@ -188,22 +200,26 @@ class TangoMotor(AbstractMotor):
         :param value: float
         :return:
         """
+        print(f"<> ><  <>  >< <>{value} VAlue sent to Eiger ")
         self.log.debug("TangoMotor.py - Moving motor %s to %s" % (self.name(), value))
         if self.is_simulation:
              self.simulated_pos = value
         else:
+             print("Comencing movement")
              self.start_moving()
+             print("Setting Value via chan_position")
              self.chan_position.set_value(value)
 
     def start_moving(self):
         self.motor_state_changed("MOVING")
-
+    
         if self.auto_on:
             state = str(self.chan_state.get_value())
             if state == "OFF":
                 self.cmd_on()
         # ensure that the state is updated at least once after the polling time
         # in case we miss the state update
+        #gevent.spawn(self._update_state)
 
     def _update_state(self):
         gevent.sleep(0.5)

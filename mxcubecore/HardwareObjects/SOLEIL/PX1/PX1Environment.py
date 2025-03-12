@@ -1,13 +1,10 @@
-import logging
 import time
-
+import logging
 import gevent
-
-from mxcubecore.BaseHardwareObjects import HardwareObject
-from mxcubecore.Command.Tango import DeviceProxy
 from mxcubecore.HardwareObjects.abstract.AbstractMotor import AbstractMotor
+from mxcubecore.Command.Tango import DeviceProxy
 from mxcubecore.TaskUtils import task
-
+from mxcubecore.BaseHardwareObjects import HardwareObject
 
 class EnvironmentPhase:
     TRANSFER = 0
@@ -36,15 +33,13 @@ class EnvironmentPhase:
     def phase(phase_name):
         return EnvironmentPhase.phase_desc.get(phase_name)
 
-
 class EnvironmentState:
     UNKNOWN, ON, RUNNING, ALARM, FAULT = (0, 1, 10, 13, 14)
     state_desc = {ON: "ON", RUNNING: "RUNNING", ALARM: "ALARM", FAULT: "FAULT"}
 
     @staticmethod
     def to_string(state):
-        return SampleChangerState.state_desc.get(state, "Unknown")
-
+        return SampleChangerState.state_desc.get(state, "UNKNOWN")
 
 class PX1Environment(HardwareObject):
     def __init__(self, name):
@@ -102,11 +97,11 @@ class PX1Environment(HardwareObject):
             "ON": self.STATES.READY,
             "MOVING": self.STATES.BUSY,
             "FAULT": self.STATES.FAULT,
-            "OFF": self.STATES.OFF,
+            "OFF": self.STATES.OFF
         }
         return state_map.get(motstate, self.STATES.UNKNOWN)
 
-    def _update_state(self, s=None):
+    def _update_state(self,s=None):
         gevent.sleep(0.1)
         motor_state = self.state_chan.get_value()
         self.log.debug(f"Reading motor state for {self.name} is {str(motor_state)}")
@@ -195,9 +190,7 @@ class PX1Environment(HardwareObject):
             return
 
         logging.debug("PX1environment: start wait_phase")
-        with gevent.Timeout(
-            timeout, Exception("Timeout waiting for environment phase")
-        ):
+        with gevent.Timeout(timeout, Exception("Timeout waiting for environment phase")):
             while self.read_phase() != phase:
                 gevent.sleep(0.05)
         logging.debug("PX1environment: end wait_phase")
@@ -208,18 +201,31 @@ class PX1Environment(HardwareObject):
             time.sleep(0.1)
 
     def goto_collect_phase(self):
+      
         if not self.ready_for_collect() or self.get_phase() != "COLLECT":
-            self.get_command_object("GoToCollectPhase")()
-            time.sleep(0.1)
-
+            self.get_command_object("GoToCollectPhase")
+            if not self.get_command_object("GoToCollectPhase"):
+                try :
+                    self._collect = self.add_command( {"type": "tango", "name": "GoToCollectPhase", "tangoname": self.tangoname}, "GoToCollectPhase", )
+                    self._collect()
+                    time.sleep(0.1)
+                except :
+                    pass
+                    
+            
     def goto_loading_phase(self):
         if not self.ready_for_transfer():
-            self.get_command_object("GoToTransfertPhase")()
+            self.get_command_object("GoToTransfertPhase")
             time.sleep(0.1)
 
     def goto_manual_loading_phase(self):
         if not self.ready_for_transfer():
-            self.get_command_object("GoToManualTransfertPhase")()
+            self.get_command_object("GoToManualTransfertPhase")
+            time.sleep(0.1)
+
+    def goto_default_phase(self):
+        if not self.ready_for_default_position():
+            self.get_command_object("GoToDefaultPhase")()
             time.sleep(0.1)
 
     def goto_sample_view_phase(self):
@@ -239,7 +245,6 @@ class PX1Environment(HardwareObject):
             )
             self.auth = value
             self.emit("operation_permitted", value)
-
 
 def test_hwo(hwo):
     print("PX1 Environment (state) ", hwo.get_state())

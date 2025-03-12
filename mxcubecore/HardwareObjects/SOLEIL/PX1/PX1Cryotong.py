@@ -1,19 +1,19 @@
 from __future__ import print_function
-
 import logging
-import math
-import time
-
 import gevent
+import time
+from mxcubecore.HardwareObjects.abstract.sample_changer import Container
 import PyTango
+import math
+
+
 from Cats90 import (
-    BASKET_UNIPUCK,
     Cats90,
     SampleChangerState,
+    BASKET_UNIPUCK,
 )
-from PX1Environment import EnvironmentPhase
 
-from mxcubecore.HardwareObjects.abstract.sample_changer import Container
+from PX1Environment import EnvironmentPhase
 
 
 class PX1Cryotong(Cats90):
@@ -118,9 +118,8 @@ class PX1Cryotong(Cats90):
             return str(val) in ["True","true"]
 
     def _update_num_loaded(self, value):
-        print(f"UPDATE NUM LOADED TRIGGERED +++ wit value {value}")
-        if value !=  self._num_loaded:
-            self._num_loaded = value
+        if self._num_loaded:
+            self._num_loaded = value if not value == -1 else None
             self._update_loaded_list()
 
 
@@ -128,6 +127,7 @@ class PX1Cryotong(Cats90):
         """Upsdates the list of sample objects by changing their loaded property
         """
         if self._num_loaded :
+
             smp = self._num_loaded % 16
             comp_no = math.ceil(int(self._num_loaded) / 16) -1
             smp_no = smp-1 if smp != 0 else 15
@@ -136,6 +136,11 @@ class PX1Cryotong(Cats90):
                 sample.loaded = False
             # update loaded for new sample
             self.components[comp_no].get_sample_list()[smp_no].loaded = True
+
+        else:
+            for puck in range(3):
+                for sample in self.components[puck].get_sample_list():
+                    sample.loaded = False
 
 
     def _do_update_state(self):
@@ -226,7 +231,7 @@ class PX1Cryotong(Cats90):
 
         elif dev_state == PyTango.DevState.UNKNOWN:
             _state = SampleChangerState.Unknown
-
+           
         elif has_loaded ^ on_diff:
             # go to Unknown state if a sample is detected on the gonio but not registered in the internal database
             # or registered but not on the gonio anymore
@@ -277,7 +282,7 @@ class PX1Cryotong(Cats90):
         self.dry_and_soak_needed = value
 
     def do_dry_and_soak(self):
-        print("\nTime to dry ans soak .... ")
+        print("\nTime to dry and soak .... ")
         homeOpened = self._chnHomeOpened.get_value()
 
         if not homeOpened:
@@ -344,6 +349,10 @@ class PX1Cryotong(Cats90):
 
     # ## OVERLOADED CATS90 methods ####
     def cats_pathrunning_changed(self, value):
+        # Hack to prevent a numerical value being passd on. 
+        if not isinstance(value, bool):
+            value = self._chnDryAndSoakNeeded.get_value()
+
         Cats90.cats_pathrunning_changed(self, value)
         if self.cats_running is False and self.dry_and_soak_needed:
             self.do_dry_and_soak()
@@ -465,6 +474,12 @@ class PX1Cryotong(Cats90):
             self.emit("loadError", incoherentSample)
         self._update_loaded_list()
 
+        print("Waiting 45 sec befor final update of loaded sample")
+        time.sleep(45)
+
+        
+        self._do_update_loaded_sample() 
+
     def _do_unload(self, sample=None, wash=None):
         print("\nDoing unload ... ")
 
@@ -487,7 +502,7 @@ class PX1Cryotong(Cats90):
 
         self._do_unload_operation(sample)
         self._update_loaded_list()
-
+    
     def _do_unload_operation(self,sample_slot=None, shifts=None):
         # if not self.hasLoadedSample() or not self._chnSampleIsDetected.getValue():
         if not self.has_loaded_sample():
@@ -591,7 +606,7 @@ class PX1Cryotong(Cats90):
 
         self._cmdDrySoak()
 
-        time.sleep(3)
+        gevent.sleep(3)
         t0 = time.time()
         wait_n = 0
         while self._is_device_busy():

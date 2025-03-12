@@ -23,15 +23,15 @@ Example XML:
 <object class = "MachCurrent">
   <username>label for users</username>
   <tangoname>orion:10000/fe/id(or d)/xx</tangoname>
-  <channel type="tango" name="OperatorMsg" polling="2000">SR_Operator_Mesg</channel>
-  <channel type="tango" name="Current" polling="2000">SR_Current</channel>
-  <channel type="tango" name="FillingMode" polling="2000">SR_Filling_Mode</channel>
-  <channel type="tango" name="RefillCountdown" polling="2000">SR_Refill_Countdown</channel>
+  <channel type="tango" name="operatorMessage" polling="2000">SR_Operator_Mesg</channel>
+  <channel type="tango" name="current" polling="2000">SR_Current</channel>
+  <channel type="tango" name="fillingMode" polling="2000">SR_Filling_Mode</channel>
+  <channel type="tango" name="lifetime" polling="2000">SR_Refill_Countdown</channel>
 </object>
 """
 
 import logging
-
+from PyTango import DeviceProxy
 from mxcubecore.HardwareObjects.abstract.AbstractMachineInfo import AbstractMachineInfo
 
 __copyright__ = """ Copyright © 2010-2023 by the MXCuBE collaboration """
@@ -43,56 +43,88 @@ class MachCurrent(AbstractMachineInfo):
 
     def __init__(self, name):
         super().__init__(name)
-        self.opmsg = ""
+        self._current = None
+        self._message = None
+        self._lifetime = None
+        self._fillmode = None
 
     def init(self):
         try:
-            curr = self.get_channel_object("Current")
+            
+            self.device = DeviceProxy(self.get_property("tangoname"))
+            self.current_threshold = self.get_property("current_threshold", 3)
+            curr = self.get_channel_object("current")
             curr.connect_signal("update", self.value_changed)
             self.update_state(self.STATES.READY)
         except Exception as err:
             logging.getLogger("HWR").exception(err)
-
-    def value_changed(self, value):
-        """Get information from the control software, emit valueChanged"""
-        value = value or self.get_current()
-
-        try:
-            opmsg = self.get_channel_object("OperatorMsg").get_value()
-            fillmode = self.get_channel_object("FillingMode").get_value()
-            fillmode = fillmode.strip()
-
-            refill = self.get_channel_object("RefillCountdown").get_value()
-        except Exception as err:
-            logging.getLogger("HWR").exception(err)
-            opmsg, fillmode, value, refill = ("", "", -1, -1)
-
-        if opmsg and opmsg != self.opmsg:
-            self.opmsg = opmsg
-            logging.getLogger("user_level_log").info(self.opmsg)
-        self.emit("valueChanged", (value, opmsg, fillmode, refill))
-
+    
+    @property
+    def current(self):
+        return self._current
+    
     def get_current(self) -> float:
         """Read the ring current.
         Returns:
             (float): Ring current [mA]
         """
         try:
-            return self.get_channel_object("Current").get_value()
+            return self.get_channel_object("current").get_value()
         except Exception as err:
             logging.getLogger("HWR").exception(err)
+            print("EOL")
             return -1
 
     def get_message(self) -> str:
         try:
-            return self.get_channel_object("OperatorMsg").get_value()
+            return self.device.operatorMessage
         except Exception as err:
             logging.getLogger("HWR").exception(err)
             return ""
 
     def get_fill_mode(self) -> str:
         try:
-            return self.get_channel_object("FillingMode").get_value()
+            return self.device.fillingMode
         except Exception as err:
             logging.getLogger("HWR").exception(err)
             return ""
+        
+
+    def get_life_time(self) -> str:
+        try:
+            return self.device.lifetime
+        except Exception as err:
+            logging.getLogger("HWR").exception(err)
+            return ""
+        # Keeping aliases for backward compatibility
+    getCurrent = get_current
+    getMessage = get_message
+    getFillMode = get_fill_mode
+    getLifeTime = get_life_time
+
+    def value_changed(self, value):
+        """Get information from the control software, emit valueChanged"""
+        value = value or self.get_current()
+
+        try:
+            opmsg = self.get_message()
+            fillmode = self.get_fill_mode()
+            fillmode = fillmode.strip()
+            refill = self.get_life_time()
+        except Exception as err:
+            print("OH NO! ")
+            logging.getLogger("HWR").exception(err)
+            opmsg, fillmode, value, refill = ("", "", -1, -1)
+
+        if opmsg and opmsg != self._message:
+            values = {}
+            self._message = opmsg
+            self._current = self.get_current()
+            self._fillmode = self.get_fill_mode()
+            self._lifetime = self.get_life_time()
+            values["message"] = self._message
+            values["current"] = self._current
+            values.update(self.get_value())
+            self.update_value(values)
+            logging.getLogger("user_level_log").info(self._message)
+            self.emit("valueChanged", (self.current))
