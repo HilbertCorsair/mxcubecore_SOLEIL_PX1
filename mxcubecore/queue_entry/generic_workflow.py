@@ -43,9 +43,27 @@ class GenericWorkflowQueueEntry(BaseQueueEntry):
         BaseQueueEntry.execute(self)
 
         workflow_hwobj = HWR.beamline.workflow
+        
 
+        ho_state = workflow_hwobj.state
+
+        if isinstance (ho_state, str):
+
+            class EnhancedString:
+                def __init__(self, value):
+                    self.value = value
+                
+                def __str__(self):
+                    return self.value
+                
+                def __repr__(self):
+                    return f"EnhancedString('{self.value}')"
+            
+            workflow_hwobj.state = EnhancedString(ho_state)
+                
         # Start execution of a new workflow
         if str(workflow_hwobj.state.value) != "ON":
+            print("GUess what? : workflow_hwobj.state.value is not ON .. aborting")
             # We are trying to start a new workflow and the Tango server is not idle,
             # therefore first abort any running workflow:
             workflow_hwobj.abort()

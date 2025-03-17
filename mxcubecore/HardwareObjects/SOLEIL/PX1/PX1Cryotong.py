@@ -359,9 +359,6 @@ class PX1Cryotong(Cats90):
 
     def _do_load_operation(self, sample, wash=False, shifts=None):
 
-        import pdb
-        pdb.set_trace()
-        
         selected=self.get_selected_sample()
         if sample is not None:
             if sample != selected:
