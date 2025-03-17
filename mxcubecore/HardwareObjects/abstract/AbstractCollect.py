@@ -84,11 +84,12 @@ class AbstractCollect(HardwareObject, object):
         self.run_offline_processing = None
         self.run_online_processing = None
         self.ready_event = None
-
+        
     def init(self):
         self.ready_event = gevent.event.Event()
 
         undulators = []
+
         try:
             for undulator in self["undulators"]:
                 undulators.append(undulator)
@@ -96,7 +97,7 @@ class AbstractCollect(HardwareObject, object):
             pass
 
         beam_div_hor, beam_div_ver = HWR.beamline.beam.get_beam_divergence()
-
+        
         self.set_beamline_configuration(
             synchrotron_name=HWR.beamline.session.synchrotron_name,
             directory_prefix=self.get_property("directory_prefix"),
@@ -112,7 +113,7 @@ class AbstractCollect(HardwareObject, object):
             detector_model=HWR.beamline.detector.get_property("model"),
             detector_px=HWR.beamline.detector.get_property("px"),
             detector_py=HWR.beamline.detector.get_property("py"),
-            detector_binning_mode=HWR.beamline.detector.get_binning_mode(),
+            detector_binning_mode=1,#HWR.beamline.detector.get_binning_mode(),
             undulators=undulators,
             focusing_optic=self.get_property("focusing_optic"),
             monochromator_type=self.get_property("monochromator"),
@@ -719,13 +720,13 @@ class AbstractCollect(HardwareObject, object):
             try:
                 self.current_dc_parameters[
                     "actualSampleBarcode"
-                ] = HWR.beamline.sample_changer.getLoadedSample().getID()
+                ] = HWR.beamline.sample_changer.get_loaded_sample().get_id()
                 self.current_dc_parameters["actualContainerBarcode"] = (
-                    HWR.beamline.sample_changer.getLoadedSample().getContainer().getID()
+                    HWR.beamline.sample_changer.get_loaded_sample().get_container().get_id()
                 )
 
                 logging.getLogger("user_level_log").info("Getting loaded sample coords")
-                basket, vial = HWR.beamline.sample_changer.getLoadedSample().getCoords()
+                basket, vial = HWR.beamline.sample_changer.get_loaded_sample().get_coords()
 
                 self.current_dc_parameters["actualSampleSlotInContainer"] = vial
                 self.current_dc_parameters["actualContainerSlotInSC"] = basket
@@ -746,7 +747,7 @@ class AbstractCollect(HardwareObject, object):
                 if isinstance(motor, str):
                     positions_str += " %s=%f" % (motor, position)
                 else:
-                    positions_str += " %s=%f" % (motor.getMotorMnemonic(), position)
+                    positions_str += " %s=%f" % (motor.get_motor_mnemonic(), position)
         self.current_dc_parameters["actualCenteringPosition"] = positions_str
         self.move_motors(self.current_dc_parameters["motors"])
 
@@ -793,26 +794,28 @@ class AbstractCollect(HardwareObject, object):
                 self.current_dc_parameters[
                     "xtalSnapshotFullPath%i" % (snapshot_index + 1)
                 ] = snapshot_filename
-                self._take_crystal_snapshot(snapshot_filename)
-                if number_of_snapshots > 1:
-                    HWR.beamline.diffractometer.move_omega_relative(90)
 
-        if (
-            not HWR.beamline.diffractometer.in_plate_mode()
-            and self.current_dc_parameters.get("take_video")
-        ):
-            # Add checkbox to allow enable/disable creation of gif
-            logging.getLogger("user_level_log").info("Collection: Saving animated gif")
-            animation_filename = os.path.join(
-                snapshot_directory,
-                "%s_%s_animation.gif"
-                % (
-                    self.current_dc_parameters["fileinfo"]["prefix"],
-                    self.current_dc_parameters["fileinfo"]["run_number"],
-                ),
-            )
-            self.current_dc_parameters["xtalSnapshotFullPath2"] = animation_filename
-            self._take_crystal_animation(animation_filename, duration_sec=1)
+                #self._take_crystal_snapshot(snapshot_filename)
+                
+                #if number_of_snapshots > 1:
+                #    HWR.beamline.diffractometer.move_omega_relative(90)
+
+        #if (
+        #    not HWR.beamline.diffractometer.in_plate_mode()
+        #    and self.current_dc_parameters.get("take_video")
+        #):
+        #    # Add checkbox to allow enable/disable creation of gif
+        #    logging.getLogger("user_level_log").info("Collection: Saving animated gif")
+        #    animation_filename = os.path.join(
+        #        snapshot_directory,
+        #        "%s_%s_animation.gif"
+        #        % (
+        #            self.current_dc_parameters["fileinfo"]["prefix"],
+        #            self.current_dc_parameters["fileinfo"]["run_number"],
+        #        ),
+        #    )
+        #    self.current_dc_parameters["xtalSnapshotFullPath2"] = animation_filename
+        #    self._take_crystal_animation(animation_filename, duration_sec=1)
 
     @abc.abstractmethod
     @task

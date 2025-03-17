@@ -1,32 +1,25 @@
-"""
-[Name] BeamInfo
-
-[Description]
-BeamInfo hardware object informs mxCuBE (HutchMenuBrick) about the beam position
-and size.
-
-This is the Soleil PX1 version
-
-Beam size is hardcoded in this file.
-Beam Position is updated whenever the zoom motor changes position. Values taken from
-   zoom xml configuration
-
-[Emited signals]
-
-beamInfoChanged
-beamPosChanged
-
-"""
-
 import logging
-
+from mxcubecore import HardwareRepository as HWR
 from mxcubecore.BaseHardwareObjects import HardwareObject
 
-
-class BeamInfo(HardwareObject):
+"""
+XML example file
+<object class="ESRF.ESRFBeamInfo">
+  <defaultBeamDivergence></defaultBeamDivergence>
+  <object role="camera" hwrid="/prosilica_md2"/>
+  <object role="aperture" hwrid="/udiff_aperturemot"/>
+  <object role="diffractometer" hwrid="/udiff" />
+  <!-- Positions and slits format: X Y -->
+  <beam_position>322 243</beam_position>
+  <beam_size_slits>0.04 0.04</beam_size_slits>
+  <beam_divergence_vertical>6.5</beam_divergence_vertical>
+  <beam_divergence_horizontal>104</beam_divergence_horizontal>
+</object>
+"""
+class PX1BeamInfo(HardwareObject):
     def __init__(self, *args):
-        super().__init__(*args)
-
+        super().__init__( *args)
+        self.beam_position = (0, 0)
         self.beam_position = [None, None]
         self.beam_size = [100, 100]
         self.shape = "rectangular"
@@ -38,6 +31,7 @@ class BeamInfo(HardwareObject):
         self.beam_info_dict["size_y"] = self.beam_size[1]
         self.beam_info_dict["shape"] = self.shape
         self.beam_divergence = None
+
         # Zoom motor
         self.zoomMotor = None
 
@@ -45,21 +39,31 @@ class BeamInfo(HardwareObject):
 
         try:
             self.beamx_chan = self.get_channel_object("beamsizex")
+
+
         except KeyError:
             logging.getLogger().warning(
                 "%s: cannot connect to beamsize x channel ", self.name()
             )
 
         try:
+            print("\n\n\nBEAM INFO\n\n\n")
+            print(f"Beam channel : {self.beamx_chan}")
+            print("\n", dir(self),f"\n{self.get_channels()}\n{self.get_channels()}\n{self.name()}")
+            print(self.get_beam_size())
+
+
             self.beamy_chan = self.get_channel_object("beamsizey")
             self.beamy_chan.connect_signal("update", self.beamsize_x_changed)
+            print(f"Beamy Chan:\n {dir(self.beamy_chan)}\n{self.beamx_chan.value}")
             self.beam_divergence = self.get_property("defaultBeamDivergence")
+
         except KeyError:
             logging.getLogger().warning(
                 "%s: cannot connect to beamsize y channel ", self.name()
             )
 
-        self.zoomMotor = self.get_object_by_role("zoom")
+        self.zoomMotor = self.get_device_by_role("zoom")
 
         if self.beamx_chan is not None:
             self.beamx_chan.connect_signal("update", self.beamsize_x_changed)
@@ -95,6 +99,18 @@ class BeamInfo(HardwareObject):
         elif signal == "position_changed":
             self.positionUpdated()
 
+    def zoomPositionChanged(self, name=None, offset=None):
+        zoom_props = self.zoomMotor.getCurrentPositionProperties()
+        if "beamPositionX" in zoom_props:
+            self.beam_position = [
+                zoom_props["beamPositionX"],
+                zoom_props["beamPositionY"],
+            ]
+            self.positionUpdated()
+
+    def positionUpdated(self):
+        self.emit("beamPosChanged", (self.beam_position,))
+        self.sizeUpdated()
 
     def sizeUpdated(self):
         if None not in [self.beamx_chan, self.beamy_chan]:

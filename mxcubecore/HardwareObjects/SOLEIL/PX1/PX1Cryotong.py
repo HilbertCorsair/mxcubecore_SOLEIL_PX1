@@ -13,7 +13,7 @@ from Cats90 import (
     BASKET_UNIPUCK,
 )
 
-from PX1Environment import EnvironmentPhase
+from mxcubecore.HardwareObjects.SOLEIL.PX1.PX1Environment import EnvironmentPhase
 
 
 class PX1Cryotong(Cats90):

@@ -18,8 +18,6 @@ class PX1Configuration(HardwareObject):
         self.centring_phi_incr = self.get_property("centring_phi_increment")
         self.centring_sample_type = self.get_property("centring_sample_type")
         
-        print(f"LocalConfiguration has value sample_type={self.centring_sample_type}")
-
     def get_use_edna(self):
         return self.use_edna_value
 

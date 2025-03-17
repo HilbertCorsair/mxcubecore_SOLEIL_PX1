@@ -238,7 +238,7 @@ class AbstractDetector(HardwareObject):
             )
         except (AttributeError, KeyError):
             beam_position = (None, None)
-
+        
         return beam_position
 
     def get_radius(self, distance=None):
@@ -261,9 +261,8 @@ class AbstractDetector(HardwareObject):
         pixel_x, pixel_y = self.get_pixel_size()
         rrx = min(self.get_width() - beam_x, beam_x) * pixel_x
         rry = min(self.get_height() - beam_y, beam_y) * pixel_y
-        radius = min(rrx, rry)
-
-        return radius
+        #radius = min(rrx, rry)
+        return rry
 
     def get_outer_radius(self, distance=None):
         """Get distance from beam_position to the furthest point on the detector.
@@ -295,6 +294,10 @@ class AbstractDetector(HardwareObject):
         Returns:
             (dict): metadata
         """
+        self._metadata["ax"] = -0.003579583
+        self._metadata["ay"] = -0.004106302
+        self._metadata["bx"] = 2052.060
+        self._metadata["by"] = 2232.887
         self._metadata["width"] = self.get_width()
         self._metadata["height"] = self.get_height()
 

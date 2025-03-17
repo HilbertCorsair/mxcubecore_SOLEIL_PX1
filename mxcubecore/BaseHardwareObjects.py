@@ -4,22 +4,18 @@
 #  https://github.com/mxcube
 #
 #  This file is part of MXCuBE software.
-#
 #  MXCuBE is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU Lesser General Public License as published by
 #  the Free Software Foundation, either version 3 of the License, or
 #  (at your option) any later version.
-#
 #  MXCuBE is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #  GNU Lesser General Public License for more details.
-#
 #  You should have received a copy of the GNU General Lesser Public License
 #  along with MXCuBE. If not, see <http://www.gnu.org/licenses/>.
 
 from __future__ import absolute_import
-
 import ast
 import enum
 import logging
@@ -36,6 +32,7 @@ from typing import (
     List,
     Optional,
 )
+
 from typing import OrderedDict as TOrderedDict
 from typing import (
     Tuple,
@@ -61,10 +58,8 @@ from mxcubecore.dispatcher import dispatcher
 
 if TYPE_CHECKING:
     from logging import Logger
-
     from pydantic.v1 import BaseModel
-
-    from .CommandContainer import CommandObject
+    from CommandContainer import CommandObject
 
 __copyright__ = """ Copyright © 2010-2020 by the MXCuBE collaboration """
 __license__ = "LGPLv3+"
@@ -122,14 +117,13 @@ class ConfiguredObject:
 
     def replace_object(self, role: str, new_object: object) -> None:
         """Replace already defined Object with a new one - for runtime use
-
         Args:
             role (str): Role name of contained Object
             new_object (object): New contained Object
-
         Raises:
             ValueError: If contained object role is unknown.
         """
+        
         if role in self._objects:
             self._objects[role] = new_object
         else:

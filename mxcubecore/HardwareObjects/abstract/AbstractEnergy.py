@@ -98,6 +98,7 @@ class AbstractEnergy(AbstractActuator):
         Returns:
             (float): wavelength [Å]
         """
+        print("calculating _ wave L")
         energy = energy or self.get_value()
 
         # TODO NBNB This is naughty. Coud  we not put the heuristic switch
@@ -119,10 +120,15 @@ class AbstractEnergy(AbstractActuator):
         return HC_OVER_E / wavelength
 
     def update_value(self, value=None):
+        print(f"UPDATE VALUE abstract energy {value}")
         """Emist signal energyChanged for both energy and wavelength
         Argin:
             value: Not used, but kept in the method signature.
         """
+        import pdb
+        pdb.set_trace()
+
+
 
         if value is None:
             value = self.get_value()

@@ -1,0 +1,108 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+# This program uses two external binaries:
+# - eiger2cbf from Takanori Nakane
+#   https://github.com/biochem-fan/eiger2cbf
+# - merge2cbf from Wolfgang Kabsch
+#   http://xds.mpimf-heidelberg.mpg.de/html_doc/merge2cbf_program.html
+
+__version__ = "0.0.3"
+__author__ = "Pierre Legrand (pierre.legrand \at synchrotron-soleil.fr)"
+__date__ = "29-03-2019"
+__copyright__ = "Copyright (c) 2018 Pierre Legrand"
+__license__ = "New BSD http://www.opensource.org/licenses/bsd-license.php"
+
+import os
+import sys
+import re
+import time
+from subprocess import Popen, PIPE
+
+WORKDIR = "/tmp/shm"
+HDF2CBF = "/data/bioxsoft/bin/eiger2cbf %s %d:%d %s_"
+MERGE2CBF_EXE = "/data/bioxsoft/bin/merge2cbf"
+FRAMENUMDIGITS = 6
+MERGE2CBF_INP = """ NAME_TEMPLATE_OF_DATA_FRAMES= %s_??????.cbf
+ DATA_RANGE= %d %d
+ NAME_TEMPLATE_OF_OUTPUT_FRAMES= %s_core_????.cbf
+ NUMBER_OF_DATA_FRAMES_COVERED_BY_EACH_OUTPUT_FRAME= 10
+"""
+
+def run_exec_str(execstr):
+    outp = Popen([execstr], stderr=PIPE, stdout=PIPE, shell=True).communicate()[0]
+    return outp
+
+def get_name_pattern(filename):
+    return re.findall('(.*)_(master|data_\d{6}).h5', filename)[0][0]
+
+def is_datafile(filename):
+    return re.match('(.*)_(data_\d{6}).h5', filename)
+
+if __name__ == "__main__":
+
+    # input parameters
+
+    in_file = sys.argv[1]
+    if "master.h5" in in_file:
+        first_frame = 1
+        relative_angle = 1
+    elif is_datafile(in_file):
+        _namep = get_name_pattern(in_file)
+        _num = int(in_file[-9:-3])
+        in_file = _namep + "_master.h5"
+        first_frame = (_num-1)*10 +1
+        relative_angle = (_num-1)*90 +1
+    else:
+        print ("   HDF2MERGE: Error ! HDF filename unrecognized: %" % in_file)
+        sys.exit() 
+    nb_frames = 10
+
+    if not os.path.exists(in_file):
+         print("   HDF2MERGE: File does not exist %s" % in_file)
+    print ("   HDF2MERGE: File: %s  number %d" % (in_file, first_frame))
+    last_frame = first_frame + nb_frames -1
+
+    full_inpath = os.path.abspath(in_file)
+    full_basedir = os.path.dirname(full_inpath)
+    out_dir = full_basedir
+    in_basename = os.path.basename(full_inpath)
+     
+    out_file = in_basename.split("_master.")[0]
+
+    pid = os.getpid()
+
+    tmp_dir = "%s/merge2cbf.%d" % (WORKDIR, pid)
+    os.mkdir(tmp_dir)
+
+    # FILE names 
+    core_basename = "%s_core_%04d.cbf" % (out_file, first_frame)
+#    merged_filename = "%s_merged_%04d.cbf" % (out_file, first_frame)
+    merged_filename = "%s_merged_%04d.cbf" % (out_file, relative_angle)
+
+    tmp_file = os.path.join(tmp_dir, "TMP")
+    head_file = os.path.join(tmp_dir, "TMP.HEAD")
+    merge_input_file = os.path.join(tmp_dir, "MERGE2CBF.INP")
+    core_file = os.path.join(tmp_dir, core_basename)
+    merged_file = os.path.join(out_dir, merged_filename)
+
+    # run merge
+    run_exec_str(HDF2CBF % (full_inpath, first_frame, last_frame, tmp_file))
+
+    # extract header
+    run_exec_str("head -28 %s_%06d.cbf > %s" % (tmp_file, first_frame, head_file))
+
+    merge2cbfinp = open(merge_input_file, "w").write( \
+       MERGE2CBF_INP % (tmp_file, first_frame, last_frame, out_file))
+    
+    run_exec_str("cd %s; %s" % (tmp_dir, MERGE2CBF_EXE))
+    time.sleep(0.5)
+
+    head = open(head_file).read().split("_array_data.data")[0].replace("Angle_increment 0.100000","Angle_increment 1.000000")
+    data = open(core_file,"rb").read().split(b"_array_data.data")[1]
+
+    print("   HDF2MERGE: Creating file %s" % merged_file)
+    open(merged_file, "w").write(head + "_array_data.data" + data)
+
+    # remove temporary files and directory
+    Popen(["/bin/rm","-rf", tmp_dir]) 

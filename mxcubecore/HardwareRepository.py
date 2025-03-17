@@ -459,13 +459,7 @@ class __HardwareRepositoryClient:
                     self.xml_source[hwobj_name] = xml_data
 
                     dispatcher.send("hardwareObjectLoaded", hwobj_name, self)
-
-                    def hardwareObjectDeleted(name=hwobj_instance.name()):
-                        logging.getLogger("HWR").debug(
-                            "%s Hardware Object has been deleted from Hardware Repository",
-                            name,
-                        )
-                        del self.hardware_objects[name]
+                
 
                     hwobj_instance.resolve_references()
 
@@ -490,10 +484,18 @@ class __HardwareRepositoryClient:
                         hwobj_instance = None
                         comment = "Failed to init class"
                     else:
-                        if hwobj_instance.name() in self.invalid_hardware_objects:
-                            self.invalid_hardware_objects.remove(hwobj_instance.name())
+                        try:
+                            if hwobj_instance.name() in self.invalid_hardware_objects:
+                                self.invalid_hardware_objects.remove(hwobj_instance.name())
 
-                        self.hardware_objects[hwobj_instance.name()] = hwobj_instance
+                            self.hardware_objects[hwobj_instance.name()] = hwobj_instance
+                        except TypeError: 
+
+                            if hwobj_instance.name in self.invalid_hardware_objects:
+                                self.invalid_hardware_objects.remove(hwobj_instance.name)
+
+                            self.hardware_objects[hwobj_instance.name] = hwobj_instance
+
                 else:
                     logging.getLogger("HWR").error(
                         "Failed to load Hardware object %s", hwobj_name

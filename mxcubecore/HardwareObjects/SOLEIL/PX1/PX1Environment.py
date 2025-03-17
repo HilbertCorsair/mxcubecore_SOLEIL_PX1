@@ -104,7 +104,6 @@ class PX1Environment(HardwareObject):
     def _update_state(self,s=None):
         gevent.sleep(0.1)
         motor_state = self.state_chan.get_value()
-        self.log.debug(f"Reading motor state for {self.name} is {str(motor_state)}")
         self._motor_state_changed(motor_state)
 
     def _motor_state_changed(self, state=None):
