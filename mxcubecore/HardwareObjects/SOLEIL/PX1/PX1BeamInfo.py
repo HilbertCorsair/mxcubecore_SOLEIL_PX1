@@ -32,7 +32,7 @@ class PX1BeamInfo(BeamInfo):
         self.chan_beam_shape_ellipse = None
         BeamInfo.init(self)
 
-        #self.zoomMotor = self.get_object_by_role("zoom")
+        self.zoomMotor = self.get_object_by_role("zoom")
         self.zoomMotor.init()
         self.current_zoom = self.zoomMotor.get_value()
         #beam_size_slits = self.get_property("beam_size_slits")

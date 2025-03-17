@@ -7,7 +7,7 @@ import PyTango
 import math
 
 
-from Cats90 import (
+from mxcubecore.HardwareObjects.Cats90 import (
     Cats90,
     SampleChangerState,
     BASKET_UNIPUCK,
@@ -358,6 +358,10 @@ class PX1Cryotong(Cats90):
             self.do_dry_and_soak()
 
     def _do_load_operation(self, sample, wash=False, shifts=None):
+
+        import pdb
+        pdb.set_trace()
+        
         selected=self.get_selected_sample()
         if sample is not None:
             if sample != selected:

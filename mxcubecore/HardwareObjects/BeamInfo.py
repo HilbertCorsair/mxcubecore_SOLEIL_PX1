@@ -2,136 +2,255 @@
 [Name] BeamInfo
 
 [Description]
-BeamInfo hardware object informs mxCuBE (HutchMenuBrick) about the beam position
-and size.
-
-This is the Soleil PX1 version
-
-Beam size is hardcoded in this file.
-Beam Position is updated whenever the zoom motor changes position. Values taken from
-   zoom xml configuration
+BeamInfo hardware object is used to define final beam size and shape.
+It can include aperture, slits and/or other beam definer (lenses or other eq.)
 
 [Emited signals]
-
 beamInfoChanged
 beamPosChanged
 
+[Included Hardware Objects]
+-----------------------------------------------------------------------
+| name            | signals          | functions
+-----------------------------------------------------------------------
+ aperture_hwobj	    apertureChanged
+ slits_hwobj
+ beam_definer_hwobj
+-----------------------------------------------------------------------
 """
 
 import logging
 
+from mxcubecore import HardwareRepository as HWR
 from mxcubecore.BaseHardwareObjects import HardwareObject
 
 
 class BeamInfo(HardwareObject):
+    """
+    Description:
+    """
+
     def __init__(self, *args):
+        """
+        Descrip. :
+        """
         super().__init__(*args)
 
-        self.beam_position = [None, None]
-        self.beam_size = [100, 100]
-        self.shape = "rectangular"
+        self.aperture_hwobj = None
+        self.beam_definer = None
+        self.slits_hwobj = None
 
-        self.beam_size_slits = [9999, 9999]
+        self.beam_size_slits = None
+        self.beam_size_aperture = None
+        self.beam_size_definer = None
+        self.beam_position = None
+        self.beam_info_dict = None
+        self.default_beam_divergence = None
 
-        self.beam_info_dict = {}
-        self.beam_info_dict["size_x"] = self.beam_size[0]
-        self.beam_info_dict["size_y"] = self.beam_size[1]
-        self.beam_info_dict["shape"] = self.shape
-        self.beam_divergence = None
-        # Zoom motor
-        self.zoomMotor = None
+        self.chan_beam_size_microns = None
+        self.chan_beam_shape_ellipse = None
 
     def init(self):
+        """
+        Descript. :
+        """
+        self.beam_size_slits = [9999, 9999]
+        self.beam_size_aperture = [9999, 9999]
+        self.beam_size_definer = [9999, 9999]
+        self.beam_position = (0, 0)
+        self.beam_info_dict = {}
+        self.polarisation = self.get_property("polarisation", 0.99)
 
-        try:
-            self.beamx_chan = self.get_channel_object("beamsizex")
-        except KeyError:
-            logging.getLogger().warning(
-                "%s: cannot connect to beamsize x channel ", self.name()
-            )
-
-        try:
-            self.beamy_chan = self.get_channel_object("beamsizey")
-            self.beamy_chan.connect_signal("update", self.beamsize_x_changed)
-            self.beam_divergence = self.get_property("defaultBeamDivergence")
-        except KeyError:
-            logging.getLogger().warning(
-                "%s: cannot connect to beamsize y channel ", self.name()
-            )
-
-        self.zoomMotor = self.get_object_by_role("zoom")
-
-        if self.beamx_chan is not None:
-            self.beamx_chan.connect_signal("update", self.beamsize_x_changed)
-        else:
-            logging.getLogger().info("BeamSize X channel not defined")
-
-        if self.beamy_chan is not None:
-            self.beamy_chan.connect_signal("update", self.beamsize_y_changed)
-        else:
-            logging.getLogger().info("BeamSize Y channel not defined")
-
-        if self.zoomMotor is not None:
+        self.aperture_hwobj = self.get_object_by_role("aperture")
+        if self.aperture_hwobj is not None:
             self.connect(
-                self.zoomMotor, "predefinedPositionChanged", self.zoomPositionChanged
+                self.aperture_hwobj, "apertureChanged", self.aperture_pos_changed
             )
-            self.zoomPositionChanged()
         else:
-            logging.getLogger().info("Zoom motor not defined")
+            logging.getLogger("HWR").debug("BeamInfo: Aperture hwobj not defined")
 
-        if None in [self.beamy_chan, self.beamx_chan]:
-            try:
-                beam_size = self.get_property("beam_size")
-                if beam_size is not None:
-                    beamx, beamy = beam_size.split(",")
-                    self.beam_info_dict["size_x"] = self.beam_size[0] = float(beamx)
-                    self.beam_info_dict["size_y"] = self.beam_size[1] = float(beamy)
-            except Exception:
-                pass
+        self.slits_hwobj = self.get_object_by_role("slits")
+        if self.slits_hwobj is not None:
+            self.connect(self.slits_hwobj, "gapSizeChanged", self.slits_gap_changed)
+        else:
+            logging.getLogger("HWR").debug("BeamInfo: Slits hwobj not defined")
 
-    def connect_notify(self, signal):
-        if signal == "beamInfoChanged":
-            self.sizeUpdated()
-        elif signal == "position_changed":
-            self.positionUpdated()
+        if self.beam_definer is not None:
+            self.connect(
+                self.beam_definer, "definerPosChanged", self.definer_pos_changed
+            )
+        else:
+            logging.getLogger("HWR").debug("BeamInfo: Beam definer hwobj not defined")
 
+        default_beam_divergence_vertical = None
+        default_beam_divergence_horizontal = None
+        try:
+            default_beam_divergence_vertical = int(
+                self.get_property("beam_divergence_vertical")
+            )
+            default_beam_divergence_horizontal = int(
+                self.get_property("beam_divergence_horizontal")
+            )
+        except Exception:
+            pass
+        self.default_beam_divergence = [
+            default_beam_divergence_horizontal,
+            default_beam_divergence_vertical,
+        ]
 
-    def sizeUpdated(self):
-        if None not in [self.beamx_chan, self.beamy_chan]:
-            x_beam = self.beamx_chan.get_value()
-            y_beam = self.beamy_chan.get_value()
-            self.beam_info_dict["size_x"] = x_beam
-            self.beam_info_dict["size_y"] = y_beam
-        self.emit("beamInfoChanged", (self.beam_info_dict,))
-
-    def get_beam_info(self):
-        return self.beam_info_dict
-
-    def get_beam_position(self):
-        return self.beam_position
-
-    def get_beam_size(self):
-        return self.beam_size
-
-    def get_beam_shape(self):
-        return self.shape
-
-    def get_slits_gap(self):
-        return self.beam_size_slits
+    def connect_notify(self, *args):
+        self.evaluate_beam_info()
+        self.re_emit_values()
 
     def get_beam_divergence_hor(self):
-        return self.beam_divergence[0]
+        """
+        Descript. :
+        """
+        if self.beam_definer is not None:
+            return self.beam_definer.get_divergence_hor()
+        else:
+            return self.default_beam_divergence[0]
 
     def get_beam_divergence_ver(self):
-        return self.beam_divergence[1]
+        """
+        Descript. :
+        """
+        if self.beam_definer is not None:
+            return self.beam_definer.get_divergence_ver()
+        else:
+            return self.default_beam_divergence[1]
 
-    def beamsize_x_changed(self, value=None):
-        self.sizeUpdated()
+    def get_beam_position(self):
+        """
+        Descript. :
+        Arguments :
+        Return    :
+        """
+        return (0, 0)
+        # raise NotImplementedError
 
-    def beamsize_y_changed(self, value=None):
-        self.sizeUpdated()
+    def set_beam_position(self, beam_x, beam_y):
+        """
+        Descript. :
+        Arguments :
+        Return    :
+        """
+        raise NotImplementedError
 
+    def aperture_pos_changed(self, size):
+        """
+        Descript. :
+        Arguments :
+        Return    :
+        """
+        self.beam_size_aperture = size
+        self.evaluate_beam_info()
+        self.re_emit_values()
 
-def test_hwo(hwo):
-    print("BEAM info: ", hwo.get_beam_info())
-    print("BEAM position: ", hwo.get_beam_position())
+    def slits_gap_changed(self, size):
+        """
+        Descript. :
+        Arguments :
+        Return    :
+        """
+        self.beam_size_slits = size
+        self.evaluate_beam_info()
+        self.re_emit_values()
+
+    def definer_pos_changed(self, name, size):
+        """
+        Descript. :
+        Arguments :
+        Return    :
+        """
+        self.beam_size_definer = size
+        self.evaluate_beam_info()
+        self.re_emit_values()
+
+    def get_beam_info(self):
+        """
+        Descript. :
+        Arguments :
+        Return    :
+        """
+        return self.evaluate_beam_info()
+
+    def get_beam_size(self):
+        """
+        Descript. : returns beam size in millimeters
+        Return   : list with two integers
+        """
+        self.evaluate_beam_info()
+        return self.beam_info_dict["size_x"], self.beam_info_dict["size_y"]
+
+    def get_beam_shape(self):
+        """
+        Descript. :
+        Arguments :
+        Return    :
+        """
+        self.evaluate_beam_info()
+        return self.beam_info_dict["shape"]
+
+    def get_slits_gap(self):
+        """
+        Descript. :
+        Arguments :
+        Return    :
+        """
+        self.evaluate_beam_info()
+        return self.beam_size_slits
+
+    def evaluate_beam_info(self):
+        """
+        Descript. : called if aperture, slits or focusing has been changed
+        Return    : dictionary,{size_x:0.1, size_y:0.1, shape:"rectangular"}
+        """
+        size_x = min(
+            self.beam_size_aperture[0],
+            self.beam_size_slits[0],
+            self.beam_size_definer[0],
+        )
+        size_y = min(
+            self.beam_size_aperture[1],
+            self.beam_size_slits[1],
+            self.beam_size_definer[1],
+        )
+
+        self.beam_info_dict["size_x"] = size_x
+        self.beam_info_dict["size_y"] = size_y
+
+        # be careful with comparisons!!! both have to be the same type (=tuple)
+        if tuple(self.beam_size_aperture) < tuple(self.beam_size_slits):
+            self.beam_info_dict["shape"] = "ellipse"
+        else:
+            self.beam_info_dict["shape"] = "rectangular"
+
+        return self.beam_info_dict
+
+    def re_emit_values(self):
+        """
+        Descript. :
+        Arguments :
+        Return    :
+        """
+        if (
+            self.beam_info_dict["size_x"] != 9999
+            and self.beam_info_dict["size_y"] != 9999
+        ):
+            self.emit(
+                "beamSizeChanged",
+                ((self.beam_info_dict["size_x"], self.beam_info_dict["size_y"]),),
+            )
+            self.emit("beamInfoChanged", (self.beam_info_dict,))
+            if self.chan_beam_size_microns:
+                self.chan_beam_size_microns.set_value(
+                    (
+                        self.beam_info_dict["size_x"] * 1000,
+                        self.beam_info_dict["size_y"] * 1000,
+                    )
+                )
+            if self.chan_beam_shape_ellipse:
+                self.chan_beam_shape_ellipse.set_value(
+                    self.beam_info_dict["shape"] == "ellipse"
+                )
