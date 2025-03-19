@@ -142,14 +142,8 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
         return utf_encode(proposal_dict)
     
     @trace
-    def get_proposal(self, proposal_number, proposal_code = "mx"):
-
-        """import inspect
-        import pdb
-        pdb.set_trace()"""
-
-         
-        print (f"FETCHING proposal: code {proposal_code}, no {proposal_number}")
+    def get_proposal(self, proposal_number, proposal_code = "mx"):        
+        #print (f"FETCHING proposal: code {proposal_code}, no {proposal_number}")
 
         """
         Returns the tuple (Proposal, Person, Laboratory, Session, Status).
@@ -369,7 +363,13 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
                     'Session': sessions,
                     'status': {'code':'ok'}}
     
-
+    def check_to_string(self, b_obj):
+        if isinstance(b_obj, str):
+            s = b_obj
+        else: 
+            s = b_obj.decode("utf-8")
+        return s
+    
     def get_todays_session(self, prop):
         print( "getting todays session")
         try:
@@ -386,13 +386,13 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
             print ("SESSIONS:", sessions)
             print
             for session in sessions:
-                print ("  one session:", session , "\n")
-              
-                beamline=session['beamlineName']
-                start_date="%s 08:00:00" % session['startDate'].decode('utf-8').split()[0]
-                end_date="%s 23:59:59" % session['endDate'].decode('utf-8').split()[0]
+                print ("one session:", session , "\n")
+                beamline=self.check_to_string(session['beamlineName'])
+                start_date="%s 08:00:00" % self.check_to_string(session['startDate'])
+                end_date="%s 23:59:59" % self.check_to_string(session['endDate'])
+                start_date = start_date.split()[0]
+                end_date = end_date.split()[0]
 
-             
                 try:
                     start_struct=time.strptime(start_date,"%Y-%m-%d %H:%M:%S")
                 except ValueError:
@@ -408,16 +408,21 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
                         current_time=time.time()
                         # Check beamline name
                         if beamline==self.beamline_name:
+
                             # Check date
                             if current_time>=start_time and current_time<=end_time:
                                 todays_session=session
+                                # Adding extra info to pass along  
+                                todays_session['proposalNumber']=prop['Proposal']['number']
+                                todays_session['proposalTitle']=prop['Proposal']['title']
+                                todays_session['proposalCode']=prop['Proposal']['code']
+
                                 break
         
+        
         if todays_session:
+            print("FOUND A SESSION FOR TODAY : NEW SESSION FLAG FALSE")
             new_session_flag= False
-            todays_session['proposalNumber']=prop['Proposal']['number']
-            todays_session['proposalTitle']=prop['Proposal']['title']
-            todays_session['proposalCode']=prop['Proposal']['code']
             session_id=todays_session['sessionId']
             logging.getLogger('HWR').debug('getting local contact for %s' % session_id)
             #localcontact=self.get_session_local_contact(session_id)
@@ -796,6 +801,7 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
 class PX1ISPyBLims(UserTypeISPyBLims):
     def __init__(self, name):
         super().__init__(name)
+        self.login_type = "prposal"
         
 
     def init(self):
@@ -820,13 +826,19 @@ class PX1ISPyBLims(UserTypeISPyBLims):
         print(f"Created data_adapter of type {data_adapter}")
         return data_adapter
 
+    def check_to_string(self, b_obj):
+        if isinstance(b_obj, str):
+            s = b_obj
+        else: 
+            s = b_obj.decode("utf-8")
+        return s
+
     def login(self, pid):
         self.data_adapter = self._create_data_adapter()
         proposal = self.data_adapter.get_proposal(pid)
         todays_session = self.data_adapter.get_todays_session(proposal)
-    
+        start_datetime_str = self.check_to_string(todays_session["session"]['startDate'])
 
-        start_datetime_str =  todays_session["session"]['startDate'].decode('utf-8')
         # Parse the string into a datetime object
         start_dt_object = datetime.strptime(start_datetime_str, '%Y-%m-%d %H:%M:%S')
         
@@ -845,7 +857,7 @@ class PX1ISPyBLims(UserTypeISPyBLims):
         start_date_str = start_dt_object.strftime("%Y%m%d") 
         start_time_str = start_dt_object.strftime("%H:%M:%S")
 
-        end_datetime_str = todays_session["session"]['endDate'].decode('utf-8')
+        end_datetime_str = self.check_to_string(todays_session["session"]['endDate'])
         end_dt_object = datetime.strptime(end_datetime_str, '%Y-%m-%d %H:%M:%S')
         
         end_date_str = end_dt_object.strftime("%Y%m%d") 
@@ -865,12 +877,12 @@ class PX1ISPyBLims(UserTypeISPyBLims):
         lims_session_object.beamline_name = self.beamline_name
 
         lims_session_object.proposal_id = todays_session["session"]["proposalId"]
-        lims_session_object.proposal_name = todays_session["session"]["proposalName"]#.decode("utf-8")
-        lims_session_object.title = todays_session["session"]["proposalTitle"]#.decode("utf-8")
+        lims_session_object.proposal_name = f"mx{pid}"
+        lims_session_object.title = self.check_to_string(todays_session["session"]["proposalTitle"])
 
 
-        lims_session_object.code = todays_session["session"]["proposalCode"]#.decode("utf-8")
-        lims_session_object.number = todays_session["session"]["proposalNumber"]#.decode("utf-8")
+        lims_session_object.code = self.check_to_string(todays_session["session"]["proposalCode"])
+        lims_session_object.number = self.check_to_string(todays_session["session"]["proposalNumber"])
 
 
         lims_session_object.actual_start_date = ""
@@ -912,8 +924,6 @@ class PX1ISPyBLims(UserTypeISPyBLims):
 
         # Authentication
         try:
-            import pdb
-            pdb.set_trace()
             logging.getLogger("HWR").debug("ISPyB login")
             self.login_ok, msg = self.ispyb_login(login_name, psd)
 

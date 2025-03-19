@@ -32,7 +32,7 @@ class UserTypeISPyBLims(ISPyBAbstractLIMS):
         return self.user_name
 
     def is_user_login_type(self):
-        return True
+        return False
 
     def init(self):
         super().init()

@@ -223,6 +223,7 @@ class Session(HardwareObject):
         :returns: The full path to images.
         """
         directory = self.get_base_image_directory()
+        
 
         if sub_dir:
             sub_dir = sub_dir.replace(" ", "").replace(":", "-")
@@ -318,9 +319,9 @@ class Session(HardwareObject):
             protein_acronym = sample_data.crystals[0].protein_acronym
 
         if protein_acronym:
-            subdir = "%s/%s-%s/" % (protein_acronym, protein_acronym, sample_name)
+            subdir = "%s/%s-%s" % (protein_acronym, protein_acronym, sample_name)
         else:
-            subdir = "%s/" % sample_name
+            subdir = "%s" % sample_name
 
         return subdir.replace(":", "-")
 

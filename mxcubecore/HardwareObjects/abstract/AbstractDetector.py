@@ -52,7 +52,6 @@ import abc
 import ast
 import math
 
-from mxcubecore import HardwareRepository as HWR
 from mxcubecore.BaseHardwareObjects import HardwareObject
 from mxcubecore.model.queue_model_objects import PathTemplate
 
@@ -75,6 +74,7 @@ class AbstractDetector(HardwareObject):
         self._pixel_size = (None, None)
         self._binning_mode = None
         self._roi_mode = 0
+        self._images_per_file = 0
         self._roi_modes_list = []
 
         self._threshold_energy = None
@@ -91,6 +91,8 @@ class AbstractDetector(HardwareObject):
             self._metadata = dict(self["beam"].get_properties())
         except KeyError:
             pass
+
+        self._images_per_file = self.get_property("images_per_file", 100)
 
         self._distance_motor_hwobj = self.get_object_by_role("detector_distance")
 
@@ -109,6 +111,10 @@ class AbstractDetector(HardwareObject):
         self.emit("frameRateChanged", (self._actual_frame_rate,))
         self.emit("stateChanged", (self._state,))
         self.emit("specificStateChanged", (self._specific_state,))
+
+    @property
+    def images_per_file(self):
+        return self._images_per_file
 
     @property
     def distance(self):
@@ -203,7 +209,7 @@ class AbstractDetector(HardwareObject):
         """
         self._binning_mode = value
 
-    def get_beam_position(self, distance=None, wavelength=None):
+    def get_beam_position(self, distance=None, wavelength=None):  # noqa: ARG002
         """Calculate the beam position for a given distance.
         Args:
             distance (float): detector distance [mm]
@@ -222,12 +228,6 @@ class AbstractDetector(HardwareObject):
                 distance
                 if distance is not None
                 else self._distance_motor_hwobj.get_value()
-            )
-
-            wavelength = (
-                wavelength
-                if wavelength is not None
-                else HWR.beamline.energy.get_wavelength()
             )
 
             metadata = self.get_metadata()

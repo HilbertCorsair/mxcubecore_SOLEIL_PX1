@@ -1,35 +1,53 @@
 from __future__ import print_function
 
 import itertools
+import logging
+import sys
 import time
 from datetime import datetime
 from typing import (
     Dict,
     List,
 )
+from urllib.error import URLError
 
-from mxcubecore.HardwareObjects.abstract.ISPyBValueFactory import ISPyBValueFactory
-from mxcubecore.utils.conversion import string_types
+from collections import namedtuple
+from zeep import Client
+from zeep.transports import Transport
+from zeep.helpers import serialize_object
 
-try:
-    from urllib2 import URLError
-    from urlparse import urljoin
-except Exception:
-    # Python3
-    from urllib.error import URLError
+from requests.auth import HTTPBasicAuth
 
-import logging
-import sys
-
-from suds import WebFault
-from suds.client import Client
+#from suds import WebFault
+#from suds.client import Client
 from suds.sudsobject import asdict
 
+from mxcubecore.HardwareObjects.abstract.ISPyBValueFactory import ISPyBValueFactory
 from mxcubecore.model.lims_session import (
     LimsSessionManager,
     Proposal,
     Session,
 )
+from mxcubecore.utils.conversion import string_types
+
+_WSDL_ROOT = ""
+_WS_BL_SAMPLE_URL = _WSDL_ROOT + 'ToolsForBLSampleWebService?wsdl'
+_WS_SHIPPING_URL = _WSDL_ROOT + 'ToolsForShippingWebService?wsdl'
+_WS_COLLECTION_URL = _WSDL_ROOT + 'ToolsForCollectionWebService?wsdl'
+_WS_AUTOPROC_URL = _WSDL_ROOT + 'ToolsForAutoprocessingWebService?wsdl'
+_WS_USERNAME = None
+_WS_PASSWORD = None
+
+_CONNECTION_ERROR_MSG = "Could not connect to ISPyB, please verify that " + \
+                        "the server is running and that your " + \
+                        "configuration is correct"
+
+
+SampleReference = namedtuple('SampleReference', ['code',
+                                                 'container_reference',
+                                                 'sample_reference',
+                                                 'container_code'])
+
 
 suds_encode = str.encode
 
@@ -72,19 +90,103 @@ def utf_decode(res_d):
     return res_d
 
 
-class ISPyBDataAdapter:
+class ISPyBDataAdapter():
     def __init__(
         self,
         ws_root: str,
-        proxy: dict,
+        #proxy: dict,
         ws_username: str,
         ws_password: str,
         beamline_name: str,
     ):
+       self.ws_root =  ws_root
+       self.ws_username = ws_username
+       self.ws_password = ws_password
+       self.beamline_name = beamline_name
+       self._shipping = None
+       self._collection = None
+       self._tools_ws = None
+       self._autoproc_ws = None
+       print("Init data adapter")
+
+
+    def configure_urls(self):
+
+        if self.ws_root:
+            print ("C1 ")
+
+            global _WSDL_ROOT
+            global _WS_BL_SAMPLE_URL
+            global _WS_SHIPPING_URL
+            global _WS_COLLECTION_URL
+            global _WS_AUTOPROC_URL
+
+            _WSDL_ROOT = self.ws_root.strip()
+            _WS_BL_SAMPLE_URL = _WSDL_ROOT + 'ToolsForBLSampleWebService?wsdl'
+            _WS_SHIPPING_URL = _WSDL_ROOT + 'ToolsForShippingWebService?wsdl'
+            _WS_COLLECTION_URL = _WSDL_ROOT + 'ToolsForCollectionWebService?wsdl'
+            _WS_AUTOPROC_URL = _WSDL_ROOT + 'ToolsForAutoprocessingWebService?wsdl'
+
+
+
+    def _create_client(self, url, service_name):
+        """Create a zeep Client with authentication and timeout"""
+        from requests import Session
+        session = Session()
+        session.auth = HTTPBasicAuth(self.ws_username, self.ws_password)
+
+        # Configure transport with timeout and session
+        transport = Transport(session=session, timeout=5)
+
+        try:
+            print(f"Connecting to {url}")
+            client = Client(url, transport=transport)
+            return client
+        except Exception as e:
+            logging.getLogger("ispyb_client").exception(
+                f"Failed to connect to {service_name}: {str(e)}"
+            )
+            return None
+
+
+    def initialize_services(self):
+        self.configure_urls()
+        """Initialize all web service connections"""
+        try:
+            print("P0")
+            self._shipping = self._create_client(_WS_SHIPPING_URL, "shipping")
+
+            print("P1")
+            self._collection = self._create_client(_WS_COLLECTION_URL, "collection")
+
+            print("P2")
+            self._tools_ws = self._create_client(_WS_BL_SAMPLE_URL, "tools")
+
+            print("P3")
+            self._autoproc_ws = self._create_client(_WS_AUTOPROC_URL, "autoproc")
+
+            print("P4")
+
+            # Check if any service failed to initialize
+            if not all([self._shipping, self._collection, self._tools_ws, self._autoproc_ws]):
+                raise URLError("One or more services failed to initialize")
+
+            return True
+
+        except URLError:
+            logging.getLogger("ispyb_client").exception(_CONNECTION_ERROR_MSG)
+            return False
+        except Exception as e:
+            logging.getLogger("ispyb_client").exception(
+                f"Unexpected error during service initialization: {str(e)}"
+            )
+            return False
+
+        """
         self.ws_root = ws_root
         self.ws_username = ws_username
         self.ws_password = ws_password
-        self.proxy = proxy  # type: ignore
+        #self.proxy = proxy  # type: ignore
         self.beamline_name = beamline_name
 
         # the duration of the session in days for the ones that are created by MXCuBE
@@ -101,11 +203,12 @@ class ISPyBDataAdapter:
         self._tools_ws = self.__create_client(
             self.ws_root + "ToolsForBLSampleWebService?wsdl"
         )
-
+        print("Initated")
+       
     def __create_client(self, url: str):
-        """
-        Given a url it will create
-        """
+
+        #Given a url it will create
+
         if self.ws_root.strip().startswith("https://"):
             from suds.transport.https import HttpAuthenticated
         else:
@@ -117,23 +220,19 @@ class ISPyBDataAdapter:
             transport=HttpAuthenticated(
                 username=self.ws_username,  # type: ignore
                 password=self.ws_password,
-                proxy=self.proxy,
+                #proxy=self.proxy,
             ),
             cache=None,
-            proxy=self.proxy,
+            #proxy=self.proxy,
         )
         client.set_options(cache=None, location=url)
-        return client
+        return client """
 
     def isEnabled(self) -> object:
         return self._shipping  # type: ignore
 
-    def create_session(
-        self, proposal_id: str, beamline_name: str
-    ) -> LimsSessionManager:
-
+    def create_session(self, proposal_id: str, beamline_name: str) -> Session:
         try:
-
             # proposal = self.find_proposal_by_login_and_beamline(self.get_user_, beamline_name)  # type: ignore
             current_time = time.localtime()
             start_time = time.strftime("%Y-%m-%d 00:00:00", current_time)
@@ -163,12 +262,7 @@ class ISPyBDataAdapter:
                 "Session created. session_id=%s" % session_id
             )
             response = self._collection.service.findSession(session_id)
-            session: Session = self.__to_session(asdict(response))
-            return self.get_sessions_by_code_and_number(
-                session.code,
-                session.number,
-                beamline_name,
-            )
+            return self.__to_session(asdict(response))
         except Exception:
             raise
 
@@ -239,15 +333,15 @@ class ISPyBDataAdapter:
     def _debug(self, msg: str):
         logging.getLogger("HWR").debug(msg)
 
-    def _error(self, msg: str):
-        logging.getLogger("HWR").error(msg)
+    def _exception(self, msg: str):
+        logging.getLogger("HWR").exception(msg)
 
     def find_session(self, session_id: str) -> Session:
         try:
             response = self._collection.service.findSession(session_id)
             return self.__to_session(asdict(response))
         except Exception as e:
-            self._error(str(e))
+            self._exception(str(e))
             raise e
 
     def find_proposal(self, code: str, number: str) -> Proposal:
@@ -256,7 +350,7 @@ class ISPyBDataAdapter:
             response = self._shipping.service.findProposal(code, number)  # type: ignore
             return self.__to_proposal(asdict(response))  # type: ignore
         except Exception as e:
-            self._error(str(e))
+            self._exception(str(e))
             raise e
 
     def find_proposal_by_login_and_beamline(
@@ -276,7 +370,7 @@ class ISPyBDataAdapter:
 
             return self.__to_proposal(asdict(response))  # type: ignore
         except Exception as e:
-            self._error(str(e))
+            self._exception(str(e))
             raise e
 
     def find_sessions_by_proposal_and_beamLine(
@@ -296,7 +390,7 @@ class ISPyBDataAdapter:
                 sessions.append(self.__to_session(asdict(response)))
             return sessions
         except Exception as e:
-            self._error(str(e))
+            self._exception(str(e))
             # raise e
         return []
 
@@ -310,6 +404,7 @@ class ISPyBDataAdapter:
         self, code: str, number: str, beamline_name: str
     ) -> LimsSessionManager:
         try:
+            self.initialize_services()
             self._debug(
                 "get_sessions_by_code_and_number. code=%s number=%s beamline_name=%s"
                 % (code, number, beamline_name)
@@ -317,10 +412,21 @@ class ISPyBDataAdapter:
             sessions = self.find_sessions_by_proposal_and_beamLine(
                 code, number, beamline_name
             )
+            print("PASSED!")
             return LimsSessionManager(sessions=sessions)
+
+        except WebFault as e:
+            self._exception(str(e))
+            raise e
+
+    def get_person_by_username(self, username: str) -> Dict:
+        try:
+            person = self._shipping.service.findPersonByLogin(username)
+            return asdict(person)
         except WebFault as e:
             self._error(str(e))
-            raise e
+
+        return {}
 
     def get_sessions_by_username(
         self, username: str, beamline_name: str
@@ -339,7 +445,7 @@ class ISPyBDataAdapter:
                 sessions=sessions,
             )
         except WebFault as e:
-            self._error(str(e))
+            self._exception(str(e))
         return LimsSessionManager()
 
     ############# Legacy methods #####################
@@ -516,9 +622,7 @@ class ISPyBDataAdapter:
 
     def update_session(self, session_dict):
         if self._collection:
-
             try:
-                print(session_dict)
                 # The old API used date formated strings and the new
                 # one uses DateTime objects.
                 session_dict["startDate"] = datetime.strptime(
@@ -572,7 +676,6 @@ class ISPyBDataAdapter:
     def store_beamline_setup(self, session_id, bl_config):
         blSetupId = None
         if self._collection:
-
             session = {}
 
             try:
@@ -649,7 +752,7 @@ class ISPyBDataAdapter:
             "Storing data collection ok. collection id : %s" % collection_id
         )
 
-        return (collection_id, detector_id)
+        return collection_id, detector_id
 
     def get_session(self, session_id):
         try:

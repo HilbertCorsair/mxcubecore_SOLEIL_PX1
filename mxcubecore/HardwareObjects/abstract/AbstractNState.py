@@ -17,7 +17,7 @@
 #  You should have received a copy of the GNU Lesser General Public License
 #  along with MXCuBE. If not, see <http://www.gnu.org/licenses/>.
 
-""" AbstractNState class - interface for N state devices.
+"""AbstractNState class - interface for N state devices.
 Defines BaseValueEnum, initialise_values and value_to_enum methds.
 Implements validate_value, set/update limits.
 """
@@ -102,7 +102,7 @@ class AbstractNState(AbstractActuator):
         Returns:
             (Enum): Enum member, corresponding to the value or UNKNOWN.
         """
-        for enum_var in self.VALUES.__members__.values():
+        for enum_var in self.VALUES:
             if value == enum_var.value:
                 return enum_var
             if isinstance(enum_var.value, tuple) and value == enum_var.value[idx]:

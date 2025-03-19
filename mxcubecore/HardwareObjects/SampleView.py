@@ -20,6 +20,7 @@
 __copyright__ = """2019 by the MXCuBE collaboration """
 __license__ = "LGPLv3+"
 
+
 import base64
 import copy
 from functools import reduce
@@ -59,29 +60,33 @@ def combine_images(img1, img2):
 
     return combined_img
 
-
 class SampleView(AbstractSampleView):
     def __init__(self, name):
-        AbstractSampleView.__init__(self, name)
+        super().__init__(name)
         self._shapes = {}
 
     def init(self):
         super(SampleView, self).init()
-        
+
 
         self._camera = self.get_object_by_role("camera")
         self._last_oav_image = None
 
         self.hide_grid_threshold = self.get_property("hide_grid_threshold", 5)
         for motor_name, motor_ho in HWR.beamline.diffractometer.get_motors().items():
+            print (f"Connecting and updating position off: {motor_name}")
             if motor_ho:
-                motor_ho.connect("stateChanged", self._update_shape_positions)
-    
-    
+                try:
+                    motor_ho.connect("stateChanged", self._update_shape_positions)
+                except Exception as e :
+                    print (f"Failed for {motor_name}: {e}")
+
 
     def _update_shape_positions(self, *args, **kwargs):
+        shapes_updated = False
 
         for shape in self.get_shapes():
+            previous_screen_coord = shape.screen_coord
             shape.update_position(HWR.beamline.diffractometer.motor_positions_to_screen)
 
         self.emit("shapesChanged")
@@ -107,6 +112,7 @@ class SampleView(AbstractSampleView):
         Start automatic centring procedure
         """
         pass
+
 
     def get_snapshot(self, overlay=None, bw=False, return_as_array=False):
         """
@@ -185,6 +191,7 @@ class SampleView(AbstractSampleView):
         """
         self.shapes[shape.id] = shape
         shape.shapes_hw_object = self
+
 
     def add_shape_from_mpos(
         self,
@@ -418,6 +425,7 @@ class SampleView(AbstractSampleView):
         return grid
 
     def set_grid_data(self, sid, result_data, data_file_path):
+
         """
         Sets grid rsult data for a shape with the specified id.
 
@@ -483,6 +491,7 @@ class Shape(object):
         self.id = ""
         self.cp_list = []
         self.name = ""
+
         self.state: ShapeState = "SAVED"
         self.user_state: ShapeState = (
             "SAVED"  # used to persist user preferences in regards wether to show or hide particular shape.
@@ -601,6 +610,7 @@ class Point(Shape):
 
     def set_id(self, id_num):
         Shape.set_id(self, id_num)
+
         self.cp_list[0].index = self.name
 
     def as_dict(self):
@@ -629,6 +639,7 @@ class Line(Shape):
         self.t = "L"
         self.label = "Line"
         self.set_id(Line.SHAPE_COUNT)
+
 
     def set_id(self, id_num):
         Shape.set_id(self, id_num)
@@ -662,6 +673,7 @@ class Grid(Shape):
         self.num_cols = -1
         self.num_rows = -1
         self.selected = False
+
         # result is a base64 encoded string for PNG/image heatmap results
         # or a dictionary (for RGB number based results)
         self.result = None
@@ -708,6 +720,7 @@ class Grid(Shape):
 
     def set_id(self, id_num):
         Shape.set_id(self, id_num)
+
         self.cp_list[0].index = self.name
 
     def set_result(self, result_data):
@@ -735,5 +748,6 @@ class Grid(Shape):
         d["beam_width"] = size_x
         d["beam_height"] = size_y
         d["angle"] = 0
+
 
         return d

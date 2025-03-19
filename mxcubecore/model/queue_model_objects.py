@@ -23,6 +23,7 @@ This module contain objects that combined make up the data model.
 Any object that inherhits from TaskNode can be added to and handled by
 the QueueModel.
 """
+
 import copy
 import logging
 import os
@@ -353,7 +354,7 @@ class Sample(TaskNode):
         else:
             self.set_name(self.loc_str)
 
-    def init_from_lims_object(self, lims_sample):  # noqa: C901
+    def init_from_lims_object(self, lims_sample):
         if hasattr(lims_sample, "cellA"):
             self.crystals[0].cell_a = lims_sample.cellA
             self.processing_parameters.cell_a = lims_sample.cellA
@@ -626,26 +627,12 @@ class DataCollection(TaskNode):
         parameters = acq.acquisition_parameters
 
         return {
+            **parameters.as_dict(),
+            # centred position is stored as an object reference. The as_dict method above expects json-serializable data.
+            "centred_position": parameters.centred_position,
             "prefix": path_template.get_prefix(),
             "run_number": path_template.run_number,
-            "first_image": parameters.first_image,
-            "num_images": parameters.num_images,
-            "osc_start": parameters.osc_start,
-            "osc_range": parameters.osc_range,
-            "kappa": parameters.kappa,
-            "kappa_phi": parameters.kappa_phi,
-            "overlap": parameters.overlap,
-            "exp_time": parameters.exp_time,
-            "num_passes": parameters.num_passes,
             "path": path_template.directory,
-            "centred_position": parameters.centred_position,
-            "energy": parameters.energy,
-            "resolution": parameters.resolution,
-            "transmission": parameters.transmission,
-            "detector_binning_mode": parameters.detector_binning_mode,
-            "detector_roi_mode": parameters.detector_roi_mode,
-            "shutterless": parameters.shutterless,
-            "inverse_beam": parameters.inverse_beam,
             "sample": str(self.crystal),
             "acquisitions": str(self.acquisitions),
             "acq_parameters": str(parameters),
@@ -792,9 +779,9 @@ class DataCollection(TaskNode):
         return self.online_processing_results
 
     def set_snapshot(self, snapshot):
-        self.acquisitions[0].acquisition_parameters.centred_position.snapshot_image = (
-            snapshot
-        )
+        self.acquisitions[
+            0
+        ].acquisition_parameters.centred_position.snapshot_image = snapshot
 
     def add_processing_msg(self, time, method, status, msg):
         self.processing_msg_list.append((time, method, status, msg))
@@ -1855,7 +1842,7 @@ class CentredPosition(object):
     """
     Class that represents a centred position.
     Can also be initialized with a mxcube motor dict
-    which simply is a dictonary with the motornames and
+    which simply is a dictionary with the motornames and
     their corresponding values.
     """
 
@@ -1987,6 +1974,7 @@ class GphlWorkflow(TaskNode):
         self.space_group = str()
         self.crystal_classes = ()
         self._cell_parameters = ()
+        self.crystal_thickness = 0.0  # Minimum dimension of crystal, in micron
         self.detector_setting = None  # from 'resolution' parameter or defaults
         self.aimed_resolution = None  # from 'resolution' parameter or defaults
         self.wavelengths = ()  # from 'energies' parametes
@@ -2058,6 +2046,7 @@ class GphlWorkflow(TaskNode):
             "space_group",
             "crystal_classes",
             "_cell_parameters",
+            "crystal_thickness",
             "use_cell_for_processing",
             "relative_rad_sensitivity",
             "aimed_resolution",
@@ -2084,7 +2073,7 @@ class GphlWorkflow(TaskNode):
             if hasattr(self, dict_item[0]):
                 setattr(self, dict_item[0], dict_item[1])
 
-    def set_pre_strategy_params(  # noqa: C901
+    def set_pre_strategy_params(
         self,
         space_group="",
         crystal_classes=(),
@@ -2096,6 +2085,7 @@ class GphlWorkflow(TaskNode):
         init_spot_dir=None,
         relative_rad_sensitivity=None,
         use_cell_for_processing=None,
+        crystal_thickness=None,
         **unused,
     ):
         """
@@ -2110,6 +2100,7 @@ class GphlWorkflow(TaskNode):
         :param init_spot_dir (str):
         :param relative_rad_sensitivity (float):
         :param use_cell_for_processing (bool):
+        :param crystal_thickness (float):
         :param unused (dict):
         :return (None):
         """
@@ -2140,6 +2131,9 @@ class GphlWorkflow(TaskNode):
             )
         if cell_parameters:
             self.cell_parameters = cell_parameters
+
+        if crystal_thickness:
+            self.crystal_thickness = crystal_thickness
 
         interleave_order = self.strategy_settings.get("interleave_order")
         if interleave_order:
@@ -2282,11 +2276,11 @@ class GphlWorkflow(TaskNode):
             self.snapshot_count = int(snapshot_count)
         if recentring_mode:
             self.recentring_mode = recentring_mode
+        energy_tags = (settings["default_beam_energy_tag"],)
+        if self.characterisation_done:
+            energy_tags = self.strategy_settings.get("beam_energy_tags", energy_tags)
         if energies:
             # Energies are *added* to existing list
-            energy_tags = self.strategy_settings.get(
-                "beam_energy_tags", (settings["default_beam_energy_tag"],)
-            )
             wavelengths = list(self.wavelengths)
             offset = len(wavelengths)
             if len(energies) == len(energy_tags) - offset:
@@ -2299,11 +2293,11 @@ class GphlWorkflow(TaskNode):
                         )
                     )
                 self.wavelengths = tuple(wavelengths)
-            else:
-                raise ValueError(
-                    "Number of energies %s do not match remaining slots %s"
-                    % (energies, energy_tags[len(self.wavelengths) :])
-                )
+        if len(self.wavelengths) != len(energy_tags):
+            raise ValueError(
+                "Number of energies: %s do not match slots %s"
+                % (len(self.wavelengths), energy_tags)
+            )
         if skip_collection:
             self.skip_collection = True
 
@@ -2339,6 +2333,7 @@ class GphlWorkflow(TaskNode):
             "decay_limit",
             "maximum_dose_budget",
             "characterisation_budget_fraction",
+            "crystal_thickness",
         ):
             value = params.get(tag)
             if value:
@@ -2414,31 +2409,52 @@ class GphlWorkflow(TaskNode):
 
         # Set to current wavelength for now - nothing else available
         wavelength = HWR.beamline.energy.get_wavelength()
-        role = HWR.beamline.gphl_workflow.settings["default_beam_energy_tag"]
-        self.wavelengths = (
-            GphlMessages.PhasingWavelength(wavelength=wavelength, role=role),
-        )
 
         # Set parameters from diffraction plan
-        diffraction_plan = sample_model.diffraction_plan
-        if diffraction_plan:
+        plan = sample_model.diffraction_plan
+        if plan:
             # It is not clear if diffraction_plan is a dict or an object,
             # and if so which kind
-            if hasattr(diffraction_plan, "radiationSensitivity"):
-                radiation_sensitivity = diffraction_plan.radiationSensitivity
-            else:
-                radiation_sensitivity = diffraction_plan.get("radiationSensitivity")
-
-            if radiation_sensitivity:
-                self.relative_rad_sensitivity = radiation_sensitivity
-
-            if hasattr(diffraction_plan, "aimedResolution"):
-                resolution = diffraction_plan.aimedResolution
-            else:
-                resolution = diffraction_plan.get("aimedResolution")
-
-            if resolution:
-                self.aimed_resolution = resolution
+            # NB if 'val' is ever not None but zero we still want to skip it
+            tag = "radiationSensitivity"
+            val = getattr(plan, tag, plan.get(tag))
+            if val:
+                self.relative_rad_sensitivity = val
+            tag = "aimedResolution"
+            val = getattr(plan, tag, plan.get(tag))
+            if val:
+                self.aimed_resolution = val
+            if self.automation_mode:
+                tag = "exposureTime"
+                val = getattr(plan, tag, plan.get(tag))
+                if val:
+                    self.auto_acq_parameters[-1]["exposure_time"] = val
+                tag = "oscillationRange"
+                val = getattr(plan, tag, plan.get(tag))
+                if val:
+                    self.auto_acq_parameters[-1]["image_width"] = val
+                tag = "energy"
+                val = getattr(plan, tag, plan.get(tag))
+                if val:
+                    energy_limits = HWR.beamline.energy.get_limits()
+                    val = max(val, energy_limits[0])
+                    val = min(val, energy_limits[1])
+                    nrg1 = self.auto_acq_parameters[-1].get("energy")
+                    if not nrg1:
+                        self.auto_acq_parameters[-1]["energy"] = val
+                    nrg0 = self.auto_acq_parameters[-1].get("energy")
+                    if nrg0:
+                        val = nrg0
+                    else:
+                        self.auto_acq_parameters[0]["energy"] = val
+                    wavelength = HWR.beamline.energy.calculate_wavelength(val)
+        if self.wftype == "diffractcal":
+            energy_tag = "Main"
+        else:
+            energy_tag = "Characterisation"
+        self.wavelengths = (
+            GphlMessages.PhasingWavelength(wavelength=wavelength, role=energy_tag),
+        )
 
     # Parameters for start of workflow
     def get_path_template(self):

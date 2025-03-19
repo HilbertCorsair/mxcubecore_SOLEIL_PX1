@@ -81,7 +81,13 @@ class LimsUser(BaseModel):
     sessions: Optional[List[Session]] = []
 
 
+class LimsUser(BaseModel):
+    user_name: str = ""
+    sessions: Optional[List[Session]] = []
+
+
 class LimsSessionManager(BaseModel):
     active_session: Optional[Session] = None
     sessions: Optional[List[Session]] = []
+
     users: Optional[Dict[str, LimsUser]] = {}
