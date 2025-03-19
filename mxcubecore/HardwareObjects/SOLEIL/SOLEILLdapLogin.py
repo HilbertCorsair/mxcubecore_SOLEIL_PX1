@@ -1,3 +1,4 @@
+
 from mxcubecore.BaseHardwareObjects import HardwareObject
 #from HardwareRepository.BaseHardwareObjects import Procedure
 import os
@@ -21,13 +22,14 @@ from pathlib import Path
 
 log = logging.getLogger("HWR")
 
-###
-### Checks the proposal password in a LDAP server
-###
-class SoleilLdapLogin(HardwareObject):
+class SOLEILLdapLogin(HardwareObject):
     def __init__(self, name):
         super().__init__(name)
         self.ldap_connection = None
+        self.ldap_host = None
+        self.ldap_port = None
+        self.process_host = None
+        self.dc_parts = None
 
     def init(self):
         self.ldap_host = self.get_property('ldaphost')
@@ -35,11 +37,11 @@ class SoleilLdapLogin(HardwareObject):
         self.process_host = self.get_property('process_host')
 
         if self.ldap_host is None:
-            log.error("SoleilLdapLogin: you must specify the LDAP hostname")
+            log.error("SOLEILLdapLogin: you must specify the LDAP hostname")
         else:
             self.open_connection()
 
-        ldap_dc = self.getProperty('ldapdc')
+        ldap_dc = self.get_property('ldapdc')
         if ldap_dc is not None:
             parts = ldap_dc.split(".")
             self.dc_parts = ",".join(f"dc={part}" for part in parts)
@@ -127,6 +129,7 @@ class SoleilLdapLogin(HardwareObject):
     def cleanup(self, ex: Optional[Exception] = None, msg: Optional[str] = None) -> Tuple[bool, Optional[str]]:
         if ex is not None:
             try:
+
                 if isinstance(ex, ldap.LDAPError):
                     msg = ex.args[0].get('desc', "generic LDAP error")
                 else:
@@ -173,16 +176,21 @@ class SoleilLdapLogin(HardwareObject):
             log.error(f"SOLEILLdapLogin: found type: {type(found)}")
             return self.cleanup(msg=f"unknown error {username}")
 
+
         dn = str(found[0][0])
         log.debug(f"SOLEILLdapLogin: found: {dn}")
         log.debug(f"SOLEILLdapLogin: validating {username}")
 
         try:
+
+            print ("\n*x*")
             # Create a new connection for user authentication
             auth_connection = ldap.initialize(f"ldap://{self.ldap_host}")
             auth_connection.protocol_version = ldap.VERSION3
             auth_connection.simple_bind_s(dn, password)
             auth_connection.unbind_s()
+
+            #self.ldap_connection.simple_bind_s(dn, password)
         except ldap.INVALID_CREDENTIALS:
             return self.cleanup(msg=f"invalid password for {username}")
         except ldap.LDAPError as err:
@@ -315,7 +323,7 @@ class SessionInfo:
     def __repr__(self):
         retstr = """
             Beamline: %s; Username: %s (%s); From: %s: To: %s
-""" %  (self.beamline, self.username, self.usertype, \
+            """ %  (self.beamline, self.username, self.usertype, \
               time.asctime(time.localtime(self.begin)), \
               time.asctime(time.localtime(self.finish)) )
         return retstr

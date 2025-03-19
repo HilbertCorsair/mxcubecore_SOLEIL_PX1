@@ -1,6 +1,7 @@
 
-import os 
+import os
 import time
+
 import logging
 from typing import Optional, Tuple, Dict
 from mxcubecore import HardwareRepository as HWR
@@ -20,14 +21,16 @@ class SOLEILSession(Session):
 
     def init(self):
         super().init()
-        self.ldap_ho = self.get_object_by_role("ldap")
+        self.ldap_ho = self.get_object_by_role("ldapServer")
 
     def get_username(self) -> str:
+        print("*******")
+
         return self.username
 
     def get_projuser(self) -> str:
         return self.projuser
-        
+
     def get_latest_projuser(self) -> str:
         return self.latest_projuser
 
@@ -69,7 +72,7 @@ class SOLEILSession(Session):
             'uid': self.user_id,
             'gid': self.group_id,
         }
-          
+
     def path_to_ispyb(self, path: str) -> str:
         projuser = self.get_proposal_number()
         ispyb_base = self["file_info"].get_property('ispyb_base_directory') % {'projuser': projuser}
@@ -83,7 +86,7 @@ class SOLEILSession(Session):
         directory = "/tmp/mxcube_video"
         os.makedirs(directory, exist_ok=True)
         return directory
-         
+
     def get_beamline_name(self) -> str:
         return self.get_property("beamline_name")
 
@@ -95,7 +98,7 @@ class SOLEILSession(Session):
         :rtype: str
         """
         return self.proposal_number or "local-user"
-	     
+
     def get_base_directory(self) -> str:
         return self.base_directory
 
@@ -108,7 +111,8 @@ class SOLEILSession(Session):
         :return: The base data path.
         :rtype: str
         """
-        starting_time = self.get_property('starting_time')
+
+        starting_time = time.time()/3600 #self.get_property('starting_time')
 
         if self.session_start_date:
             start_time = self.session_start_date.split(' ')[0]
@@ -133,95 +137,3 @@ class SOLEILSession(Session):
         basedir = os.path.dirname(path) if not os.path.isdir(path) else path
         ruchepath = basedir.replace(self["file_info"].get_property('base_directory'), '').lstrip(os.path.sep)
         return f"{usertype} {self.username} {self.user_id} {self.group_id} {basedir} {ruchepath}\n"
-""" 
-def test_hwo(hwo):
-    print('\n======================== TESTS ========================')
-    print('These are tests of the HardwareObject SOLEILSession')
-    print('\n[IMPORTANT] to note: the following functions are turned')
-    print('  off by default')
-    print('=======================================================\n')
-
-    print('-------------------------------------------------------')
-    print('Defining some generic variables for all the tests')
-    print('-------------------------------------------------------')
-
-    print('\n-------------------------------------------------------')
-    print('Checking for the connection to the HWO.')
-    print('-------------------------------------------------------')
-    import os
-    from HardwareRepository import HardwareRepository
-    hwr_directory = os.environ["MXCUBE_XML_PATH"]
-    hwr = HardwareRepository.HardwareRepository(os.path.abspath(hwr_directory))
-    hwr.connect()
-    session = hwr.get_hardware_object("/session")
-
-    print('\nVariables and attributes digged out of session HWO:')
-    file_info = session['file_info']
-    properties = [
-        'file_suffix', 'base_directory', 'ispyb_base_directory',
-        'raw_data_folder_name', 'archive_base_directory', 'archive_folder',
-        'processed_data_base_directory', 'processed_data_folder_name'
-    ]
-    for prop in properties:
-        print(f'  {prop:<30}: {file_info.get_property(prop)}')
-    print(f'  starting_time                 : {session.get_property("starting_time")}')
-    print('-------------------------------------------------------')
-
-    print('\n-------------------------------------------------------')
-    print('Checking for the set_user_info function')
-    print('-------------------------------------------------------')
-    session.set_user_info('mx2014', '143301', '14330', '20100023')
-    print(f'  username : {session.username}')
-    print(f'  group_id : {session.group_id}')
-    print(f'  user_id  : {session.user_id}')
-    print(f'  projuser : {session.projuser}')
-    print('-------------------------------------------------------')
-
-    print('\n-------------------------------------------------------')
-    print('Checking for the path_to_ispyb function')
-    print('-------------------------------------------------------')
-    test_path = os.path.join(file_info.get_property('archive_base_directory'),
-                             file_info.get_property('archive_folder'),
-                             'mx2014_2_4.snapshot.jpeg')
-    ispyb_path = session.path_to_ispyb(test_path)
-    print(f'Test path is         : {test_path}')
-    print(f'  becomes ISPyB path : {ispyb_path}')
-    print('-------------------------------------------------------')
-
-    print('\n-------------------------------------------------------')
-    print('Checking for the get_beamline_name function')
-    beamline_name = session.get_beamline_name()
-    print(f'  beamline name : {beamline_name}')
-    print('-------------------------------------------------------')
-
-    print('\n-------------------------------------------------------')
-    print('Checking for the get_proposal_number function')
-    session.proposal_number = session.projuser
-    prop_number = session.get_proposal_number()
-    print(f'  proposal number : {prop_number}')
-    print('-------------------------------------------------------')
-
-    print('\n-------------------------------------------------------')
-    print('Checking for the get_base_data_directory function')
-    print('-------------------------------------------------------')
-    base_data_directory = session.get_base_data_directory()
-    print(f'  base data directory : {base_data_directory}')
-    print('-------------------------------------------------------')
-
-    print('\n-------------------------------------------------------')
-    print('Checking for the get_archive_directory function')
-    print('-------------------------------------------------------')
-    archive_directory = session.get_archive_directory()
-    print(f'  archive directory : {archive_directory}')
-    print('-------------------------------------------------------')
-
-    print('\n-------------------------------------------------------')
-    print('Checking for the ruche_info function')
-    print('-------------------------------------------------------')
-    ruche_info = session.get_ruche_info(test_path)
-    print(f'  ruche info : {ruche_info}')
-    print('-------------------------------------------------------')
-
-if __name__ == '__main__':
-    test_hwo('test')
-"""

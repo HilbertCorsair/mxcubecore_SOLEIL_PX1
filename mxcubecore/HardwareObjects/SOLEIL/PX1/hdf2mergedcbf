@@ -19,7 +19,7 @@ import re
 import time
 from subprocess import Popen, PIPE
 
-WORKDIR = "/tmp/shm"
+WORKDIR = "/dev/shm"
 HDF2CBF = "/data/bioxsoft/bin/eiger2cbf %s %d:%d %s_"
 MERGE2CBF_EXE = "/data/bioxsoft/bin/merge2cbf"
 FRAMENUMDIGITS = 6

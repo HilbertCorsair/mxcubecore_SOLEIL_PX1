@@ -1011,14 +1011,12 @@ class Cats90(SampleChanger):
             )
             self.basket_presence = presence
             self._update_cats_contents()
-            print("Call cats _basket : upd sample")
             self._update_loaded_sample()
 
     def cats_baskets_changed(self, value):
         logging.getLogger("HWR").warning("Baskets changed. %s" % value)
         for idx, val in enumerate(value):
             self.basket_presence[idx] = val
-        print("Call 2 upd sample basket changed ")
         self._update_cats_contents()
         self._update_loaded_sample()
 
@@ -1284,7 +1282,7 @@ class Cats90(SampleChanger):
             lid_offset = ((num - 1) / samples_per_basket) + 1
             sample_pos = ((num - 1) % samples_per_basket) + 1
             basket = lid_base + lid_offset
-            import math 
+            import math
 
             return math.floor(basket), sample_pos
 
@@ -1343,21 +1341,9 @@ class Cats90(SampleChanger):
         return ret_type
 
     def _update_loaded_sample(self):
-     
+
         loadedSampleLid = self.cats_loaded_lid
         loadedSampleNum = self.cats_loaded_num
-        """
-
-        if None in [sample_num, lid] :
-            loadedSampleNum = self._chnNumLoadedSample.get_value()
-            loadedSampleLid = self._chnLidLoadedSample.get_value()
-        else:
-            loadedSampleNum = sample_num
-            loadedSampleLid = lid
-
-        self.cats_loaded_lid = loadedSampleLid
-        self.cats_loaded_num = loadedSampleNum
-        """
         logging.getLogger("HWR").info(
             "Updating loaded sample %s:%s" % (loadedSampleLid, loadedSampleNum)
         )
@@ -1377,7 +1363,6 @@ class Cats90(SampleChanger):
         logging.getLogger("HWR").debug(
             "----- Cats90 -----.  Sample has changed. Dealing with it - new_sample = %s / old_sample = %s"
             % (new_sample, old_sample)
-
         )
         print (f"Basket = {basket}\nsample = {sample}\nlid = {loadedSampleLid}")
 
@@ -1389,17 +1374,11 @@ class Cats90(SampleChanger):
                 # there was a sample on the gonio
                 loaded = False
                 has_been_loaded = True
-                old_sample._set_loaded(loaded, has_been_loaded)
-                print("Old sample not non" )
-                
 
             if new_sample is not None:
                 loaded = True
                 has_been_loaded = True
                 new_sample._set_loaded(loaded, has_been_loaded)
-            
-                print("New sample not non" )
-
             if (
                 (old_sample is None)
                 or (new_sample is None)
@@ -1495,7 +1474,6 @@ class Cats90(SampleChanger):
                     sample._set_loaded(loaded, has_been_loaded)
 
         self._trigger_contents_updated_event()
-        print("CAll 5 Update Cats Contents")
         self._update_loaded_sample()
         self._trigger_info_changed_event()
 

@@ -24,14 +24,20 @@ class PX1Tools(AbstractShutter):
 
     def __init__(self, name):
         super().__init__(name)
-        self.state_channel = None 
+        self.state_channel = None
 
     def init(self):
         """Initilise the predefined values"""
         super().init()
+
+        if self.name() == "/capillary":
+            print ("INIT CAPIL")
+
+
         self._tool_hwo = self.get_property('tangoname')
         self.tool_device = DeviceProxy(self._tool_hwo)
         self.state_channel = self.get_channel_object("State")
+        #self._initialise_values()
         self.state_channel.connect_signal("update", self._update_value)
         self.update_state()
 
@@ -41,6 +47,9 @@ class PX1Tools(AbstractShutter):
             self.config_values = None
 
     def _update_value(self, value):
+
+        if self.name() == "/capillary":
+            print ("Updating Value Capillary")
         """Update the value.
         Args:
             value(str): The value reported by the state channel.
@@ -66,6 +75,9 @@ class PX1Tools(AbstractShutter):
         self.VALUES = Enum("ValueEnum", values_dict)
 
     def get_state(self):
+
+        if self.name() == "/capillary":
+            print ("Getting STATE CAPIL")
         """Get the device state.
         Returns:
             (enum 'HardwareObjectState'): Device state.
@@ -82,12 +94,15 @@ class PX1Tools(AbstractShutter):
         return self.SPECIFIC_STATES[_state].value[0]
 
     def get_value(self):
+        if self.name() == "/capillary":
+            print ("Getting CAPIL VAL")
         """Get the device value
         Returns:
             (Enum): Enum member, corresponding to the 'VALUE' or UNKNOWN.
         """
         if self.config_values:
             _val = self.config_values[str(self.state_channel.get_value())]
+            print(_val)
         else:
             _val = str(self.state_channel.get_value())
         return self.value_to_enum(_val)

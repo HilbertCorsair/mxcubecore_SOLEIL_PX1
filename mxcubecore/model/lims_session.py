@@ -3,6 +3,7 @@ from datetime import (
     timedelta,
 )
 from typing import (
+    Dict,
     List,
     Optional,
 )
@@ -41,13 +42,10 @@ class Session(BaseModel):
     number: str = ""
     proposal_id: str = ""
     proposal_name: str = ""
-
     comments: Optional[str] = ""
 
     start_datetime: datetime = Field(default_factory=datetime.now)
-    end_datetime: Optional[datetime] = Field(
-        default_factory=lambda: datetime.now() + timedelta(days=1)
-    )
+    end_datetime: Optional[datetime] = Field(default_factory=lambda: datetime.now() + timedelta(days=1))
 
     # If rescheduled the actual dates are used instead
     actual_start_date: str = ""
@@ -68,7 +66,22 @@ class Session(BaseModel):
     data_portal_URL: Optional[str] = None
     logbook_URL: Optional[str] = None
 
+    volume: Optional[str] = None
+    dataset_count: Optional[str] = None
+    sample_count: Optional[str] = None
+
+
+class LimsUser(BaseModel):
+    user_name: str = ""
+    sessions: Optional[List[Session]] = []
+
+
+class LimsUser(BaseModel):
+    user_name: str = ""
+    sessions: Optional[List[Session]] = []
+
 
 class LimsSessionManager(BaseModel):
     active_session: Optional[Session] = None
     sessions: Optional[List[Session]] = []
+    users: Optional[Dict[str, LimsUser]] = {}

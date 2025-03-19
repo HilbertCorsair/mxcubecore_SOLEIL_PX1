@@ -1,7 +1,6 @@
 """
  client for ISPyB Webservices.
 """
-
 import logging
 import gevent
 import suds; logging.getLogger("suds").setLevel(logging.INFO)
@@ -9,18 +8,29 @@ import os
 import itertools
 import time
 import json
-
 from mxcubecore.BaseHardwareObjects import HardwareObject
-from suds.transport.http import HttpAuthenticated
-from suds.client import Client
 from suds import WebFault
-from suds.sudsobject import asdict
 from requests import RequestException as URLError
 from datetime import datetime
 from collections import namedtuple
 from pprint import pformat
+from zeep import Client
+from zeep.transports import Transport
+from zeep.helpers import serialize_object
+from requests import Session
+from requests.auth import HTTPBasicAuth
+import logging
+from urllib.error import URLError
 
-
+class ServiceConnector:
+    def __init__(self, ws_username, ws_password):
+        self.ws_username = ws_username
+        self.ws_password = ws_password
+        self._shipping = None
+        self._collection = None
+        self._tools_ws = None
+        self.__autoproc_ws = None
+        
 # Production web-services:    http://160.103.210.1:8080/ispyb-ejb3/ispybWS/
 # Test web-services:          http://160.103.210.4:8080/ispyb-ejb3/ispybWS/
 
@@ -108,6 +118,7 @@ class ISPyBClient2(HardwareObject):
 
     def __init__(self, name):
         HardwareObject.__init__(self, name)
+        print("THIS IS NOT SUPOSE TO PRINT")
         self.ldapConnection=None
         self.beamline_name = "unknown"
         self._shipping = None
@@ -127,81 +138,49 @@ class ISPyBClient2(HardwareObject):
     def init(self):
         """
         Init method declared by HardwareObject.
+
         """
-        self.authServerType = self.getProperty('authServerType') or "ldap"
+
+        print("INIT ISPyBClient2 ")
+        self.authServerType = self.get_property('authServerType') or "ldap"
         if self.authServerType == "ldap":
             # Initialize ldap
-            self.ldapConnection=self.getObjectByRole('ldapServer')
+            self.ldapConnection=self.get_object_by_role('ldapServer')
             if self.ldapConnection is None:
                 logging.getLogger("HWR").debug('LDAP Server is not available')
 
-        self.loginType = self.getProperty("loginType") or "proposal"
-        self.loginTranslate = self.getProperty("loginTranslate", True)
-        self.session_hwobj = self.getObjectByRole('session')
+        self.loginType = self.get_property("loginType") or "proposal"
+        #self.loginTranslate = self.get_property("loginTranslate", True)
+        self.session_hwobj = self.get_object_by_role('session')
         self.beamline_name = self.session_hwobj.beamline_name
 
-        self.ws_root = self.getProperty('ws_root')
-        self.ws_username = self.getProperty('ws_username')
+        self.ws_root = self.get_property('ws_root')
+        self.ws_username = self.get_property('ws_username')
         if not self.ws_username:
             self.ws_username = _WS_USERNAME
-        self.ws_password = self.getProperty('ws_password')
+        self.ws_password = self.get_property('ws_password')
         if not self.ws_password:
             self.ws_password = _WS_PASSWORD
 
-        try:
-            # ws_root is a property in the configuration xml file
-            if self.ws_root:
-                global _WSDL_ROOT
-                global _WS_BL_SAMPLE_URL
-                global _WS_SHIPPING_URL
-                global _WS_COLLECTION_URL
-                global _WS_SCREENING_URL
-                global _WS_AUTOPROC_URL
+        # ws_root is a property in the configuration xml file
+        print(f"CONDITION :{self.ws_root}")
+        if self.ws_root:
+            print ("C1 ")
 
-                _WSDL_ROOT = self.ws_root.strip()
-                _WS_BL_SAMPLE_URL = _WSDL_ROOT + \
-                    'ToolsForBLSampleWebService?wsdl'
-                _WS_SHIPPING_URL = _WSDL_ROOT + \
-                    'ToolsForShippingWebService?wsdl'
-                _WS_COLLECTION_URL = _WSDL_ROOT + \
-                    'ToolsForCollectionWebService?wsdl'
-                _WS_AUTOPROC_URL = _WSDL_ROOT + \
-                    'ToolsForAutoprocessingWebService?wsdl'
+            global _WSDL_ROOT
+            global _WS_BL_SAMPLE_URL
+            global _WS_SHIPPING_URL
+            global _WS_COLLECTION_URL
+            #global _WS_SCREENING_URL
+            global _WS_AUTOPROC_URL
+            
+            _WSDL_ROOT = self.ws_root.strip()
+            _WS_BL_SAMPLE_URL = _WSDL_ROOT + 'ToolsForBLSampleWebService?wsdl'
+            _WS_SHIPPING_URL = _WSDL_ROOT + 'ToolsForShippingWebService?wsdl'
+            _WS_COLLECTION_URL = _WSDL_ROOT + 'ToolsForCollectionWebService?wsdl'
+            _WS_AUTOPROC_URL = _WSDL_ROOT + 'ToolsForAutoprocessingWebService?wsdl'
 
-                t1 = HttpAuthenticated(username = self.ws_username, 
-                                      password = self.ws_password)
-                
-                t2 = HttpAuthenticated(username = self.ws_username, 
-                                      password = self.ws_password)
-                
-                t3 = HttpAuthenticated(username = self.ws_username, 
-                                      password = self.ws_password)
-
-                t4 = HttpAuthenticated(username = self.ws_username,
-                                       password = self.ws_password)
-                
-                try: 
-                    self._shipping = Client(_WS_SHIPPING_URL, timeout = 5,
-                                             transport = t1, cache = None)
-                    self._collection = Client(_WS_COLLECTION_URL, timeout = 5,
-                                               transport = t2, cache = None)
-                    self._tools_ws = Client(_WS_BL_SAMPLE_URL, timeout = 5,
-                                             transport = t3, cache = None)
-                    self.__autoproc_ws = Client(_WS_AUTOPROC_URL, timeout = 5,
-                                             transport = t4, cache = None)
-                
-                    # ensure that suds do not create those files in tmp 
-                    self._shipping.set_options(cache=None)
-                    self._collection.set_options(cache=None)
-                    self._tools_ws.set_options(cache=None)
-                    self.__autoproc_ws.set_options(cache=None)
-                except URLError:
-                    logging.getLogger("ispyb_client")\
-                        .exception(_CONNECTION_ERROR_MSG)
-                    return
-        except:
-            logging.getLogger("ispyb_client").exception(_CONNECTION_ERROR_MSG)
-            return
+        self.initialize_services()
 
         # Add the porposal codes defined in the configuration xml file
         # to a directory. Used by translate()
@@ -225,6 +204,84 @@ class ISPyBClient2(HardwareObject):
         except IndexError:
             pass
 
+    def convert_to_dict(self, proposal):
+        # Convert the zeep object to a dictionary
+        proposal_dict = serialize_object(proposal, dict)
+        
+        def utf_encode(obj):
+            if isinstance(obj, str):
+                return obj.encode('utf-8')
+            elif isinstance(obj, dict):
+                return {k: utf_encode(v) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [utf_encode(item) for item in obj]
+            return obj
+        
+        # Then wrap it in the 'Proposal' key and encode
+        return utf_encode(proposal_dict)
+
+
+    def _create_client(self, url, service_name):
+        """Create a zeep Client with authentication and timeout"""
+        session = Session()
+        session.auth = HTTPBasicAuth(self.ws_username, self.ws_password)
+        
+        # Configure transport with timeout and session
+        transport = Transport(session=session, timeout=5)
+        
+        try:
+            print(f"Connecting to {url}")
+            client = Client(url, transport=transport)
+            return client
+        except Exception as e:
+            logging.getLogger("ispyb_client").exception(
+                f"Failed to connect to {service_name}: {str(e)}"
+            )
+            return None
+
+    def initialize_services(self):
+        """Initialize all web service connections"""
+        try:
+            print("P0")
+            self._shipping = self._create_client(_WS_SHIPPING_URL, "shipping")
+            
+            print("P1")
+            self._collection = self._create_client(_WS_COLLECTION_URL, "collection")
+            
+            print("P2")
+            self._tools_ws = self._create_client(_WS_BL_SAMPLE_URL, "tools")
+            
+            print("P3")
+            self.__autoproc_ws = self._create_client(_WS_AUTOPROC_URL, "autoproc")
+            
+            print("P4")
+            
+            # Check if any service failed to initialize
+            if not all([self._shipping, self._collection, self._tools_ws, self.__autoproc_ws]):
+                raise URLError("One or more services failed to initialize")
+                
+            return True
+            
+        except URLError:
+            logging.getLogger("ispyb_client").exception(_CONNECTION_ERROR_MSG)
+            return False
+        except Exception as e:
+            logging.getLogger("ispyb_client").exception(
+                f"Unexpected error during service initialization: {str(e)}"
+            )
+            return False
+    """
+    def connect_to_soap (self, username, url, password):
+        session = Session()
+        session.auth(HTTPBasicAut(username, password))
+        transport = Transport(session = session, timeout = 5)
+        try:
+            cli = Client(url, transport = transport)
+            return cli
+        except Exception as e: 
+            print(f"Connection error: {e}")
+    """
+    
     def get_login_type(self):
         return self.loginType
 
@@ -253,6 +310,11 @@ class ISPyBClient2(HardwareObject):
 
     @trace
     def get_proposal(self, proposal_code, proposal_number):
+
+        print (f"FETCHING proposal: code {proposal_code}, no {proposal_number}")
+
+        #import pdb
+        #pdb.set_trace()
         """
         Returns the tuple (Proposal, Person, Laboratory, Session, Status).
         Containing the data from the coresponding tables in the database
@@ -298,7 +360,8 @@ class ISPyBClient2(HardwareObject):
                                 'Laboratory': {},
                                 'Session': {},
                                 'status': {'code':'error'}}
-                    logging.getLogger("HWR").debug("ISPyB. proposal is = %s" % proposal[1])
+
+                    logging.getLogger("HWR").debug("ISPyB. proposal is = %s" % proposal.proposalId)
 
                 except WebFault as e:
                     logging.getLogger("ispyb_client").error("=======================PROPOSAL==============================")
@@ -351,7 +414,7 @@ class ISPyBClient2(HardwareObject):
                             except:
                                 pass
 
-                            sessions.append(utf_encode(asdict(session)))
+                            sessions.append(self.convert_to_dict(session))
 
                     if not sessions:
                         sessions = []
@@ -371,13 +434,14 @@ class ISPyBClient2(HardwareObject):
                         'Session': {},
                         'status': {'code':'error'}}
 
-            return  {'Proposal': utf_encode(asdict(proposal)),
-                     'Person': utf_encode(asdict(person)),
-                     'Laboratory': utf_encode(asdict(lab)),
+            return  {'Proposal': self.convert_to_dict(proposal),
+                     'Person': self.convert_to_dict(person),
+                     'Laboratory': self.convert_to_dict(lab),
                      'Session': sessions,
                      'status': {'code':'ok'}}
 
         else:
+
             logging.getLogger("ispyb_client").\
                 exception("Error in get_proposal: Could not connect to server," + \
                           " returning empty proposal")
@@ -390,6 +454,8 @@ class ISPyBClient2(HardwareObject):
 
     @trace
     def get_proposal_by_username(self, username):
+
+        print(f"FEATCHING proposal by userName: {username}")
 
         proposal_code   = ""
         proposal_number = 0
@@ -447,7 +513,7 @@ class ISPyBClient2(HardwareObject):
                         except:
                             pass
 
-                        sessions.append(utf_encode(asdict(session)))
+                        sessions.append(utf_encode(dict(session)))
 
             except WebFault as e:
                 logging.getLogger("ispyb_client").warning(str(e))
@@ -459,11 +525,12 @@ class ISPyBClient2(HardwareObject):
 
 
         logging.getLogger("ispyb_client").info( str(sessions) )
-        return  {'Proposal': utf_encode(asdict(proposal)),
-                 'Person': utf_encode(asdict(person)),
-                 'Laboratory': utf_encode(asdict(lab)),
-                 'Session': sessions,
-                 'status': {'code':'ok'}}
+
+        return  {'Proposal': self.convert_to_dict(proposal),
+                    'Person': self.convert_to_dict(person),
+                    'Laboratory': self.convert_to_dict(lab),
+                    'Session': sessions,
+                    'status': {'code':'ok'}}
 
     @trace
     def get_session_local_contact(self, session_id):
@@ -491,7 +558,7 @@ class ISPyBClient2(HardwareObject):
             if person is None:
                 return {}
             else:
-                utf_encode(asdict(person))
+                self.convert_to_dict(person)
 
         else:
             logging.getLogger("ispyb_client").\
@@ -511,7 +578,8 @@ class ISPyBClient2(HardwareObject):
         login_name=loginID
         proposal_code = ""
         proposal_number = ""
-
+        #import pdb
+        #pdb.set_trace()
         # For porposal login, split the loginID to code and numbers
         if self.loginType == "proposal" :
             proposal_code = "".join(itertools.takewhile(lambda c: not c.isdigit(), loginID))
@@ -519,13 +587,13 @@ class ISPyBClient2(HardwareObject):
 
             # if translation of the loginID is needed, need to be tested by ESRF
             if self.loginTranslate is True:
+               
                 login_name=self.translate(proposal_code,'ldap')+str(proposal_number)
-
+                print(f"Translating login to LDAP {login_name}")
         # Authentication
         if self.authServerType == 'ldap':
             logging.getLogger('HWR').debug('LDAP login')
-            if ldap_name:
-                login_name = ldap_name 
+         
             ok, msg=ldap_connection.login(login_name,psd)
             logging.getLogger("HWR").debug(" searching for user %s / psd: %s. It is %s" % (login_name,psd, ok))
         elif self.authServerType == 'ispyb':
@@ -568,6 +636,8 @@ class ISPyBClient2(HardwareObject):
                 code = proposal_code
             number = str(proposal_number)
             return {'status':{ "code": "ispybDown", "msg": msg }, 'Proposal': {'code': code, 'number':number}, 'session': None}
+        
+
 
         proposal=prop['Proposal']
         todays_session=self.get_todays_session(prop)
@@ -581,7 +651,6 @@ class ISPyBClient2(HardwareObject):
 
     def get_todays_session(self, prop):
         print( "getting todays session")
-
         try:
             sessions=prop['Session']
         except KeyError:
@@ -1039,14 +1108,8 @@ class ISPyBClient2(HardwareObject):
                             sample_references.remove(sc_sample)
 
 
-                    samples.append(utf_encode(asdict(sample)))
+                    samples.append(utf_encode(dict(sample)))
 
-#                         {'BLSample': utf_encode(asdict(sample.blSample)),
-#                          'Container': utf_encode(asdict(sample.container)),
-#                          'Crystal': utf_encode(asdict(sample.crystal)),
-#                          'DiffractionPlan_BLSample': \
-#                              utf_encode(asdict(sample.diffractionPlan)),
-#                          'Protein': utf_encode(asdict(sample.protein))})
                 except:
                     pass
 
@@ -1098,7 +1161,7 @@ class ISPyBClient2(HardwareObject):
             except URLError:
                 logging.getLogger("ispyb_client").exception(_CONNECTION_ERROR_MSG)
 
-            return utf_encode(asdict(result))
+            return utf_encode(dict(result))
         else:
             logging.getLogger("ispyb_client").\
                 exception("Error in get_bl_sample: could not connect to server")
@@ -1247,7 +1310,7 @@ class ISPyBClient2(HardwareObject):
                 dc_response = self._collection.service.\
                     findDataCollection(data_collection_id)
 
-                dc = utf_encode(asdict(dc_response))
+                dc = utf_encode(dict(dc_response))
                 dc['startTime'] = datetime.\
                     strftime(dc["startTime"] , "%Y-%m-%d %H:%M:%S")
                 dc['endTime'] =  datetime.\
@@ -1314,7 +1377,7 @@ class ISPyBClient2(HardwareObject):
                                                           "%Y-%m-%d %H:%M:%S")
                     session.endDate = datetime.strftime(session.endDate,
                                                         "%Y-%m-%d %H:%M:%S")
-                    session = utf_encode(asdict(session))
+                    
 
             except WebFault as e:
                 logging.getLogger("ispyb_client").exception(str(e))
@@ -1447,7 +1510,9 @@ class ISPyBClient2(HardwareObject):
     def get_proposals_by_user(self, user_name):
         proposal_list = []
         res_proposal = []
-
+        print(f"FEATCHING proposals by user {user_name}")
+        
+     
         if self.__disabled:
             return proposal_list
 
@@ -1513,7 +1578,7 @@ class ISPyBClient2(HardwareObject):
                                                           "%Y-%m-%d %H:%M:%S")
                                 except:
                                     pass
-                                sessions.append(utf_encode(asdict(session)))
+                                sessions.append(self.convert_to_dict(session))
 
                     except WebFault as e:
                         logging.getLogger("ispyb_client").exception(e.message)
@@ -1521,8 +1586,8 @@ class ISPyBClient2(HardwareObject):
 
                     
                     res_proposal.append({'Proposal': proposal,
-                                         'Person': utf_encode(asdict(person)),
-                                         'Laboratory': utf_encode(asdict(lab)),
+                                         'Person': self.convert_to_dict(person),
+                                         'Laboratory': self.convert_to_dict(lab),
                                          'Session' : sessions})
             else:
                 logging.getLogger("ispyb_client").\
@@ -2361,4 +2426,9 @@ class ISPyBArgumentError(Exception):
 def test_hwo(hwo):
     info = hwo.login("20100023", "tisabet")
     print ("Logging through ISPyB. Proposals for 201000223 are:", str(info) )
-    
+
+
+if __name__ == "__main__":
+    tst = ISPyBClient2("tst")
+    tst.init()
+    test_hwo(tst)

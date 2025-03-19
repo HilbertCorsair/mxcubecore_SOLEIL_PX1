@@ -31,6 +31,7 @@ import time
 from typing import (
     Dict,
     List,
+    Optional,
     Tuple,
     Union,
 )
@@ -48,13 +49,6 @@ from mxcubecore import HardwareRepository as HWR
 from mxcubecore.BaseHardwareObjects import HardwareObject
 from mxcubecore.HardwareObjects import sample_centring
 from mxcubecore.model import queue_model_objects
-
-try:
-    unicode
-except Exception:
-    # A quick fix for python3
-    unicode = str
-
 
 __credits__ = ["MXCuBE collaboration"]
 
@@ -159,7 +153,20 @@ class BlockShapeEnum(str, enum.Enum):
     elliptical = "ELLIPTICAL"
 
 
+class CalibrationData(BaseModel):
+    top_left: Tuple[float, float, float] = Field(
+        [0, 0, 0], description="Top left corner motor position"
+    )
+    top_right: Tuple[float, float, float] = Field(
+        [0, 0, 0], description="Top right corner motor position"
+    )
+    bottom_left: Tuple[float, float, float] = Field(
+        [0, 0, 0], description="Bottom left corner motor position"
+    )
+
+
 class SampleHolderSectionModel(BaseModel):
+    calibration_data: Optional[CalibrationData]
     section_offset: Tuple[int, int] = Field(
         [0, 0], description="Block offset in grid layout system coordinates x, y"
     )
@@ -176,18 +183,6 @@ class SampleHolderSectionModel(BaseModel):
     column_lables: List[str] = Field([], description="Collumn lables")
     targets_per_block: Tuple[int, int] = Field(
         [20, 20], description="Targets per block dim1 and dim2"
-    )
-
-
-class CalibrationData(BaseModel):
-    top_left: Tuple[float, float, float] = Field(
-        [0, 0, 0], description="Top left corner motor position"
-    )
-    top_right: Tuple[float, float, float] = Field(
-        [0, 0, 0], description="Top right corner motor position"
-    )
-    bottom_left: Tuple[float, float, float] = Field(
-        [0, 0, 0], description="Bottom left corner motor position"
     )
 
 
@@ -208,6 +203,7 @@ class GonioHeadConfiguration(BaseModel):
 
 
 class GenericDiffractometer(HardwareObject):
+
     """
     Abstract base class for diffractometers
     """
@@ -220,6 +216,8 @@ class GenericDiffractometer(HardwareObject):
         "sampy",
         "kappa",
         "kappa_phi",
+        "beam_x",
+        "beam_y",
         "zoom",
     ]
 
@@ -244,9 +242,10 @@ class GenericDiffractometer(HardwareObject):
     PHASE_TRANSFER = "TRANSFER"
     PHASE_CENTRING = "CENTRING "
     PHASE_COLLECTION = "COLLECT"
+    PHASE_BEAM = "---"
     PHASE_DEFAULT = "DEFAULT"
-    PHASE_BEAM = "BEAM"
     PHASE_UNKNOWN = "UNKNOWN"
+    PHASE_PARTY = "PARTY"
 
     def __init__(self, name):
         HardwareObject.__init__(self, name)
@@ -320,7 +319,7 @@ class GenericDiffractometer(HardwareObject):
         self.connect(self, "equipmentNotReady", self.equipment_not_ready)
 
         # HACK
-        self.get_motor_positions = self.get_positions
+        #self.get_motor_positions = self.get_positions
 
     def init(self):
         super().init()
@@ -410,7 +409,6 @@ class GenericDiffractometer(HardwareObject):
             # NBNB TODO refactor configuration, and set properties directly (see below)
             temp_motor_hwobj = self.get_object_by_role(motor_name)
             if temp_motor_hwobj is not None:
-               
                 self.motor_hwobj_dict[motor_name] = temp_motor_hwobj
                 self.connect(temp_motor_hwobj, "stateChanged", self.motor_state_changed)
                 self.connect(
@@ -651,10 +649,11 @@ class GenericDiffractometer(HardwareObject):
         :param timeout: timeout in seconds
         :type timeout: seconds
         """
+        # self.ready_event.clear()
         self.current_state = DiffractometerState.tostring(DiffractometerState.Busy)
         method(*args)
         time.sleep(5)
-
+        # gevent.sleep(2)
         self.wait_device_ready(timeout)
         self.ready_event.set()
 
@@ -767,12 +766,21 @@ class GenericDiffractometer(HardwareObject):
         """
         Descript. :
         """
+        if not self.beam_position:
+            self.init()
+
+
+
+
         # hacked to avoid division by zero error
+
+        #print(f"This is ~~~~~ GENEGIC DEFRACTOMETER ~~~~~~\nReporting pixels per mm Y : {self.pixels_per_mm_y}\n")
         if self.pixels_per_mm_x == 0 or self.pixels_per_mm_y == 0 :
             zoom = self.get_object_by_role("zoom")
             position = self.get_object_by_role("zoom").get_value()
             self.pixels_per_mm_x = float(zoom.positions[position]['calibrationData']['pixelsPerMmY'])
             self.pixels_per_mm_y = float(zoom.positions[position]['calibrationData']['pixelsPerMmZ'])
+
 
         self.current_motor_positions["beam_x"] = (
             self.beam_position[0] - self.zoom_centre["x"]
@@ -1106,15 +1114,7 @@ class GenericDiffractometer(HardwareObject):
         for motor in motor_positions.keys():
             position = motor_positions[motor]
             self.log.debug(f"moving motor {motor} to position {position}")
-            """
-            if isinstance(motor, (str, unicode)):
-                logging.getLogger("HWR").debug(" Moving %s to %s" % (motor, position))
-            else:
-                logging.getLogger("HWR").debug(
-                    " Moving %s to %s" % (str(motor.name()), position)
-                )
-            """
-            if isinstance(motor, (str, unicode)):
+            if isinstance(motor, str):
                 motor_role = motor
                 motor = self.motor_hwobj_dict.get(motor_role)
                 if None in (motor, position):
@@ -1337,6 +1337,8 @@ class GenericDiffractometer(HardwareObject):
             self.command_dict["startSetPhase"](phase)
 
     def update_zoom_calibration(self):
+        """ """
+        print(f"~~~~~ GENERIC DIFRACTO ~~~~~~~~~\ncoqx cqm y : {self.channel_dict['CoaxCamScaleX'].get_value()}  /\n")
         self.pixels_per_mm_x = 1.0 / self.channel_dict["CoaxCamScaleX"].get_value()
         self.pixels_per_mm_y = 1.0 / self.channel_dict["CoaxCamScaleY"].get_value()
         self.emit("pixelsPerMmChanged", ((self.pixels_per_mm_x, self.pixels_per_mm_y)))
@@ -1358,8 +1360,6 @@ class GenericDiffractometer(HardwareObject):
     def equipment_not_ready(self):
         """ """
         self.emit("minidiffNotReady", ())
-
-
 
     def motor_state_changed(self, state):
         """
@@ -1383,7 +1383,6 @@ class GenericDiffractometer(HardwareObject):
         Descript. :
         """
         self.sample_is_loaded = sample_is_loaded
-        logging.getLogger("HWR").info("sample is loaded changed %s" % sample_is_loaded)
         self.emit("minidiffSampleIsLoadedChanged", (sample_is_loaded,))
 
     def head_type_changed(self, head_type):
@@ -1391,7 +1390,6 @@ class GenericDiffractometer(HardwareObject):
         Descript. :
         """
         self.head_type = head_type
-        logging.getLogger("HWR").info("new head type is %s" % head_type)
         self.emit("minidiffHeadTypeChanged", (head_type,))
 
         if "SampleIsLoaded" not in str(self.used_channels_list):
@@ -1431,10 +1429,6 @@ class GenericDiffractometer(HardwareObject):
 
     def get_osc_dynamic_limits(self):
         return (-10000, 10000)
-
-    def get_osc_max_speed(self):
-        """ """
-        return None
 
     def zoom_in(self):
         return

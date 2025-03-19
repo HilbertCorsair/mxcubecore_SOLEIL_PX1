@@ -1,22 +1,15 @@
 from __future__ import print_function
 
-import itertools
 import logging
 import sys
+from urllib.error import URLError
 
 from suds import WebFault
 from suds.client import Client
 from suds.sudsobject import asdict
 
-from mxcubecore.HardwareObjects.abstract.ISPyBAbstractLIMS import ISPyBAbstractLIMS
-from mxcubecore.mxcubecore.model.lims_session import LimsSessionManager
-
-try:
-    from urllib2 import URLError
-    from urlparse import urljoin
-except Exception:
-    # Python3
-    from urllib.error import URLError
+from mxcubecore.HardwareObjects.abstract.ISPyBAbstractLims import ISPyBAbstractLIMS
+from mxcubecore.model.lims_session import LimsSessionManager
 
 suds_encode = str.encode
 
@@ -28,7 +21,7 @@ logging.getLogger("suds").setLevel(logging.INFO)
 
 class UserTypeISPyBLims(ISPyBAbstractLIMS):
     """
-    ISPyB proposal-based client
+    ISPyB user-based client
     """
 
     def __init__(self, name):
@@ -42,6 +35,7 @@ class UserTypeISPyBLims(ISPyBAbstractLIMS):
         return True
 
     def init(self):
+        super().init()
         try:
             # ws_root is a property in the configuration xml file
             if self.ws_root:
@@ -63,7 +57,6 @@ class UserTypeISPyBLims(ISPyBAbstractLIMS):
                 )
 
                 try:
-
                     self._collection = Client(
                         _WS_COLLECTION_URL,
                         timeout=3,
@@ -85,55 +78,30 @@ class UserTypeISPyBLims(ISPyBAbstractLIMS):
             logging.getLogger("ispyb_client").exception(str(e))
             return
 
-    def login(self, loginID, psd, ldap_connection=None) -> LimsSessionManager:
+    """def login(self, loginID, psd, ldap_connection=None) -> LimsSessionManager:
         login_name = loginID
         proposal_code = ""
         proposal_number = ""
         self.user_name = loginID
 
-        # For porposal login, split the loginID to code and numbers
-        if self.loginType == "proposal":
-            proposal_code = "".join(
-                itertools.takewhile(lambda c: not c.isdigit(), loginID)
-            )
-            proposal_number = loginID[len(proposal_code) :]
-
-        # if translation of the loginID is needed, need to be tested by ESRF
-        if self.loginTranslate is True:
-            login_name = self._translate(proposal_code, "ldap") + str(proposal_number)
-
-        # Authentication
-        if self.authServerType == "ldap":
-            logging.getLogger("HWR").debug(
-                "Starting LDAP authentication %s" % login_name
-            )
-            ok = self.ldap_login(login_name, psd, ldap_connection)
-            msg = loginID
-            logging.getLogger("HWR").debug("User %s logged in LDAP" % login_name)
         elif self.authServerType == "ispyb":
             logging.getLogger("HWR").debug("ISPyB login")
-            ok, msg = self._ispybLogin(login_name, psd)
+            #self.login_ok, msg = self.ispyb_login(login_name, psd)
         else:
             raise Exception("Authentication server type is not defined")
 
-        if not ok:
+        if not self.login_ok:
             msg = "%s." % msg.capitalize()
             # refuse Login
             logging.getLogger("HWR").error("ISPyB login not ok")
-            raise "Error lims authentication"
-            # return ProposalTuple(Status(code="error", msg=msg))
+            raise Exception("Error lims authentication")
 
         # login succeed, get proposal and sessions
-        if self.loginType == "proposal":
-            # get the proposal ID
-            _code = self._translate(proposal_code, "ispyb")
-            return self.adapter.get_sessions_by_code_and_number(
-                _code, proposal_number, self.beamline_name
-            )
-        elif self.loginType == "user":
-            return self.adapter.get_sessions_by_username(
-                loginID, self.beamline_name
-            )  # get_proposal_by_username(loginID)
+        self.session_manager = self.adapter.get_sessions_by_username(
+            loginID, self.beamline_name
+        )
+
+        return self.session_manager"""
 
     def get_proposals_by_user(self, user_name):
         proposal_list = []

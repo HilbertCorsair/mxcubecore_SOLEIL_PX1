@@ -46,12 +46,28 @@ class PX1BeamInfo(BeamInfo):
             self.zoomPositionChanged()
         else:
             logging.getLogger().info("Zoom motor not defined")
-      
+        
+        """
+        if beam_size_slits:
+            self.beam_size_slits = tuple(map(float, beam_size_slits.split()))
+
+        beam_position = self.get_property("beam_position")
+        if beam_position:
+            self.beam_position = tuple(map(float, beam_position.split()))
+        else:
+            logging.getLogger("HWR").warning(
+                "ESRFBeamInfo: " + "beam position not configured"
+            )
+        self.difrractometer_hwobj = self.get_object_by_role("difrractometer")
+        self.flux = self.get_object_by_role("flux")
+        """
+
         self.beam_definer = self.get_object_by_role("beam_definer")
 
     def zoomPositionChanged(self, name=None, offset=None):
         if not self.current_zoom:
             self.current_zoom = self.zoomMotor.get_value()
+     
 
         zoom_props = self.zoomMotor.positions[self.current_zoom]["calibrationData"]
 
@@ -62,7 +78,17 @@ class PX1BeamInfo(BeamInfo):
             ]
             self.positionUpdated()
     
-   
+    """def get_beam_position(self):
+        if self.beam_position == (0, 0):
+            try:
+                self.beam_position = HWR.beamline.diffractometer.beam.get_value()
+            except AttributeError:
+                self.beam_position = (
+                    HWR.beamline.sample_view.camera.get_width() / 2,
+                    HWR.beamline.sample_view.camera.get_height() / 2,
+                )
+        return self.beam_position"""
+    
     def positionUpdated(self):
         self.emit("beamPosChanged", (self.beam_position,))
         

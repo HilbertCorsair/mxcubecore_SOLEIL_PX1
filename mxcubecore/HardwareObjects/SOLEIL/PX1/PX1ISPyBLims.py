@@ -81,7 +81,7 @@ def _create_session_object(proposal, session_id: str, beamline_name: str) -> lim
 class CustomISPyBDataAdapter(ISPyBDataAdapter):
     def __init__(self, ws_root, ws_username, ws_password, beamline_name):
         super().__init__(ws_root, ws_username, ws_password, beamline_name)
-        self.beamline_name = None
+        self.beamline_name = beamline_name
         self.site = None
 
     """
@@ -796,10 +796,12 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
 class PX1ISPyBLims(UserTypeISPyBLims):
     def __init__(self, name):
         super().__init__(name)
+        
 
     def init(self):
-        self.data_adapter = self._create_data_adapter()
         self.beamline_name = self.get_property("beamline_name")
+      
+        #self.data_adapter = self._create_data_adapter()
         self.site = self.get_property("site")
 
        
@@ -819,6 +821,7 @@ class PX1ISPyBLims(UserTypeISPyBLims):
         return data_adapter
 
     def login(self, pid):
+        self.data_adapter = self._create_data_adapter()
         proposal = self.data_adapter.get_proposal(pid)
         todays_session = self.data_adapter.get_todays_session(proposal)
     

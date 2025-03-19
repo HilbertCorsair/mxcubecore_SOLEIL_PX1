@@ -60,7 +60,9 @@ class Camera (object ) :
 
 
 class RedisStreamer(Camera):
+
     def __init__(self, device_uri: str = "195.221.8.78:6379",
+
                  sleep_time: int = 1,
                  debug: bool = False):
 

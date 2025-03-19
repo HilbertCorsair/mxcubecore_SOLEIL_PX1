@@ -8,9 +8,7 @@ import logging
 
 import ldap
 
-from mxcubecore.HardwareObjects.abstract.AbstractAuthenticator import (
-    AbstractAuthenticator,
-)
+from mxcubecore.HardwareObjects.abstract.AbstractAuthenticator import AbstractAuthenticator
 
 """
 ldapou is optional, if ldapou is not defined,
@@ -39,8 +37,8 @@ class LdapAuthenticator(AbstractAuthenticator):
     def _connect(self):
         ldaphost = self.get_property("ldaphost")
         ldapport = self.get_property("ldapport")
-        domain = self.get_property("ldapdomain")
-
+        self.process_host = self.get_property('process_host')
+        
         if ldaphost is None:
             logging.getLogger("HWR").error(
                 "LdapAuthenticator: you must specify the LDAP hostname"
@@ -65,19 +63,6 @@ class LdapAuthenticator(AbstractAuthenticator):
                 "LdapAuthenticator: got connection %s" % str(self._ldapConnection)
             )
 
-        if domain is not None:
-            domparts = domain.split(".")
-            domstr = ""
-            comma = ""
-            for part in domparts:
-                domstr += "%sdc=%s" % (comma, part)
-                comma = ","
-            self.domstr = domstr
-            logging.getLogger("HWR").debug(
-                "LdapAuthenticator: got connection %s" % str(self._ldapConnection)
-            )
-        else:
-            self.domstr = "dc=esrf,dc=fr"  # default is esrf.fr
 
     # Creates a new connection to LDAP if there's an exception on the current connection
     def _reconnect(self):
@@ -101,6 +86,7 @@ class LdapAuthenticator(AbstractAuthenticator):
                     self._connect()
 
     def _cleanup(self, ex=None, msg=None):
+
         if ex is not None:
             try:
                 msg = ex[0]["desc"]
@@ -125,13 +111,15 @@ class LdapAuthenticator(AbstractAuthenticator):
         # login and use that value for programming session hwo directories
 
         self._field_values = None
-
+        
         if self._ldapConnection is None:
             return self._cleanup(msg="no LDAP server configured")
-
+        
+        """
         logging.getLogger("HWR").debug(
             "LdapAuthenticator: searching for %s / %s" % (username, self.domstr)
         )
+        
         try:
             search_str = self.domstr
             if fields is None:
@@ -148,13 +136,14 @@ class LdapAuthenticator(AbstractAuthenticator):
                 return self.authenticate(username, password, retry=False)
             else:
                 return self._cleanup(ex=err)
+        
 
         if not found:
             return self._cleanup(msg="unknown proposal %s" % username)
 
         if fields is not None:
             self._field_values = found[0][1]
-
+        
         if password == "":
             return self._cleanup(msg="invalid password for %s" % username)
 
@@ -166,15 +155,18 @@ class LdapAuthenticator(AbstractAuthenticator):
             bind_str = "uid=%s,%s" % (username, self.domstr)
 
         logging.getLogger("HWR").debug("LdapAuthenticator: binding to %s" % bind_str)
-        handle = self._ldapConnection.simple_bind(bind_str, password)
-
+        """
+        handle = self._ldapConnection.simple_bind(username, password)
+        print("Handling")
+        
         try:
             self._ldapConnection.result(handle)
         except ldap.INVALID_CREDENTIALS:
             # try second time with different bind_str
-            bind_str = "uid=%s, ou=people,%s" % (username, self.domstr)
-            handle = self._ldapConnection.simple_bind(bind_str, password)
+            #bind_str = "uid=%s, ou=people,%s" % (username, self.domstr)
+            handle = self._ldapConnection.simple_bind(username, password)
             try:
+
                 self._ldapConnection.result(handle)
             except Exception:
                 return self._cleanup(msg="invalid password for %s" % username)
@@ -184,5 +176,5 @@ class LdapAuthenticator(AbstractAuthenticator):
                 return self.authenticate(username, password, retry=False)
             else:
                 return self._cleanup(ex=err)
-
+        
         return True

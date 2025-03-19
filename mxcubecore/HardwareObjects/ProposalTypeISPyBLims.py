@@ -2,11 +2,9 @@ from __future__ import print_function
 
 import itertools
 import uuid
-from typing import List
 
 from mxcubecore.HardwareObjects.abstract.ISPyBAbstractLims import ISPyBAbstractLIMS
 from mxcubecore.model.lims_session import (
-    Lims,
     LimsSessionManager,
     Proposal,
     Session,
@@ -33,14 +31,6 @@ class ProposalTypeISPyBLims(ISPyBAbstractLIMS):
     def get_proposals_by_user(self, login_id: str):
         raise Exception("Not implemented")
 
-    def get_lims_name(self) -> List[Lims]:
-        return [
-            Lims(
-                name="ISPyB",
-                description="Information System for protein Crystalographic Beamlines",
-            )
-        ]
-
     def get_full_user_name(self):
         return self.get_user_name()
 
@@ -62,7 +52,7 @@ class ProposalTypeISPyBLims(ISPyBAbstractLIMS):
             ok = self.ldap_login(user_name, psd)
         elif self.authServerType == "ispyb":
             logging.getLogger("HWR").debug("ISPyB login")
-            ok, _ = self._ispybLogin(user_name, psd)
+            ok, _ = self.ispyb_login(user_name, psd)
         else:
             raise Exception("Authentication server type is not defined")
 
@@ -136,7 +126,6 @@ class ProposalTypeISPyBLims(ISPyBAbstractLIMS):
     def get_session_manager_by_code_number(
         self, code: str, number: str, is_local_host: bool
     ) -> LimsSessionManager:
-
         logging.getLogger("HRW").debug("[ISPyB] get_session_manager_by_code_number")
 
         self.session_manager = self.adapter.get_sessions_by_code_and_number(
@@ -179,7 +168,6 @@ class ProposalTypeISPyBLims(ISPyBAbstractLIMS):
     def login(
         self, user_name: str, password: str, is_local_host: bool
     ) -> LimsSessionManager:
-
         logging.getLogger("HRW").debug(
             "Login on ISPyBLims proposal=%s is_local_host=%s"
             % (user_name, str(is_local_host)),

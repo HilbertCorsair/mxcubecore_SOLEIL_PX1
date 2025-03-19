@@ -47,6 +47,7 @@ Attention:
 The <values> property is optional.
 """
 
+
 import logging
 import json
 from enum import (
@@ -56,7 +57,6 @@ from enum import (
 
 from mxcubecore.BaseHardwareObjects import HardwareObjectState
 from mxcubecore.HardwareObjects.abstract.AbstractShutter import AbstractShutter
-
 __copyright__ = """ Copyright © by the MXCuBE collaboration """
 __license__ = "LGPLv3+"
 
@@ -117,6 +117,7 @@ class TangoShutter(AbstractShutter):
             }
         )
         try:
+
             config_values = json.loads(self.get_property("values"))
             for key, val in config_values.items():
                 if isinstance(val, (tuple, list)):

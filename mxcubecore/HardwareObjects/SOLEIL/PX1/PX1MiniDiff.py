@@ -73,14 +73,15 @@ class PX1MiniDiff(GenericDiffractometer):
         if not self.back_light_phase_switch:
            self.update_backlight()
     
-        super().init()
+        GenericDiffractometer.init(self)
 
         self.phase_list = [
                 GenericDiffractometer.PHASE_TRANSFER,
                 GenericDiffractometer.PHASE_CENTRING,
                 GenericDiffractometer.PHASE_COLLECTION,
                 GenericDiffractometer.PHASE_DEFAULT,
-                GenericDiffractometer.PHASE_UNKNOWN ]
+                GenericDiffractometer.PHASE_UNKNOWN,
+                GenericDiffractometer.PHASE_PARTY,]
 
         self.centring_methods = {
              GenericDiffractometer.CENTRING_METHOD_MANUAL: \

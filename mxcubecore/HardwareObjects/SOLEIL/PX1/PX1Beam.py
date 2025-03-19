@@ -38,6 +38,7 @@ class PX1Beam(AbstractBeam):
     """Beam ESRF implementation"""
 
     unit = "mm"
+
     def init(self):
         """Initialize hardware"""
         super().init()
@@ -46,6 +47,16 @@ class PX1Beam(AbstractBeam):
         self._aperture = self.get_property("aperture")
         if self._aperture:
             _definer_type.append("aperture")
+
+        """_slits = self.get_property("slits")
+        if _slits:
+            self._slits = {}
+            _definer_type.append("slits")
+            _bliss_obj = self.get_object_by_role("bliss")
+            for name in _slits.split():
+                _key, _val = name.split(":")
+                self._slits.update({_key: _bliss_obj.getattribute(_val)})
+        """
 
 
         self._definer =  self.get_object_by_role("beam_definer")
@@ -59,6 +70,15 @@ class PX1Beam(AbstractBeam):
             self._definer_type = None
 
         self._definer_type = self.get_property("definer_type") or self._definer_type
+
+        #beam_position = self.get_property("beam_position")
+
+        """if beam_position:
+            self._beam_position_on_screen = tuple(map(float, beam_position.split()))
+
+       if self._aperture:
+            self._aperture.connect("valueChanged", self._re_emit_values)
+            self._aperture.connect("stateChanged", self._re_emit_values)"""
 
         if self._definer:
             print("FOUND Definer")
@@ -75,7 +95,11 @@ class PX1Beam(AbstractBeam):
         self._beam_info_dict["size_y"] = _size[1]
         self._beam_info_dict["shape"] = _shape
         self._beam_info_dict["label"] = "toto"
+
         return self._beam_info_dict
+
+
+
 
     def _re_emit_values(self, value):
         # redefine as re_emit_values takes no arguments
@@ -288,6 +312,7 @@ class PX1Beam(AbstractBeam):
                     HWR.beamline.sample_view.camera.get_height() / 2,
                 )
             self._beam_position_on_screen = _beam_position_on_screen
+            print(f"BEam pos on screen : {self._beam_position_on_screen}")
         return self._beam_position_on_screen
 
     def get_beam_size(self):

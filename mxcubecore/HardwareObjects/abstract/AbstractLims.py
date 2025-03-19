@@ -17,8 +17,8 @@
 #  You should have received a copy of the GNU Lesser General Public License
 #  along with MXCuBE. If not, see <http://www.gnu.org/licenses/>.
 
-"""
-"""
+""" """
+
 import abc
 import logging
 from datetime import datetime
@@ -35,6 +35,7 @@ from mxcubecore.BaseHardwareObjects import HardwareObject
 from mxcubecore.model.lims_session import (
     Lims,
     LimsSessionManager,
+    LimsUser,
     Session,
 )
 
@@ -61,7 +62,7 @@ class AbstractLims(HardwareObject, abc.ABC):
         self.session_manager = LimsSessionManager()
 
     def is_session_already_active(self, session_id: str) -> bool:
-        # If curent selected session is already selected no need to do
+        # If current selected session is already selected no need to do
         # anything else
         active_session = self.session_manager.active_session
         if active_session is not None:
@@ -126,18 +127,19 @@ class AbstractLims(HardwareObject, abc.ABC):
         """
         raise Exception("Abstract class. Not implemented")
 
+    """
     def init(self) -> None:
-        """
+        
         Method inherited from baseclass
-        """
+        
         self.beamline_name = HWR.beamline.session.beamline_name
-
+    """
     @abc.abstractmethod
     def get_proposals_by_user(self, login_id: str) -> List[Dict]:
         """
         Returns a list with proposal dictionaries for login_id
 
-        Proposal dictioanry strucutre:
+        Proposal dictionary structure:
             {
                 "Proposal": proposal,
                 "Person": ,
@@ -158,7 +160,7 @@ class AbstractLims(HardwareObject, abc.ABC):
     @abc.abstractmethod
     def get_samples(self, lims_name: str) -> List[Dict]:
         """
-        Returns a list of sample dictionaires for the current user from lims_name
+        Returns a list of sample dictionaries for the current user from lims_name
 
         Structure of sample dictionary:
         {
@@ -293,9 +295,9 @@ class AbstractLims(HardwareObject, abc.ABC):
         beamline_config_dict: Optional[Dict],
     ) -> Tuple[int, int]:
         """
-        Stores a datacollection, datacollection_dict, and bemline configuration, beamline_config_dict, at the time of collection
+        Stores a datacollection, datacollection_dict, and beamline configuration, beamline_config_dict, at the time of collection
 
-        Structure of datacllection_dict:
+        Structure of datacollection_dict:
         {
             "oscillation_sequence":[{}
                 "start": float,
@@ -392,7 +394,7 @@ class AbstractLims(HardwareObject, abc.ABC):
         """
         Updates the collection with "collection_id", provided in datacollection_dict.
 
-        Strucure of datacollection_dict as defined in store_data_collection above.
+        Structure of datacollection_dict as defined in store_data_collection above.
 
         Args:
             datacollection_dict:
@@ -444,16 +446,18 @@ class AbstractLims(HardwareObject, abc.ABC):
         else:
             return False
 
-    def set_sessions(self, sessions: List[Session]):
+    def __set_sessions(self, sessions: List[Session]):
         """
         Sets the curent lims session
         :param session: lims session value
         :return:
         """
         logging.getLogger("HWR").debug(
-            "%s sessions avaliable for user %s" % (len(sessions), self.get_user_name())
+            "%s sessions available for users %s"
+            % (len(sessions), self.session_manager.users.keys())
         )
         self.session_manager.sessions = sessions
+        self.emit("sessionsChanged", (sessions,))
 
     def get_active_session(self) -> Session:
         """
@@ -469,3 +473,53 @@ class AbstractLims(HardwareObject, abc.ABC):
             session_id: session id
         """
         raise Exception("Abstract class. Not implemented")
+
+    def get_shared_sessions(self):
+        # Step 1: Collect all session_ids for each user
+        session_ids_by_user = {}
+
+        # Step 2: Iterate over users and collect session ids
+        for user_name, user in self.session_manager.users.items():
+            session_ids_by_user[user_name] = {
+                session.session_id for session in user.sessions
+            }
+
+        # Step 3: Find the intersection of session_ids (sessions shared by all users)
+        if not session_ids_by_user:
+            return []  # If no users, return empty list
+
+        # Find the common session ids across all users
+        common_session_ids = set.intersection(*session_ids_by_user.values())
+
+        # Step 4: Retrieve the sessions with these common session_ids and ensure uniqueness
+        shared_sessions = {}
+        for user_name, user in self.session_manager.users.items():
+            for session in user.sessions:
+                if session.session_id in common_session_ids:
+                    # Use session_id as the key to ensure uniqueness
+                    shared_sessions[session.session_id] = session
+
+        # Convert the dictionary values (which are unique) into a list
+        return list(shared_sessions.values())
+
+    def remove_user(self, user_name: str):
+        if user_name in self.session_manager.users:
+            del self.session_manager.users[user_name]
+            logging.getLogger("HWR").debug("User %s has been removed" % user_name)
+            self.__set_sessions(self.get_shared_sessions())
+
+    def add_user_and_shared_sessions(self, user_name: str, sessions: List[Session]):
+        """
+        Stores the username and the shared sessions in the session manager object.
+        The shared sessions represent the intersection of all sessions
+        for each user currently connected.
+        """
+        self.session_manager.users[user_name] = LimsUser(
+            user_name=user_name, sessions=sessions
+        )
+        logging.getLogger("HWR").debug(
+            "User added to session manager, user_name=%s sessions=%s"
+            % (user_name, len(sessions))
+        )
+
+        self.__set_sessions(self.get_shared_sessions())

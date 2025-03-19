@@ -16,12 +16,6 @@ from mxcubecore.HardwareObjects.SecureXMLRpcRequestHandler import (
     SecureXMLRpcRequestHandler,
 )
 
-try:
-    from httplib import HTTPConnection
-except Exception:
-    # Python3
-    pass
-
 
 class State(object):
     """
@@ -151,10 +145,13 @@ class EdnaWorkflow(HardwareObject):
         self.gevent_event.set()
 
     def get_available_workflows(self):
+        #import pdb
+        #pdb.set_trace()
         workflow_list = list()
         no_wf = len(self["workflow"])
         for wf_i in range(no_wf):
             wf = self["workflow"][wf_i]
+            print(f"Iter {wf_i}")
             dict_workflow = dict()
             dict_workflow["name"] = str(wf.title)
             dict_workflow["path"] = str(wf.path)

@@ -51,6 +51,8 @@ class PX1Energy(AbstractEnergy):
         return state
 
     def connect_notify(self, signal):
+
+        print(f"SIgnal recived {signal}")
         if signal == 'energyChanged':
             try:
                 self.energy_changed(self.get_energy())
@@ -67,6 +69,7 @@ class PX1Energy(AbstractEnergy):
         self.set_is_ready(True)
          
     def state_changed(self, value):
+        print (f"state_changed {value}")
         str_state = str(value)
         if str_state == 'BUSY':
             self.move_energy_cmd_started()
@@ -79,11 +82,10 @@ class PX1Energy(AbstractEnergy):
         self.emit('stateChanged', self.current_state)
         
     def energy_changed(self, value):
+        print(f"Detected energy change {value}")
         if self.current_energy is not None and abs(self.current_energy - value) < 0.0001:
             return
-
         self.current_energy = value     
-
         wav = self.get_current_wavelength()
         if wav is not None:
             self.emit('energyChanged', (value, wav))
@@ -116,14 +118,13 @@ class PX1Energy(AbstractEnergy):
         return self.get_energy()
     
     def get_energy(self):
+        print("get_energy <<<<")
         return self.energy_chan.get_value()
-
 
     def get_state(self):
         tango_string_state = str(self.state_chan.get_value())
         HO_state = self.motstate_to_state(tango_string_state)
         return HO_state
-
 
     def get_energy_computed_from_current_gap(self):
         return self.und_device.energy
@@ -136,6 +137,7 @@ class PX1Energy(AbstractEnergy):
         return self.monodevice.read_attribute("lambda").value
 
     def get_current_wavelength(self):
+        print("get_current_wavelength")
         return self.get_wavelength()
         
     def get_limits(self):
@@ -162,9 +164,61 @@ class PX1Energy(AbstractEnergy):
     def lambda_to_energy(self, value):
         self.monodevice.simLambda = value
         return self.monodevice.simEnergy
+    
+    def _callback(self, move_task):
+        value = move_task.get()
+        if not isinstance(value, gevent.GreenletExit):
+            self._set_value(value)
+
+    def _move(self, value):
+        """Simulated energy change
+        Args:
+            value (float): target energy
+        """
+        self.energy_chan.set_value(value)
+        self.energy_changed(value)
+
+    def set_value(self, value, timeout=0):
+        if not self.move_energy_cmd_ready():
+            self.wait_energy_ready()
+            self.move_energy(value)
+        else:
+            self.move_energy(value)
+
+        """
+        Set actuator to absolute value.
+        This is NOT the recommended way, but for technical reasons
+        overriding is necessary in this particular case
+        Args:
+            value (float): target value
+            timeout (float): optional - timeout [s],
+                             If timeout == 0: return at once and do not wait (default);
+                             if timeout is None: wait forever.
+        Raises:
+            ValueError: Value not valid or attemp to set read-only actuator.
+            RuntimeError: Timeout.
+       
+        if self.read_only:
+            raise ValueError("Attempt to set value for read-only Actuator")
+        if self.validate_value(value):
+            self.update_state(self.STATES.BUSY)
+            if timeout or timeout is None:
+                with gevent.Timeout(
+                    timeout, RuntimeError(f"Motor {self.username} timed out")
+                ):
+                    self._move(value)
+                    self._set_value(value)
+                    self.update_state(self.STATES.READY)
+            else:
+                self.__move_task = gevent.spawn(self._move, value)
+                self.__move_task.link(self._callback)
+        else:
+            raise ValueError(f"Invalid value {value}; limits are {self.get_limits()}")
+         """
 
     def move_energy(self, value, wait=False):
         value = float(value)
+        print('Moving energy')
     
         backlash = 0.1  # en mm
         gaplimite = 5.5  # en mm
@@ -185,7 +239,7 @@ class PX1Energy(AbstractEnergy):
                             while str(self.und_device.State()) == 'MOVING':
                                 gevent.sleep(0.03)
 
-                            self.energy_chan.setValue(value)
+                            self.energy_chan.set_value(value)
                         else:
                             self.und_device.gap = gaplimite
                             self.und_device.gap = newgap + backlash
@@ -194,7 +248,7 @@ class PX1Energy(AbstractEnergy):
                     logging.getLogger("HWR").error("%s: Cannot move undulator U20 : State device = %s", self.name(), str(self.und_device.State()))
                 
             try:
-                self.energy_chan.setValue(value)
+                self.energy_chan.set_value(value)
                 return value
             except:           
                 logging.getLogger("HWR").error("%s: Cannot move Energy : State device = %s", self.name(), self.get_state())
@@ -267,8 +321,8 @@ class PX1Energy(AbstractEnergy):
     startMoveWavelength = move_wavelength
 
     def wait_energy_ready(self, timeout=60):
-        pass
-"""        _state = self.get_state()
+
+        _state = self.get_state()
         t0 = time.time()
         last_msg_time = 0
 
@@ -285,7 +339,7 @@ class PX1Energy(AbstractEnergy):
                 break
 
             logging.info("    -  <PX1Energy>  waiting for energy ready: %s" % _state)
-
+"""
             
 def test_hwo(hwo):
     print hwo.get_position()
