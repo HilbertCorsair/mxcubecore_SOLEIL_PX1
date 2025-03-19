@@ -59,7 +59,7 @@ from mxcubecore.dispatcher import dispatcher
 if TYPE_CHECKING:
     from logging import Logger
     from pydantic.v1 import BaseModel
-    from CommandContainer import CommandObject
+    from .CommandContainer import CommandObject
 
 __copyright__ = """ Copyright © 2010-2020 by the MXCuBE collaboration """
 __license__ = "LGPLv3+"
