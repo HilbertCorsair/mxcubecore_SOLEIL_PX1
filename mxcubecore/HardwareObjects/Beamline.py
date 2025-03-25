@@ -424,6 +424,20 @@ class Beamline(ConfiguredObject):
 
     __content_roles.append("diffractometer")
 
+
+    @property
+    def backlight(self):
+        """Diffractometer Hardware object
+
+        Returns:
+            Optional[AbstractDiffractometer]:
+        """
+
+        return self._objects.get("backlight")
+
+    __content_roles.append("backlight")
+
+
     @property
     def detector(self):
         """Detector Hardware object

@@ -14,30 +14,6 @@ import math
 
 log = logging.getLogger("HWR")
 
-from mxcubecore.BaseHardwareObjects import HardwareObject
-
-class Light(HardwareObject):
-    def __init__(self, name):
-        super().__init__(name)
-        self._light_state = "OFF"
-        print("INIT light_arm")
-
-    @property
-    def light(self):
-        return self._light_state
-    @light.setter
-    def l_state(self, l_st):
-        self._light_state = l_st
-    
-    def light_switch(self, ho_state):
-        self.light = ho_state.name
-        if self.light == "ON":
-            self.px1env_ho.set_phase("VISU_SAMPLE")
-        elif self.light == "OFF":
-            self.px1env_ho.set_phase("DEFAULT")
-        else:
-            print("Trigger must be either ON or OFF")
-
     
 
 class PX1MiniDiff(GenericDiffractometer):
@@ -46,9 +22,6 @@ class PX1MiniDiff(GenericDiffractometer):
         #Attribute that holsd the "ON" "OFF" state for the light UI button
         #The button has in fact nothing to do with the light direcly
         #it should just chande the psase to VISU_SAMPLE when pressed and to DEFAULT
-        self.back_light_phase_switch = None
-  
-
 
     default_arrow_step = 0.1   # 100 microns default for arrow movements. otherwise configure in zoom.xml with arrowStep
 
@@ -70,8 +43,7 @@ class PX1MiniDiff(GenericDiffractometer):
         self.beam_y = None
         self.pixels_per_mm_y = 0
         self.arrow_step = self.default_arrow_step
-        if not self.back_light_phase_switch:
-           self.update_backlight()
+        self.backlight = self.get_object_by_role("backlight")
     
         GenericDiffractometer.init(self)
 

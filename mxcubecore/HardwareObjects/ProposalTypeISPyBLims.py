@@ -32,9 +32,12 @@ class ProposalTypeISPyBLims(ISPyBAbstractLIMS):
         raise Exception("Not implemented")
 
     def get_full_user_name(self):
+        print("FULL USERNAME CALLED ! ")
+        
         return self.get_user_name()
 
     def get_user_name(self):
+        print("USERNAME CALLED")
         """
         Because it is a proposal based it returns the proposal plus the uuid4
         """

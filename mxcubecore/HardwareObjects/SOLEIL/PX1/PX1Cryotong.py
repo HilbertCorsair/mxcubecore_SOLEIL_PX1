@@ -116,6 +116,9 @@ class PX1Cryotong(Cats90):
             return val
         else :
             return str(val) in ["True","true"]
+        
+    def cats_basket_presence_changed(self, value):
+        pass
 
     def _update_num_loaded(self, value):
         if self._num_loaded:
@@ -127,7 +130,6 @@ class PX1Cryotong(Cats90):
         """Upsdates the list of sample objects by changing their loaded property
         """
         if self._num_loaded :
-
             smp = self._num_loaded % 16
             comp_no = math.ceil(int(self._num_loaded) / 16) -1
             smp_no = smp-1 if smp != 0 else 15
@@ -551,7 +553,12 @@ class PX1Cryotong(Cats90):
             return False
 
         return True
+    
 
+    """"def get_sample_list(self):
+        import pdb
+        pdb.set_trace()
+        self._init_sc_contents()"""
 
     def _init_sc_contents(self):
         """
@@ -597,7 +604,8 @@ class PX1Cryotong(Cats90):
             sample._set_info(present, datamatrix, scanned)
             sample._set_loaded(loaded, has_been_loaded)
             sample._set_holder_length(spl[4])
-
+        
+        self._set_state(SampleChangerState.Ready)
 
     def check_drysoak(self):
         print("Checking drysoak")

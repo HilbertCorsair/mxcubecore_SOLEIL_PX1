@@ -82,7 +82,6 @@ class PX1Energy(AbstractEnergy):
         self.emit('stateChanged', self.current_state)
         
     def energy_changed(self, value):
-        print(f"Detected energy change {value}")
         if self.current_energy is not None and abs(self.current_energy - value) < 0.0001:
             return
         self.current_energy = value     

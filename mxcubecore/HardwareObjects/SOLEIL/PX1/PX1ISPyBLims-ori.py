@@ -1,6 +1,6 @@
-#import json
+import json
 import logging
-#from json.decoder import JSONDecodeError
+from json.decoder import JSONDecodeError
 from typing import (
     Dict,
     List,
@@ -8,8 +8,8 @@ from typing import (
 )
 import time
 from datetime import datetime , timedelta
-#from zeep import Client
-#from zeep.transports import Transport
+from zeep import Client
+from zeep.transports import Transport
 from zeep.helpers import serialize_object
 from zeep.exceptions import Fault
 
@@ -18,8 +18,8 @@ from zeep.exceptions import Fault
 import logging
 from urllib.error import URLError
 from pprint import pformat
-#from urllib.parse import urljoin
-#import requests
+from urllib.parse import urljoin
+import requests
 from mxcubecore.HardwareObjects.abstract.ISPyBDataAdapter import ISPyBDataAdapter
 from mxcubecore.HardwareObjects.ProposalTypeISPyBLims import ProposalTypeISPyBLims
 from mxcubecore.model.lims_session import LimsSessionManager
@@ -779,7 +779,7 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         self.session_manager = None   
 
     def init(self):
-        self.beamline_name = "PROXIMA1"#self.get_property("beamline_name")      
+        self.beamline_name = self.get_property("beamline_name")      
         self.site = self.get_property("site")
         self.adapter = self._create_data_adapter()
     
@@ -797,35 +797,33 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         print(f"Created data_adapter of type {data_adapter}")
         return data_adapter
 
-    def get_samples(self, lims_name):
-
+    def get_samples(self, proposal_id, session_id):
         response_samples = None
-        proposal_id = self.session_manager.active_session.proposal_id
-        print(f"====================================PROPOSAL id updated to {proposal_id}")
+
+        if not proposal_id:
+            proposal_id = self.session_manager.active_session.proposal_id
+            print(f"PROPOSAL id updatted to {proposal_id}")
 
         # at this point the proposal id is 4
         # Zeep SOAP request fails with pointer erro
         # also happens for prpoposal id 20100023 
 
+        import pdb 
+        pdb.set_trace()
+
         if self.adapter._tools_ws:
             try:
-                    response_samples = self.adapter._tools_ws.service.\
-                    findSampleInfoLightForProposal(proposal_id,
+                response_samples = self.adapter._tools_ws.service.\
+                    findSampleInfoLightForProposal("20100023",
                                                    self.beamline_name)
-                    
-
             except Fault as e:
-                response_samples = []
                 logging.getLogger("ispyb_client").exception(str(e))
-                return []
             except URLError:
-                return []
                 logging.getLogger("ispyb_client").exception(_CONNECTION_ERROR_MSG)
         else:
             logging.getLogger("ispyb_client").\
                 exception("Error in get_samples: could not connect to server")
-        print(f"====================================PX1ISPyBLims  get_samples {response_samples}")
-        return self.adapter.convert_to_dict(response_samples)
+        return response_samples
 
     def check_to_string(self, b_obj):
         if isinstance(b_obj, str):
@@ -840,15 +838,22 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         proposal = self.adapter.get_proposal(pid)
         todays_session = self.adapter.get_todays_session(proposal)
         start_datetime_str = self.check_to_string(todays_session["session"]['startDate'])
+
         # Parse the string into a datetime object
         start_dt_object = datetime.strptime(start_datetime_str, '%Y-%m-%d %H:%M:%S')
+          
+
         start_date_str = start_dt_object.strftime("%Y%m%d") 
         start_time_str = start_dt_object.strftime("%H:%M:%S")
+
         end_datetime_str = self.check_to_string(todays_session["session"]['endDate'])
         end_dt_object = datetime.strptime(end_datetime_str, '%Y-%m-%d %H:%M:%S')
+        
         end_date_str = end_dt_object.strftime("%Y%m%d") 
         end_time_str = end_dt_object.strftime("%H:%M:%S")
+        
         lims_session_object = lims_Session()
+
         lims_session_object.start_date = start_date_str
         lims_session_object.start_time = start_time_str
 
@@ -955,26 +960,4 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         given_name = person["givenName"]
         family_name = person["familyName"]
 
-        return f"{given_name} {family_name}
-class ISPyBClient2(HardwareObject): 
-    def get_samples(self, proposal_id, session_id):                             
-        response_samples = None                                                 
-                                                                              
-        if self._tools_ws:                                                      
-            try:                                                                
-                response_samples = self._tools_ws.service.\                     
-                      findSampleInfoLightForProposal(proposal_id,                 
-                                                     self.beamline_name)          
-            except WebFault as e:                                               
-                logging.getLogger("ispyb_client").exception(str(e))             
-            except URLError:                                                    
-                logging.getLogger("ispyb_client").exception(_CONNECTION_ERROR_MSG)
-        else:                                                                   
-            logging.getLogger("ispyb_client").\                                 
-                exception("Error in get_samples: could not connect to server")  
-                                                                                  
-        return response_samples  """
- 
-
-
-
+        return f"{given_name} {family_name}"""

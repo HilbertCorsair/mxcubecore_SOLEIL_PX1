@@ -125,10 +125,6 @@ class AbstractEnergy(AbstractActuator):
         Argin:
             value: Not used, but kept in the method signature.
         """
-        import pdb
-        pdb.set_trace()
-
-
 
         if value is None:
             value = self.get_value()

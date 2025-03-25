@@ -17,9 +17,7 @@ from zeep.transports import Transport
 from zeep.helpers import serialize_object
 
 from requests.auth import HTTPBasicAuth
-
-#from suds import WebFault
-#from suds.client import Client
+from zeep.exceptions import Fault
 from suds.sudsobject import asdict
 
 from mxcubecore.HardwareObjects.abstract.ISPyBValueFactory import ISPyBValueFactory
@@ -226,10 +224,10 @@ class ISPyBDataAdapter():
             #proxy=self.proxy,
         )
         client.set_options(cache=None, location=url)
-        return client """
+        return client 
 
     def isEnabled(self) -> object:
-        return self._shipping  # type: ignore
+        return self._shipping  # type: ignore"""
 
     def create_session(self, proposal_id: str, beamline_name: str) -> Session:
         try:
@@ -415,15 +413,19 @@ class ISPyBDataAdapter():
             print("PASSED!")
             return LimsSessionManager(sessions=sessions)
 
-        except WebFault as e:
+        except Fault as e:
             self._exception(str(e))
             raise e
 
+
     def get_person_by_username(self, username: str) -> Dict:
+
         try:
+            #import pdb
+            #pdb.set_trace()
             person = self._shipping.service.findPersonByLogin(username)
             return asdict(person)
-        except WebFault as e:
+        except Fault as e:
             self._error(str(e))
 
         return {}
@@ -444,7 +446,7 @@ class ISPyBDataAdapter():
             return LimsSessionManager(
                 sessions=sessions,
             )
-        except WebFault as e:
+        except Fault as e:
             self._exception(str(e))
         return LimsSessionManager()
 
@@ -480,7 +482,7 @@ class ISPyBDataAdapter():
                     self._collection, mx_collection
                 )
                 self._collection.service.storeOrUpdateDataCollection(data_collection)
-            except WebFault as e:
+            except Fault as e:
                 logging.getLogger("ispyb_client").exception(e)
             except URLError as e:
                 logging.getLogger("ispyb_client").exception(e)
@@ -502,7 +504,7 @@ class ISPyBDataAdapter():
                         "  - storing image in lims ok. id : %s" % image_id
                     )
                     return image_id
-                except WebFault:
+                except Fault:
                     logging.getLogger("ispyb_client").exception(
                         "ISPyBClient: exception in store_image"
                     )
@@ -532,7 +534,7 @@ class ISPyBDataAdapter():
                     utf_encode(asdict(sample)) for sample in response_samples
                 ]
 
-            except WebFault as e:
+            except Fault as e:
                 logging.getLogger("ispyb_client").exception(str(e))
             except URLError as e:
                 logging.getLogger("ispyb_client").exception(e)
@@ -540,6 +542,7 @@ class ISPyBDataAdapter():
             logging.getLogger("ispyb_client").exception(
                 "Error in get_samples: could not connect to server"
             )
+        print(f"SAMPLES ARE READY {response_samples}")
 
         return response_samples
 
@@ -611,7 +614,7 @@ class ISPyBDataAdapter():
                     "", manufacturer, model, mode
                 )
                 return res
-            except WebFault:
+            except Fault:
                 logging.getLogger("ispyb_client").exception(
                     "ISPyBClient: exception in find_detector"
                 )
@@ -655,7 +658,7 @@ class ISPyBDataAdapter():
                     session_dict["endDate"], "%Y-%m-%d %H:%M:%S"
                 )
 
-            except WebFault as e:
+            except Fault as e:
                 session = {}
                 logging.getLogger("ispyb_client").exception(str(e))
             except URLError:
@@ -694,7 +697,7 @@ class ISPyBDataAdapter():
                         session["beamLineSetupId"] = blSetupId
                         self.update_session(session)
 
-                    except WebFault as e:
+                    except Fault as e:
                         logging.getLogger("ispyb_client").exception(str(e))
                     except URLError:
                         logging.getLogger("ispyb_client").exception(
@@ -831,7 +834,7 @@ class ISPyBDataAdapter():
         if self._tools_ws:
             try:
                 status = self._tools_ws.service.storeOrUpdateBLSample(bl_sample)
-            except WebFault as e:
+            except Fault as e:
                 logging.getLogger("ispyb_client").exception(str(e))
                 status = {}
             except URLError:
