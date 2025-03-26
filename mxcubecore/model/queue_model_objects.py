@@ -676,8 +676,8 @@ class DataCollection(TaskNode):
 
     def get_path_template(self):
         return self.acquisitions[0].path_template
-    
-    
+
+
     def get_files_to_be_written(self):
         path_template = self.acquisitions[0].path_template
         file_locations = path_template.get_files_to_be_written()
@@ -1566,62 +1566,13 @@ class PathTemplate(object):
         :rtype: str
         :returns: Archive directory
         """
-        folders = self.directory.split("/")
-        if PathTemplate.synchrotron_name == "MAXLAB":
-            archive_directory = self.directory
-            archive_directory = archive_directory.replace(
-                "/data/data1/visitor", "/data/ispyb"
-            )
-            archive_directory = archive_directory.replace(
-                "/data/data1/inhouse", "/data/ispyb"
-            )
-            archive_directory = archive_directory.replace("/data/data1", "/data/ispyb")
 
-        elif PathTemplate.synchrotron_name == "EMBL-HH":
-            archive_directory = os.path.join(
-                PathTemplate.archive_base_directory,
-                PathTemplate.archive_folder,
-                *folders[4:],
-            )
-        elif PathTemplate.synchrotron_name == "DESY":
-            logging.getLogger("HWR").debug(
-                "PathTemplate (DESY) - (to be defined) directory is %s" % self.directory
-            )
-            archive_directory = HWR.beamline.session.get_archive_directory()
-        elif PathTemplate.synchrotron_name == "ALBA":
-            logging.getLogger("HWR").debug(
-                "PathTemplate (ALBA) - directory is %s" % self.directory
-            )
-            directory = self.directory
-            folders = directory.split(os.path.sep)
-            user_dir = folders[5]
-            session_date = folders[6]
-            try:
-                more = folders[8:]
-            except Exception:
-                more = []
-            archive_directory = os.path.join(
-                PathTemplate.archive_base_directory, user_dir, session_date, *more
-            )
-            logging.getLogger("HWR").debug(
-                "PathTemplate (ALBA) - archive_directory is %s" % archive_directory
-            )
-        else:
-            directory = self.directory[len(PathTemplate.base_directory) :]
-            folders = directory.split("/")
-            if "visitor" in folders:
-                endstation_name = folders[3]
-                folders[1] = PathTemplate.archive_folder
-                folders[3] = folders[2]
-                folders[2] = endstation_name
-            else:
-                endstation_name = folders[1]
-                folders[1] = PathTemplate.archive_folder
-                folders[2] = endstation_name
-
-            archive_directory = os.path.join(
-                PathTemplate.archive_base_directory, *folders[1:]
-            )
+        archive_directory = HWR.beamline.session.get_archive_directory()
+        logging.getLogger("HWR").debug(
+            "PathTemplate (SOLEIL) - archive_directory is %s" % archive_directory
+        )
+        #import pdb
+        #pdb.set_trace()
         return archive_directory
 
     def __eq__(self, path_template):
@@ -2175,7 +2126,7 @@ class GphlWorkflow(TaskNode):
         if self.detector_setting is None:
             resolution = resolution or self.aimed_resolution
         if resolution:
-    
+
             distance = HWR.beamline.resolution.resolution_to_distance(
                 resolution, wavelength
             )

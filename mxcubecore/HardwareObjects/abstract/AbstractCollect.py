@@ -375,7 +375,7 @@ class AbstractCollect(HardwareObject, object):
                 == 0
                 and last_frame > 19
             ):
-                self.trigger_auto_processing("after", 0)
+                self.trigger_auto_processing("after", self.current_dc_parameters, 0)
 
         self.emit(
             "collectOscillationFinished",

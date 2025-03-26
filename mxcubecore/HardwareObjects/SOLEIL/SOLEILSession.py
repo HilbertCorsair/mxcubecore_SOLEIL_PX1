@@ -1,13 +1,14 @@
 
 import os
 import time
-
+import glob
 import logging
 from typing import Optional, Tuple, Dict
 from mxcubecore import HardwareRepository as HWR
 #from HardwareRepository import HardwareRepository
 from mxcubecore.HardwareObjects.Session import Session
-#import queue_model_objects_v1 as queue_model_objects
+from mxcubecore.model import queue_model_objects
+
 
 log = logging.getLogger("HWR")
 
@@ -22,6 +23,23 @@ class SOLEILSession(Session):
     def init(self):
         super().init()
         self.ldap_ho = self.get_object_by_role("ldapServer")
+        archive_base_directory = self["file_info"].get_property(
+            "archive_base_directory"
+        )
+        if archive_base_directory:
+            archive_folder = os.path.join(
+                self["file_info"].get_property("archive_folder"), time.strftime("%Y")
+            )
+            queue_model_objects.PathTemplate.set_archive_path(
+                archive_base_directory, archive_folder
+            )
+
+    def get_full_path (self):
+        full_path = self.get_base_data_directory()
+        process_path = self.get_processed_directory()
+
+        return full_path, process_path
+
 
     def get_username(self) -> str:
         print("*******")
@@ -124,13 +142,18 @@ class SOLEILSession(Session):
                 local_time = time.gmtime(time.time() - (float(starting_time) * 3600))
                 start_time = time.strftime("%Y-%m-%d", local_time)
 
-        if self.is_inhouse():
-            return os.path.join(self.base_directory, start_time, self.get_proposal_number())
-        return ""
+
+        return os.path.join(self.base_directory, start_time, self.get_proposal_number())
+
 
     def get_archive_directory(self, directory: Optional[str] = None, *args) -> str:
         thedir = directory or self.get_base_data_directory()
         return thedir.replace('RAW_DATA', 'ARCHIVE') if 'RAW_DATA' in thedir else os.path.join(thedir, 'ARCHIVE')
+
+    def get_processed_directory(self, directory: Optional[str] = None, *args) -> str:
+        thedir = directory or self.get_base_data_directory()
+        return thedir.replace('RAW_DATA', 'PROCESSED_DATA') if 'RAW_DATA' in thedir else os.path.join(thedir, 'PROCESSED_DATA')
+
 
     def get_ruche_info(self, path: str) -> str:
         usertype = 'soleil' if self.is_inhouse(self.username) else 'users'

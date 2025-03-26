@@ -60,7 +60,7 @@ def _check_ispyb_error_message(response):
     )
 
 
-def _create_session_object(proposal, session_id: str, beamline_name: str) -> lims_Session: 
+def _create_session_object(proposal, session_id: str, beamline_name: str) -> lims_Session:
     # Not to be confused with ldap Session from HardwareObjects/Session (inherited by SOLEILSession)
     return lims_Session(
         proposal_id=proposal["proposalId"],
@@ -111,12 +111,12 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
             return result
 
         return _trace
-    
+
 
     def convert_to_dict(self, zeep_obj):
         # Convert the zeep object to a dictionary
         proposal_dict = serialize_object(zeep_obj, dict)
-        
+
         def utf_encode(obj):
             if isinstance(obj, str):
                 return obj.encode('utf-8')
@@ -125,12 +125,12 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
             elif isinstance(obj, (list, tuple)):
                 return [utf_encode(item) for item in obj]
             return obj
-        
+
         # Then wrap it in the 'Proposal' key and encode
         return utf_encode(proposal_dict)
-    
+
     @trace
-    def get_proposal(self, proposal_number, proposal_code = "mx"):        
+    def get_proposal(self, proposal_number, proposal_code = "mx"):
         #print (f"FETCHING proposal: code {proposal_code}, no {proposal_number}")
 
         """
@@ -199,7 +199,7 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
 
                 try:
                     lab = self._shipping.service.\
-                        findLaboratoryByCodeAndNumber(proposal_code, 
+                        findLaboratoryByCodeAndNumber(proposal_code,
                                                       proposal_number)
                     if not lab:
                         lab = {}
@@ -350,14 +350,14 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
                     'Laboratory': self.convert_to_dict(lab),
                     'Session': sessions,
                     'status': {'code':'ok'}}
-    
+
     def check_to_string(self, b_obj):
         if isinstance(b_obj, str):
             s = b_obj
-        else: 
+        else:
             s = b_obj.decode("utf-8")
         return s
-    
+
     def get_todays_session(self, prop):
         print( "getting todays session")
 
@@ -373,7 +373,7 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
         else:
             # Check for today's session
             for session in sessions:
-               
+
                 beamline=self.check_to_string(session['beamlineName'])
                 start_date="%s 08:00:00" % self.check_to_string(session['startDate'])
                 end_date="%s 23:59:59" % self.check_to_string(session['endDate'])
@@ -399,14 +399,14 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
                             # Check date
                             if current_time>=start_time and current_time<=end_time:
                                 todays_session=session
-                                # Adding extra info to pass along  
+                                # Adding extra info to pass along
                                 todays_session['proposalNumber']=prop['Proposal']['number']
                                 todays_session['proposalTitle']=prop['Proposal']['title']
                                 todays_session['proposalCode']=prop['Proposal']['code']
 
                                 break
-        
-        
+
+
         if todays_session:
             print("FOUND A SESSION FOR TODAY : NEW SESSION FLAG FALSE")
             new_session_flag= False
@@ -415,7 +415,6 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
             #localcontact=self.get_session_local_contact(session_id)
 
         else :
-            # a newSession will be created, UI (Qt, web) can decide to accept the newSession or not
             new_session_flag= True
             current_time=time.localtime()
             start_time=time.strftime("%Y-%m-%d 00:00:00", current_time)
@@ -426,7 +425,7 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
 
             # Create a session
             new_session_dict={}
-    
+
             new_session_dict['proposalId']=prop['Proposal']['proposalId']
             new_session_dict['proposalNumber']=prop['Proposal']['number']
             new_session_dict['proposalTitle']=prop['Proposal']['title']
@@ -445,8 +444,8 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
             todays_session=new_session_dict
             localcontact=None
             logging.getLogger('HWR').debug('create new session')
- 
-        # Hack to bypass self.session_hwobj which is not available here for now 
+
+        # Hack to bypass self.session_hwobj which is not available here for now
         is_inhouse = True #self.session_hwobj.is_inhouse(prop['Proposal']["code"], prop['Proposal']["number"])
         return {"session": todays_session,"new_session_flag":new_session_flag, "is_inhouse": is_inhouse}
 
@@ -728,10 +727,10 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
             yield proposal
 
     def _get_sessions(self, username: str, beamline_name: str) -> List[Session]:
-        
-       
+
+
         def list_sessions():
-          
+
             for proposal in self._get_proposals(username):
                 sessions = self._collection.service.findSessionsByProposalAndBeamLine(
                     proposal["code"], proposal["number"], beamline_name
@@ -776,24 +775,24 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         self.login_type = "Proposal"
         self.adapter = None
         self.user_name = None
-        self.session_manager = None   
+        self.session_manager = None
 
     def init(self):
-        self.beamline_name = "PROXIMA1"#self.get_property("beamline_name")      
+        self.beamline_name = "PROXIMA1"#self.get_property("beamline_name")
         self.site = self.get_property("site")
         self.adapter = self._create_data_adapter()
-    
+
     def _create_data_adapter(self) -> ISPyBDataAdapter:
         print("Creating curstom data adapter")
-        
+
         data_adapter  = CustomISPyBDataAdapter(self.ws_root.strip(),
                                                self.ws_username,
                                                self.ws_password,
                                                self.beamline_name,)
-        
-        if not data_adapter._shipping : 
+
+        if not data_adapter._shipping :
             data_adapter.initialize_services()
-        
+
         print(f"Created data_adapter of type {data_adapter}")
         return data_adapter
 
@@ -805,14 +804,14 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
 
         # at this point the proposal id is 4
         # Zeep SOAP request fails with pointer erro
-        # also happens for prpoposal id 20100023 
+        # also happens for prpoposal id 20100023
 
         if self.adapter._tools_ws:
             try:
                     response_samples = self.adapter._tools_ws.service.\
                     findSampleInfoLightForProposal(proposal_id,
                                                    self.beamline_name)
-                    
+
 
             except Fault as e:
                 response_samples = []
@@ -824,14 +823,64 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         else:
             logging.getLogger("ispyb_client").\
                 exception("Error in get_samples: could not connect to server")
-        print(f"====================================PX1ISPyBLims  get_samples {response_samples}")
-        return self.adapter.convert_to_dict(response_samples)
 
+        # Raw data from ISPyB contains bytes objects : needs preprocessing
+        time.sleep(10)
+        if response_samples :
+            response_samples = [self.adapter.convert_to_dict(z_obj)for z_obj in response_samples]
+            response_samples = [self.repare_bytes_dict(d) for d in response_samples]
+
+        print(f"====================================PX1ISPyBLims  get_samples {response_samples[0]}\n========================== dict exemple")
+
+
+        return response_samples
+
+    def repare_bytes_dict (self, dct):
+
+        bytes_entries = [(self.check_to_string(k),k,
+                      self.check_to_string(v))
+                      for k, v in dct.items()
+                      if (isinstance(k, bytes)
+                      or isinstance(v, bytes))]
+
+        for i in bytes_entries :
+            if isinstance(i[1], bytes):
+                print(f"CONVERTING dict entry {i[1]}")
+                del dct[i[1]]
+                dct[i[0]] = dct[i[2]]
+
+            else:
+                dct[i[0]] = i[2]
+
+        dict_entries = [(k, self.repare_bytes_dict(d) )for k,d in [(l,v) for l,v in dct.items() if isinstance(v, dict)]]
+
+        for e in range(len(dict_entries)):
+            dct[dict_entries[e][0]] = dict_entries[e][1]
+        return dct
+
+
+
+    """def convert_to_dict(self, zeep_obj):
+        # Convert the zeep object to a dictionary
+        proposal_dict = serialize_object(zeep_obj, dict)
+
+        def utf_encode(obj):
+            if isinstance(obj, str):
+                return obj.encode('utf-8')
+            elif isinstance(obj, dict):
+                return {k: utf_encode(v) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [utf_encode(item) for item in obj]
+            return obj"""
+
+
+        # Then wrap it in the 'Proposal' key and encode
+        #return utf_encode(proposal_dict)
     def check_to_string(self, b_obj):
-        if isinstance(b_obj, str):
-            s = b_obj
-        else: 
+        if isinstance(b_obj, bytes):
             s = b_obj.decode("utf-8")
+        else:
+            s = b_obj
         return s
 
     def login(self, pid):
@@ -842,11 +891,11 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         start_datetime_str = self.check_to_string(todays_session["session"]['startDate'])
         # Parse the string into a datetime object
         start_dt_object = datetime.strptime(start_datetime_str, '%Y-%m-%d %H:%M:%S')
-        start_date_str = start_dt_object.strftime("%Y%m%d") 
+        start_date_str = start_dt_object.strftime("%Y%m%d")
         start_time_str = start_dt_object.strftime("%H:%M:%S")
         end_datetime_str = self.check_to_string(todays_session["session"]['endDate'])
         end_dt_object = datetime.strptime(end_datetime_str, '%Y-%m-%d %H:%M:%S')
-        end_date_str = end_dt_object.strftime("%Y%m%d") 
+        end_date_str = end_dt_object.strftime("%Y%m%d")
         end_time_str = end_dt_object.strftime("%H:%M:%S")
         lims_session_object = lims_Session()
         lims_session_object.start_date = start_date_str
@@ -854,7 +903,7 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
 
         lims_session_object.end_date = end_date_str
         lims_session_object.end_time = end_time_str
-    
+
         lims_session_object.session_id = todays_session["session"]['sessionId']
         lims_session_object.beamline_name = self.beamline_name
 
@@ -884,14 +933,14 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         lims_session_object.is_scheduled_time = True
         lims_session_object.is_scheduled_beamline = True
 
-   
+
         LSM = LimsSessionManager()
         LSM.active_session = lims_session_object
         self.session_manager = LSM
         print(f"trturning Lims Session Manager {LSM}\n\n\n this is tghe active sesstion---->{LSM.active_session}")
-      
+
         return LSM #session #return super().login(loginID, psd)
-    
+
 
     def get_lims_name(self):
         return ["ISPyB"]
@@ -904,7 +953,7 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         Args:
             session_id: session id
         """
- 
+
         def find_session() -> Optional[lims_Session]:
             for session in self.session_manager.sessions:
                 if session.session_id == session_id:
@@ -928,7 +977,7 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         session = find_session()
         if session is None:
             raise Exception(f"no session with ID {session_id} found")
-        
+
 
 
         #
@@ -956,25 +1005,25 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         family_name = person["familyName"]
 
         return f"{given_name} {family_name}
-class ISPyBClient2(HardwareObject): 
-    def get_samples(self, proposal_id, session_id):                             
-        response_samples = None                                                 
-                                                                              
-        if self._tools_ws:                                                      
-            try:                                                                
-                response_samples = self._tools_ws.service.\                     
-                      findSampleInfoLightForProposal(proposal_id,                 
-                                                     self.beamline_name)          
-            except WebFault as e:                                               
-                logging.getLogger("ispyb_client").exception(str(e))             
-            except URLError:                                                    
+class ISPyBClient2(HardwareObject):
+    def get_samples(self, proposal_id, session_id):
+        response_samples = None
+
+        if self._tools_ws:
+            try:
+                response_samples = self._tools_ws.service.\
+                      findSampleInfoLightForProposal(proposal_id,
+                                                     self.beamline_name)
+            except WebFault as e:
+                logging.getLogger("ispyb_client").exception(str(e))
+            except URLError:
                 logging.getLogger("ispyb_client").exception(_CONNECTION_ERROR_MSG)
-        else:                                                                   
-            logging.getLogger("ispyb_client").\                                 
-                exception("Error in get_samples: could not connect to server")  
-                                                                                  
+        else:
+            logging.getLogger("ispyb_client").\
+                exception("Error in get_samples: could not connect to server")
+
         return response_samples  """
- 
+
 
 
 

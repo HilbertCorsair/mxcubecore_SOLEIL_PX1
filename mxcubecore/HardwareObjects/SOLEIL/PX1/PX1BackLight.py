@@ -32,11 +32,11 @@ class EnvironmentState:
     UNKNOWN, ON, RUNNING, ALARM, FAULT = (0, 1, 10, 13, 14)
     state_desc = {ON: "ON", RUNNING: "RUNNING", ALARM: "ALARM", FAULT: "FAULT"}
 
-class Light(HardwareObject):
+class PX1BackLight(HardwareObject):
     def __init__(self, name):
         super().__init__(name)
         self._light_state = "OFF"
-    
+
     def augment(self):
         self.tangoname = self.get_property("tangoname")
         self.device = DeviceProxy(self.tangoname)
@@ -47,12 +47,12 @@ class Light(HardwareObject):
     @light.setter
     def light(self, l_st):
         self._light_state = l_st
-    
+
     def light_switch(self):
-        if self.device.readyForVisuSample: 
+        if self.device.readyForVisuSample:
             self.device.GoToVisuSamplePhase
             gevent.sleep(5)
-            self.update_backlight 
+            self.update_backlight
         elif self.device.currentPhase == "VISUSAMPLE":
             self.device.GoToDefaultPhase
             gevent.sleep(5)
@@ -64,7 +64,7 @@ class Light(HardwareObject):
             self.px1env_ho.set_phase("DEFAULT")
         else:
             print("Trigger must be either ON or OFF")"""
-    
+
     def update_backlight(self):
         self.light = "ON" if self.device.currentPhase == "VISUSAMPLE" else "OFF"
         self.emit("stateChanged", (self.light, ))
