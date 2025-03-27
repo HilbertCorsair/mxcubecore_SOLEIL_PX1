@@ -781,6 +781,7 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         self.beamline_name = "PROXIMA1"#self.get_property("beamline_name")
         self.site = self.get_property("site")
         self.adapter = self._create_data_adapter()
+        self.ldapConnection = self.get_object_by_role("ldapServer")
 
     def _create_data_adapter(self) -> ISPyBDataAdapter:
         print("Creating curstom data adapter")

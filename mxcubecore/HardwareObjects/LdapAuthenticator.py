@@ -5,9 +5,7 @@ It works in principle for ESRF, Soleil Proxima and MAXIV beamlines
 """
 
 import logging
-
 import ldap
-
 from mxcubecore.HardwareObjects.abstract.AbstractAuthenticator import AbstractAuthenticator
 
 """
@@ -38,7 +36,7 @@ class LdapAuthenticator(AbstractAuthenticator):
         ldaphost = self.get_property("ldaphost")
         ldapport = self.get_property("ldapport")
         self.process_host = self.get_property('process_host')
-        
+
         if ldaphost is None:
             logging.getLogger("HWR").error(
                 "LdapAuthenticator: you must specify the LDAP hostname"
@@ -111,15 +109,14 @@ class LdapAuthenticator(AbstractAuthenticator):
         # login and use that value for programming session hwo directories
 
         self._field_values = None
-        
         if self._ldapConnection is None:
             return self._cleanup(msg="no LDAP server configured")
-        
+
         """
         logging.getLogger("HWR").debug(
             "LdapAuthenticator: searching for %s / %s" % (username, self.domstr)
         )
-        
+
         try:
             search_str = self.domstr
             if fields is None:
@@ -136,14 +133,14 @@ class LdapAuthenticator(AbstractAuthenticator):
                 return self.authenticate(username, password, retry=False)
             else:
                 return self._cleanup(ex=err)
-        
+
 
         if not found:
             return self._cleanup(msg="unknown proposal %s" % username)
 
         if fields is not None:
             self._field_values = found[0][1]
-        
+
         if password == "":
             return self._cleanup(msg="invalid password for %s" % username)
 
@@ -158,7 +155,10 @@ class LdapAuthenticator(AbstractAuthenticator):
         """
         handle = self._ldapConnection.simple_bind(username, password)
         print("Handling")
-        
+        import pdb
+        pdb.set_trace()
+
+
         try:
             self._ldapConnection.result(handle)
         except ldap.INVALID_CREDENTIALS:
@@ -176,5 +176,5 @@ class LdapAuthenticator(AbstractAuthenticator):
                 return self.authenticate(username, password, retry=False)
             else:
                 return self._cleanup(ex=err)
-        
+
         return True

@@ -8,7 +8,9 @@ from mxcubecore import HardwareRepository as HWR
 #from HardwareRepository import HardwareRepository
 from mxcubecore.HardwareObjects.Session import Session
 from mxcubecore.model import queue_model_objects
-
+import sys
+sys.path.append("/nfs/ruche/share-dev/px1dev/Proposal_DB")
+from Proposal_db_client import ProposalDatabase , is_proposal_enabled
 
 log = logging.getLogger("HWR")
 
@@ -39,6 +41,18 @@ class SOLEILSession(Session):
         process_path = self.get_processed_directory()
 
         return full_path, process_path
+
+    def px1_authorisation (self, login_id, password):
+
+        db = ProposalDatabase()
+        db.enable_proposal("20100023", "27/03/2025", "09:30")
+
+
+
+        px1_check = is_proposal_enabled(login_id)
+        print(f"PX1Check {px1_check}")
+        ldap_access = self.ldap_ho.login(login_id, password)
+        return (px1_check, ldap_access)
 
 
     def get_username(self) -> str:
