@@ -465,8 +465,8 @@ class Beamline(ConfiguredObject):
         return self._objects.get("beamstop")
 
     __content_roles.append("beamstop")
-    
-    
+
+
     @property
     def capillary(self):
         """Environment specifique PX1"""
@@ -474,8 +474,8 @@ class Beamline(ConfiguredObject):
         return self._objects.get("capillary")
 
     __content_roles.append("capillary")
-    
-    
+
+
     @property
     def resolution(self):
         """Resolution Hardware object
@@ -868,8 +868,8 @@ class Beamline(ConfiguredObject):
         for tag, val in params.items():
             setattr(acq_parameters, tag, val)
 
-        motor_positions = self.diffractometer.get_positions()
-        osc_start = motor_positions.get("phi")
+        motor_positions = self.diffractometer.get_motor_positions()
+        osc_start = motor_positions.get("omega")
         if osc_start is None:
             acq_parameters.osc_start = params.get("osc_start")
         else:
@@ -879,13 +879,13 @@ class Beamline(ConfiguredObject):
         if kappa is None:
             acq_parameters.kappa = None
         else:
-            acq_parameters.kappa = round(float(kappa), 2)
+            acq_parameters.kappa = round(float(kappa), 1)
 
         kappa_phi = motor_positions.get("kappa_phi")
         if kappa_phi is None:
             acq_parameters.kappa_phi = None
         else:
-            acq_parameters.kappa_phi = round(float(kappa_phi), 2)
+            acq_parameters.kappa_phi = round(float(kappa_phi), 1)
 
         try:
             acq_parameters.resolution = self.resolution.get_value()
@@ -973,15 +973,15 @@ class Beamline(ConfiguredObject):
             carac_params ={"exposure_time": 0.1,
                            "start_angle": 0.0,
                            "range" : 1,
-                           "number_of_passes": 1, 
+                           "number_of_passes": 1,
                            "start_image_number": 1,
                            "run_number" : 1,
-                           "overlap": 0, 
+                           "overlap": 0,
                            "number_of_images" : 4,
                            "detector_mode" : 1}
             return carac_params
 
-  
+
     def force_emit_signals(self):
         for role in self.all_roles:
             hwobj = getattr(self, role)

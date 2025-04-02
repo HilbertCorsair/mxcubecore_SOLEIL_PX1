@@ -22,14 +22,13 @@ class PX1Flux(AbstractFlux):
         self.trans_hwo = None
         self._energy = None
         self._exp_time = None
-        print("REINIT FLUX")
         self._flux = None
         self._osc_start = None
         self._osc_end = None
         self._previous_value = None
         self._current_value = None
         self._delta_trig = 1e-9
-    
+
     def init(self):
         super().init()
         self.cv = None
@@ -45,7 +44,7 @@ class PX1Flux(AbstractFlux):
         except KeyError:
             logging.getLogger().warning('%s: cannot connect to channel', self.name())
         except Exception as e:
-            import traceback 
+            import traceback
             logging.getLogger("HWR").error("error creating channel value : %s ", traceback.format_exc())
 
         log.debug("----000-----> PX1Flux %s" % self.delta)
@@ -106,13 +105,12 @@ class PX1Flux(AbstractFlux):
 
 
     def value_changed(self, value):
-        
+
         if self.pv:
             cond = abs(self.pv - value)/self.pv > self._delta_trig
             if self._delta_trig  and cond:
                 self.cv = value
-                print(f"CHANGING FLUX VALUE TO {value}")
-                self.emit('valueChanged', value)            
+                self.emit('valueChanged', value)
 
     def state_changed(self, value):
         s = self.motstate_to_state(str(value))
@@ -124,7 +122,7 @@ class PX1Flux(AbstractFlux):
         flux = 1e12
         if not transmission:
             return None
-        else: 
+        else:
             try:
                 current_transmission = self.trans_hwo.get_att_factor()
                 cflux = flux * transmission / current_transmission
@@ -136,7 +134,7 @@ class PX1Flux(AbstractFlux):
            exp_time == self._exp_time and \
            cflux == self._flux and \
            osc_start == self._osc_start and \
-           osc_end == self._osc_end: 
+           osc_end == self._osc_end:
               return self.dose_latest_value
 
         self._energy = energy
@@ -193,7 +191,7 @@ class PX1Flux(AbstractFlux):
            exp_time == self._exp_time and \
            cflux == self._flux and \
            osc_start == self._osc_start and \
-           osc_end == self._osc_end: 
+           osc_end == self._osc_end:
               return self.dose_latest_value
 
         self._energy = energy
@@ -207,9 +205,9 @@ class PX1Flux(AbstractFlux):
 
         #log.debug('PX1Flux: get_DWD_from_model')
         #log.debug('PX1Flux: photon energy %.3f ' % self._energy)
-        x = MODEL_DOSE_FUNCTION(self._energy) 
+        x = MODEL_DOSE_FUNCTION(self._energy)
         #log.debug('PX1Flux: photon flux %.3f ' % self._flux)
-        x *= (self._flux/MODEL_FLUX) 
+        x *= (self._flux/MODEL_FLUX)
         #log.debug('PX1Flux: total_exposure_time %.2f' % self._exp_time)
         x *= (self._exp_time/MODEL_TIME)
         dose_value = x
@@ -224,4 +222,4 @@ class PX1Flux(AbstractFlux):
             return None
 
 def test_hwo(hwo):
-    print( hwo.get_dose(energy=10.4, exp_time=3, osc_start=10, osc_end=180, transmission=40.0) ) 
+    print( hwo.get_dose(energy=10.4, exp_time=3, osc_start=10, osc_end=180, transmission=40.0) )

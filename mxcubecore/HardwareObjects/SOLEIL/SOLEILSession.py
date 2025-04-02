@@ -44,14 +44,11 @@ class SOLEILSession(Session):
 
     def px1_authorisation (self, login_id, password):
 
-        db = ProposalDatabase()
-        db.enable_proposal("20100023", "27/03/2025", "09:30")
-
-
 
         px1_check = is_proposal_enabled(login_id)
         print(f"PX1Check {px1_check}")
-        ldap_access = self.ldap_ho.login(login_id, password)
+        ldap_access, _ = self.ldap_ho.login(login_id, password)
+
         return (px1_check, ldap_access)
 
 

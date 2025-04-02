@@ -1,4 +1,5 @@
 from mxcubecore.BaseHardwareObjects import HardwareObject
+from mxcubecore.HardwareObjects.abstract.AbstractNState import AbstractNState
 from mxcubecore.Command.Tango import DeviceProxy
 import gevent
 class EnvironmentPhase:
@@ -32,7 +33,12 @@ class EnvironmentState:
     UNKNOWN, ON, RUNNING, ALARM, FAULT = (0, 1, 10, 13, 14)
     state_desc = {ON: "ON", RUNNING: "RUNNING", ALARM: "ALARM", FAULT: "FAULT"}
 
-class PX1BackLight(HardwareObject):
+class PX1BackLight(AbstractNState):
+    """The name is deceptive.
+    This class changes phases using the PX1Environment HO
+    It is represented on the UI as the light button in the sample view menu.
+    This is a custom PX1 adaptation of the backlight
+    """
     def __init__(self, name):
         super().__init__(name)
         self._light_state = "OFF"
@@ -42,10 +48,10 @@ class PX1BackLight(HardwareObject):
         self.device = DeviceProxy(self.tangoname)
 
     @property
-    def light(self):
+    def state(self):
         return self._light_state
-    @light.setter
-    def light(self, l_st):
+    @state.setter
+    def state(self, l_st):
         self._light_state = l_st
 
     def light_switch(self):
@@ -68,6 +74,9 @@ class PX1BackLight(HardwareObject):
     def update_backlight(self):
         self.light = "ON" if self.device.currentPhase == "VISUSAMPLE" else "OFF"
         self.emit("stateChanged", (self.light, ))
+
+    def get_value(self):
+        return self._light_state
 
 
     def _init_commands(self):

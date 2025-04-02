@@ -413,7 +413,7 @@ class SampleView(AbstractSampleView):
             (dict): The first selected grid as a dictionary
         """
         grid = None
-        c = 0 
+        c = 0
 
         for shape in self.get_shapes():
             if isinstance(shape, Grid):
@@ -552,7 +552,7 @@ class Shape(object):
         for key, value in shape_dict.items():
             if hasattr(self, key):
                 setattr(self, key, value)
-    
+
     """def as_dict(self):
         cpos_list = []
         import pdb
@@ -566,7 +566,7 @@ class Shape(object):
         d.pop("cp_list")
         d["motor_positions"] = str(cpos_list)
         return d"""
-    
+
 
     def as_dict(self):
         """
@@ -575,22 +575,22 @@ class Shape(object):
         """
         # Create a new dictionary with only the needed attributes
         result = {}
-        
+
         # Collect the motor positions from control points
         motor_positions = []
         for control_point in self.cp_list:
             motor_positions.append(control_point.as_dict())
-        
-     
+
+
         # Add all instance variables except those we want to exclude
         for key, value in vars(self).items():
             # Skip the hardware object and control points list which we handle separately
             if key != "shapes_hw_object" and key != "cp_list":
                 result[key] = value
-        
+
         # Add the formatted motor positions
         result["motor_positions"] = str(motor_positions)
-        
+
         return result
 
 
@@ -728,10 +728,10 @@ class Grid(Shape):
 
     def get_result(self):
         return self.result
-    
+
 
     def as_dict(self):
-        print("Turning to dict")
+        #print("Turning to dict")
         d = Shape.as_dict(self)
         # replace cpos_list with the motor positions
         d["motor_positions"] = self.cp_list[0].as_dict()

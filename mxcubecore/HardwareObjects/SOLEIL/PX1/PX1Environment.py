@@ -104,7 +104,7 @@ class PX1Environment(HardwareObject):
     def _update_state(self,s=None):
         gevent.sleep(0.1)
         motor_state = self.state_chan.get_value()
-        self.log.debug(f"Reading motor state for {self.name} is {str(motor_state)}")
+        #self.log.debug(f"Reading motor state for {self.name} is {str(motor_state)}")
         self._motor_state_changed(motor_state)
 
     def _motor_state_changed(self, state=None):
@@ -201,7 +201,7 @@ class PX1Environment(HardwareObject):
             time.sleep(0.1)
 
     def goto_collect_phase(self):
-      
+
         if not self.ready_for_collect() or self.get_phase() != "COLLECT":
             self.get_command_object("GoToCollectPhase")
             if not self.get_command_object("GoToCollectPhase"):
@@ -211,8 +211,8 @@ class PX1Environment(HardwareObject):
                     time.sleep(0.1)
                 except :
                     pass
-                    
-            
+
+
     def goto_loading_phase(self):
         if not self.ready_for_transfer():
             self.get_command_object("GoToTransfertPhase")

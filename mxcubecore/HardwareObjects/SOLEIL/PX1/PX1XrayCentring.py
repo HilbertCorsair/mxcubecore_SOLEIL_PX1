@@ -26,7 +26,7 @@ from matplotlib.patches import Circle, Rectangle
 from matplotlib import cm
 
 from mxcubecore import HardwareRepository as HWR
-
+from mxcubecore.HardwareObjects.abstract.AbstractXrayCentring import AbstractXrayCentring
 from mxcubecore.BaseHardwareObjects import HardwareObject
 from PyTango import DeviceProxy
 
@@ -69,10 +69,10 @@ class SimulatedProcessing(DialsProcessing):
         pass
 
 
-class PX1XrayCentring(HardwareObject):
+class PX1XrayCentring(AbstractXrayCentring):
     #STATES = PX1PandaCollectStates
 
-    default_prefix = 'xraycent' 
+    default_prefix = 'xraycent'
 
     process_pc = 'process2'
 
@@ -125,7 +125,8 @@ class PX1XrayCentring(HardwareObject):
         self.waiting_grid = False
         self.proc_display = None
         self.only_helical = False
-    
+        self.shape = None
+
     def init(self):
         print("Init X ray centring")
         self.centring_task = None
@@ -133,9 +134,9 @@ class PX1XrayCentring(HardwareObject):
         self.collect_dev = DeviceProxy(self.get_property('tangoname'))
         self.collect_dev.set_timeout_millis(20000)
         self.collect_state_chan = self.get_channel_object("state")
-       
 
-        self.sgonaxis_dev = DeviceProxy(self.get_property('tangoname'))
+
+        self.sgonaxis_dev = DeviceProxy(self.get_property('sgonaxis'))
         try:
             self.omega_relative = float( self.get_property('omega_increment') )
         except BaseException as e:
@@ -174,10 +175,12 @@ class PX1XrayCentring(HardwareObject):
         self.px1env_hwo = self.get_object_by_role('px1environment')
         self.lightarm_hwo  = self.get_object_by_role('lightarm')
         self.graphics_manager_hwo = self.get_object_by_role('graphics_manager')
+        self._shape = None
         self.session_hwo = self.get_object_by_role('session')
         self.smargon_hwo = self.get_object_by_role('smargon')
-        self.beaminfo_hwo = self.get_object_by_role('beaminfo') 
+        self.beaminfo_hwo = self.get_object_by_role('beaminfo')
         self.gevent_event = gevent.event.Event()
+        self.set_base_directories()
         print(f" Init PX1XRayCentring from : {self.name()}")
 
     def define_state(self):
@@ -185,7 +188,7 @@ class PX1XrayCentring(HardwareObject):
         ho_state = self.motstate_to_state(motstate)
         self.state = "ON" if ho_state.name == "READY" else self.state
         print(self.state )
-   
+
     def motstate_to_state(self, motstate):
         motstate = str(motstate)
         if motstate in ["OFF", "STANDBY"]: #normal for PX11Energy
@@ -196,9 +199,9 @@ class PX1XrayCentring(HardwareObject):
             state = self.STATES.FAULT
         else:
             state = self.STATES.UNKNOWN
-        return state    
-    
-    def open_dialog(self, dict_dialog):
+        return state
+
+    """def open_dialog(self, dict_dialog):
         # If necessary unblock dialog
         if not self.gevent_event.is_set():
             self.gevent_event.set()
@@ -217,7 +220,7 @@ class PX1XrayCentring(HardwareObject):
             while not self.gevent_event.is_set():
                 self.gevent_event.wait()
                 time.sleep(0.1)
-        return self.params_dict
+        return self.params_dict"""
 
     def get_values_map(self):
         return self.params_dict
@@ -248,7 +251,7 @@ class PX1XrayCentring(HardwareObject):
                 dict_workflow["requires"] = []
             dict_workflow["doc"] = ""
             workflow_list.append(dict_workflow)
-            
+
         self.define_state()
         return workflow_list
 
@@ -312,14 +315,43 @@ class PX1XrayCentring(HardwareObject):
         self.graphics_manager_hwo.select_xcentring_area()
         self.log_msg("<Starting xray centring procedure>")
 
+    def get_xcentring_deltas_start_end_mm(self):
+
+        extent_dx_pix = self.shape_coords[2] - self.shape_coords[0]
+        extent_dy_pix = self.shape_coords[3] - self.shape_coords[1]
+        cent_x_pix = self.shape_coords[0] + extent_dx_pix/2
+        cent_y_pix = self.shape_coords[1] + extent_dy_pix/2
+
+        #start_coords, end_coords = self.xraycent_area_item.get_start_end_coords() # pixels
+
+        start_dx_pix = self.shape_coords[0] - cent_x_pix
+        start_dy_pix = self.shape_coords[1] - cent_y_pix
+
+        end_dx_pix = self.shape_coords[2] - cent_x_pix
+        end_dy_pix = self.shape_coords[3] - cent_y_pix
+
+        start_dx_mm = start_dx_pix / float(self.shape.pixels_per_mm[0])
+        start_dy_mm = start_dy_pix / float(self.shape.pixels_per_mm[1])  # axe y opposite from grid to motor
+
+        end_dx_mm = -end_dx_pix / float(self.shape.pixels_per_mm[0])
+        end_dy_mm = end_dy_pix / float(self.shape.pixels_per_mm[1])
+
+
+
+        extent_dx_mm = extent_dx_pix / float(self.shape.pixels_per_mm[0])
+        extent_dy_mm = extent_dy_pix / float(self.shape.pixels_per_mm[1])
+
+        return start_dx_mm, start_dy_mm, end_dx_mm, end_dy_mm, extent_dx_mm, extent_dy_mm
+
     def set_grid_and_continue(self):
 
         self.waiting_grid = False
 
-        nlines, nimgs = self.graphics_manager_hwo.get_xcentring_nlines_nimgs()
+        nlines = self.shape.num_rows
+        nimgs = self.shape.num_cols * self.shape.num_rows
 
         start_dx, start_dy, end_dx, end_dy, extent_x, extent_y = \
-              self.graphics_manager_hwo.get_xcentring_deltas_start_end_mm()
+              self.get_xcentring_deltas_start_end_mm()
 
         log.debug("GRID defined by user.  nlines: %s, nimgs: %s\n", nlines, nimgs)
         log.debug("  extent_x = %3.4f, extent_y = %3.4f", extent_x, extent_y)
@@ -368,7 +400,7 @@ class PX1XrayCentring(HardwareObject):
         log.debug('PX1XrayCentring - stopping xcentring')
         self.log_msg("!! xcentring stopped by user")
 
-        if self.waiting_grid: 
+        if self.waiting_grid:
             self.graphics_manager_hwo.stop_select_xcentring_area()
             self.waiting_grid = False
             self.xcentring_done()
@@ -376,7 +408,7 @@ class PX1XrayCentring(HardwareObject):
         if self.centring_task is not None:
             self.centring_task.kill()
 
-        if self.is_running(): 
+        if self.is_running():
             self.collect_dev.Stop()
 
         self.xcentring_done()
@@ -403,18 +435,18 @@ class PX1XrayCentring(HardwareObject):
     def do_xcentring(self):
         try:
             log.debug('PX1XrayCentring - running xcentring')
-            
-    
+
+
             # self.X = []
             self.Y = []
             self.errmsg = ""
-    
+
             # decide file output, directory, template
             #base_directory = self.get_base_directory()
             #output_directory = self.get_process_directory()
-    
-           
-    
+
+
+
             # run the sequence
             self.emit('xcentringInfo', 'running', 'Preparing')
 
@@ -443,7 +475,7 @@ class PX1XrayCentring(HardwareObject):
                 self.emit('xcentringInfo', 'running', 'Running mesh scan')
 
                 self.run_mesh()
-    
+
                 self.zero_sgonaxis()
 
                 x, y, spots  = self.do_mesh_analysis()
@@ -467,14 +499,14 @@ class PX1XrayCentring(HardwareObject):
 
             self.emit('xcentringInfo', 'running', 'Helical phase')
 
-            # 
+            #
             # save positions for centre calculation
-            # 
+            #
             self.x_saved = self.phiy_mot.get_position()
-    
+
             # self.X.append(0.0)
             self.Y.append(0.0)  # distance from center. but we are at center
-    
+
             # run a series of helical scans
 
             self.current_x = self.phiy_mot.get_position()
@@ -510,7 +542,7 @@ class PX1XrayCentring(HardwareObject):
             if None in self.Y:
                 self.emit('xcentringInfo', 'running', 'No spots in helical analysis')
                 raise Exception('No spots in helical analyis')
-    
+
             self.emit('xcentringInfo', 'running', 'Calculating centred position')
             cpos = self.calculate_center()
             self.emit('xcentringInfo', 'running', 'Moving motors to %s' % str(cpos))
@@ -520,7 +552,7 @@ class PX1XrayCentring(HardwareObject):
             self.print_current_positions(title="FINAL")
         except BaseException as e:
             import traceback
-            self.errmsg = str(e)   
+            self.errmsg = str(e)
             self.errmsg = traceback.format_exc()
             log.debug(self.errmsg)
             raise(e)
@@ -537,17 +569,17 @@ class PX1XrayCentring(HardwareObject):
     def zero_sgonaxis(self):
         log.debug("ZEROing sgonaxis axis")
         self.log_msg("ZEROing sgonaxis axis")
-        self.sgonaxis_dev.x = 0.0 
+        self.sgonaxis_dev.x = 0.0
         time.sleep(2)
-        self.sgonaxis_dev.y = 0.0 
+        self.sgonaxis_dev.y = 0.0
         time.sleep(2)
-        self.sgonaxis_dev.z = 0.0 
+        self.sgonaxis_dev.z = 0.0
         time.sleep(2)
         log.debug("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % \
             (self.sgonaxis_dev.x, self.sgonaxis_dev.y, self.sgonaxis_dev.z))
         self.log_msg("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % \
             (self.sgonaxis_dev.x, self.sgonaxis_dev.y, self.sgonaxis_dev.z))
-         
+
     def close_report_display(self):
         if self.proc_display:
             try:
@@ -572,12 +604,12 @@ class PX1XrayCentring(HardwareObject):
         dx = -r * np.sin(a)
         dy = r * np.cos(a)
 
-        self.log_msg("   result: ") 
+        self.log_msg("   result: ")
         self.log_msg("      dx= %3.4f, dy=%3.4f" % (dx,dy))
 
         sampx_pos = float(self.current_sampx + dx)
         sampy_pos = float(self.current_sampy + dy)
-                 
+
         kappa_pos = self.kappa_mot.get_position()
         kappaphi_pos = self.kappaphi_mot.get_position()
 
@@ -586,8 +618,8 @@ class PX1XrayCentring(HardwareObject):
                        'sampx': sampx_pos,
                        'sampy': sampy_pos,
                        'phiz':  sampy_pos,  # phiz is not used anyway
-                       'kappa':  kappa_pos, 
-                       'kappa_phi':  kappaphi_pos}  
+                       'kappa':  kappa_pos,
+                       'kappa_phi':  kappaphi_pos}
 
         self.print_center_positions(centred_pos)
 
@@ -605,7 +637,7 @@ class PX1XrayCentring(HardwareObject):
         self.log_msg("    y_offset (sampy mot) = %5.3f" % sampy_pos)
         self.log_msg("    z_offset (sampx mot) = %5.3f" % sampx_pos)
 
-      
+
     def print_center_positions(self, pos):
         self.log_msg("CENTERED position is: %s" % str(pos))
 
@@ -621,26 +653,33 @@ class PX1XrayCentring(HardwareObject):
 
     # run functions
     def prepare(self):
+
+        self.shape = self.graphics_manager_hwo.shapes
+        self.shape_name = [name for name in self.shape.keys()][0]
+        self.shape_coords = self.shape[self.shape_name].screen_coord
+
+        self.shape = self.shape[self.shape_name]
+
         self.best_position = None
         self.mesh_results = None
         self.snapshot_files = []
         self.fig = None
 
         self.save_current_pos()
-
+        self.ps_y_saved, self.ps_z_saved = self.calc_pseudo(self.sampy_saved, self.sampx_saved, omega_pos=self.omega_saved)
         # calculate scene range in motor coordinates
-        self.scene_size = self.graphics_manager_hwo.get_scene_size_mm()
-      
-        self.left = self.phiy_saved + self.scene_size[0]/2.0
+        #self.scene_size = self.graphics_manager_hwo.get_scene_size_mm()
+
+        """self.left = self.phiy_saved + self.scene_size[0]/2.0
         self.right = self.phiy_saved - self.scene_size[0]/2.0
 
-        self.ps_y_saved, self.ps_z_saved = self.calc_pseudo(self.sampy_saved, self.sampx_saved, omega_pos=self.omega_saved)
+
         self.top = self.ps_y_saved + self.scene_size[1]/2.0
         self.bottom = self.ps_y_saved - self.scene_size[1]/2.0
         self.total_range=[self.left, self.right, self.top, self.bottom]
 
         snapshot_0 = {'name': 'mesh', 'ps_y_saved': self.ps_y_saved, 'top': self.top, 'bottom': self.bottom, 'range': self.total_range }
-        
+
         self.snapshot_info = [snapshot_0]
 
         for i in range(self.nb_helical_scans):
@@ -656,7 +695,7 @@ class PX1XrayCentring(HardwareObject):
             log.debug("initial (pseudo) positions for %s:" % info['name'])
             log.debug("    ps_y_saved: %s" % info['ps_y_saved'])
             log.debug("    top: %s" % info['top'])
-            log.debug("    bottom: %s" % info['bottom'])
+            log.debug("    bottom: %s" % info['bottom'])"""
 
         self.set_prefix(self.default_prefix)
 
@@ -665,7 +704,7 @@ class PX1XrayCentring(HardwareObject):
         self.print_current_positions(title="INITIAL")
         self.fill_position_grid()
 
-        self.print_mesh()
+        #self.print_mesh()
 
     def save_current_pos(self):
         self.omega_saved = self.omega_mot.get_position()
@@ -684,7 +723,7 @@ class PX1XrayCentring(HardwareObject):
            'zOffset':  self.sampx_saved,
            'omega':  self.omega_saved,
         }
-    
+
         self.log_msg('RESTORING positions. Moving smargon to x=%s,y=%s,z=%s' % (self.phiy_saved,self.sampy_saved,self.sampx_saved))
 
         self.emit('xcentringInfo', 'running', 'restoring saved positions')
@@ -695,13 +734,14 @@ class PX1XrayCentring(HardwareObject):
     def calculate_mesh(self):
 
         # pseudo y and z from motor positions
-        y_from_corner = self.mesh_y_interval_size / 2.0
-
+        #y_from_corner = self.mesh_y_interval_size / 2.0
+        import pdb
+        pdb.set_trace()
         self.mesh_x_start = self.phiy_saved + self.mesh_dx_start
         self.mesh_x_end = self.phiy_saved + self.mesh_dx_end
 
-        self.mesh_y_start = self.ps_y_saved + self.mesh_dy_start 
-        self.mesh_y_end = self.ps_y_saved + self.mesh_dy_end 
+        self.mesh_y_start = self.ps_y_saved + self.mesh_dy_start
+        self.mesh_y_end = self.ps_y_saved + self.mesh_dy_end
 
         self.mesh_width = self.mesh_x_end - self.mesh_x_start
         self.mesh_height = self.mesh_y_end - self.mesh_y_start
@@ -720,37 +760,27 @@ class PX1XrayCentring(HardwareObject):
         self.y_start, self.z_start = self.calc_y_z(first_y, self.ps_z_saved, omega_pos=self.omega_saved)
         self.y_end, self.z_end = self.calc_y_z(last_y, self.ps_z_saved, omega_pos=self.omega_saved)
 
-        return 
+        return
 
-        self.y_start, self.z_start = self.calc_y_z(self.mesh_y_start, self.ps_z_saved, omega_pos=self.omega_saved)
-        self.y_end, self.z_end = self.calc_y_z(self.mesh_y_end, self.ps_z_saved, omega_pos=self.omega_saved)
-
-        # correct y_start, y_end and z_start, z_end to start in the middle of the interval (not at the corners)
-        self.y_start += half_y_interval
-        self.y_end -= half_y_interval
-
-        half_z_interval = (self.z_end - self.z_start) / (self.mesh_nb_lines*2.0)
-        self.z_start += half_z_interval
-        self.z_end -= half_z_interval
 
     def fill_position_grid(self):
         # positions where the images are expected (at the center of each square)
-        self.x_positions = np.arange(self.mesh_x_start+self.mesh_x_halfstep, self.mesh_x_end, self.mesh_x_step) 
-        self.y_positions = np.arange(self.mesh_y_start+self.mesh_y_halfstep, self.mesh_y_end, self.mesh_y_step) 
- 
+        self.x_positions = np.arange(self.mesh_x_start+self.mesh_x_halfstep, self.mesh_x_end, self.mesh_x_step)
+        self.y_positions = np.arange(self.mesh_y_start+self.mesh_y_halfstep, self.mesh_y_end, self.mesh_y_step)
+
         self.x_grid, self.y_grid = np.meshgrid(self.x_positions, self.y_positions)
 
-        self.x_extended_pos = np.linspace(self.mesh_x_start+self.mesh_x_halfstep, 
-                                          self.mesh_x_end-self.mesh_x_halfstep, 
+        self.x_extended_pos = np.linspace(self.mesh_x_start+self.mesh_x_halfstep,
+                                          self.mesh_x_end-self.mesh_x_halfstep,
                                           self.mesh_img_per_line * self.blur_repeat)
 
-        self.y_extended_pos = np.linspace(self.mesh_y_start+self.mesh_y_halfstep, 
-                                          self.mesh_y_end-self.mesh_y_halfstep, 
+        self.y_extended_pos = np.linspace(self.mesh_y_start+self.mesh_y_halfstep,
+                                          self.mesh_y_end-self.mesh_y_halfstep,
                                           self.mesh_nb_lines * self.blur_repeat)
 
         self.xe_grid, self.ye_grid = np.meshgrid(self.x_extended_pos, self.y_extended_pos)
 
-    def print_mesh(self):
+    '''def print_mesh(self):
         self.log_msg("MESH coordinates are (in mm):")
         self.log_msg("  Video Size (mm) : %3.3f x %3.3f" % self.scene_size)
         self.log_msg("  Grid parameters : %s lines x %s imgs per line" % (self.mesh_nb_lines,self.mesh_img_per_line))
@@ -771,7 +801,7 @@ class PX1XrayCentring(HardwareObject):
         self.log_msg("       target  zOffset.        Start: %3.4f, End: %3.4f (  diff: %3.4f)" % (self.z_start, self.z_end, self.z_end - self.z_start))
         self.log_msg("")
         self.log_msg("  Y positions for images are:")
-        self.log_msg("       %s" % str(self.y_positions))
+        self.log_msg("       %s" % str(self.y_positions))'''
 
     def run_mesh(self):
         self.emit('xcentringInfo', 'running', 'running mesh')
@@ -794,15 +824,15 @@ class PX1XrayCentring(HardwareObject):
         self.collect_dev.characterisation = False
         self.collect_dev.mesh = True
         self.collect_dev.helicalScan = False
-        self.collect_dev.nTrigger = self.mesh_nb_lines  
-        self.collect_dev.nimages = self.mesh_img_per_line  
+        self.collect_dev.nTrigger = self.mesh_nb_lines
+        self.collect_dev.nimages = self.mesh_img_per_line
         self.collect_dev.startAngle = self.omega_saved
-        self.collect_dev.meshStart = map(float, (self.mesh_x_start,self.y_start,self.z_start))
-        self.collect_dev.meshEnd = map(float, (self.mesh_x_end,self.y_end,self.z_end))
+        self.collect_dev.meshStart = [float(x) for x in (self.mesh_x_start,self.y_start,self.z_start)]
+        self.collect_dev.meshEnd = [float(x) for x in (self.mesh_x_end,self.y_end,self.z_end)]
         self.collect_dev.exposurePeriod = self.mesh_exptime
         self.collect_dev.imagePath = self.get_base_directory()
         self.collect_dev.imageName = self.get_prefix()
-   
+
         # start the mesh
         self.collect_dev.prepareCollect()
         self.collect_dev.start()
@@ -823,8 +853,8 @@ class PX1XrayCentring(HardwareObject):
 
         log.debug(" at %s py_pos %s, pz_pos:  %s", omega, self.helical_y0, self.helical_z0)
 
-        self.dy_start = -self.helical_y_extent / 2.0 
-        self.dy_end =  self.helical_y_extent / 2.0 
+        self.dy_start = -self.helical_y_extent / 2.0
+        self.dy_end =  self.helical_y_extent / 2.0
 
         py_start = self.helical_y0 + self.dy_start
         py_end = self.helical_y0 + self.dy_end
@@ -838,7 +868,7 @@ class PX1XrayCentring(HardwareObject):
 
         image_width = 1.0/self.helical_nimgs
 
-        self.helical_y_deltas = np.arange(self.dy_start + self.helical_y_halfstep, self.dy_end, self.helical_y_step) 
+        self.helical_y_deltas = np.arange(self.dy_start + self.helical_y_halfstep, self.dy_end, self.helical_y_step)
 
         self.log_msg("HELICAL coordinates are (in mm):")
         self.log_msg("       current xOffset (phiy).       %3.4f" % (self.current_x))
@@ -869,7 +899,7 @@ class PX1XrayCentring(HardwareObject):
         self.collect_dev.helicalStart = start_pos
         self.collect_dev.helicalEnd = end_pos
         self.collect_dev.imageWidth = image_width
-        self.collect_dev.nimages = self.helical_nimgs 
+        self.collect_dev.nimages = self.helical_nimgs
         self.collect_dev.exposurePeriod = self.helical_exptime
         self.collect_dev.imagePath = self.get_base_directory()
         self.collect_dev.imageName = self.get_prefix()
@@ -946,7 +976,7 @@ class PX1XrayCentring(HardwareObject):
             self.y_best = None
         elif index_max is not None:
             self.xs_best = self.x_grid[index_max]
-            self.ys_best = self.y_grid[index_max] 
+            self.ys_best = self.y_grid[index_max]
 
             self.xg_best = self.xe_grid[bmax_idx]
             self.yg_best = self.ye_grid[bmax_idx]
@@ -959,9 +989,9 @@ class PX1XrayCentring(HardwareObject):
         else:
             self.x_best = None
             self.y_best = None
-            log.debug('PX1XrayCentring / data analysis done. cannot find best position') 
+            log.debug('PX1XrayCentring / data analysis done. cannot find best position')
 
-        self.log_msg('    pos x:' % self.x_grid[index_max]) 
+        self.log_msg('    pos x:' % self.x_grid[index_max])
         self.log_msg('    pos y:' % (self.y_grid[index_max]+ self.mesh_y_halfstep))
 
         self.log_msg('data analysis done. best position is x=%s, y=%s' % (self.x_best, self.y_best))
@@ -1003,10 +1033,10 @@ class PX1XrayCentring(HardwareObject):
         else:
             if self.testmode:
                 idx_max = int(len(spots)/2.0)
-                py_max = self.helical_y_deltas[idx_max]  
+                py_max = self.helical_y_deltas[idx_max]
             else:
                 idx_max = spots.argmax()
-                py_max = self.helical_y_deltas[idx_max]  
+                py_max = self.helical_y_deltas[idx_max]
                 log.debug(" - helical analysis result before: %s" % py_max)
                 py_max = self.calc_filtered_com(self.helical_y_deltas,  spots)
                 log.debug(" - helical analysis result after: %s" % py_max)
@@ -1014,12 +1044,12 @@ class PX1XrayCentring(HardwareObject):
         return py_max, spots
 
     def calc_filtered_com(self, x, y, high_pass=0.75):
-        f_value = y.max() * high_pass 
+        f_value = y.max() * high_pass
         y = copy.copy(y)
         y[y<f_value] = 0
         com = (x*y).sum() / y.sum()
         return com
-        
+
     def move_omega(self, relative_pos):
         log.debug('PX1XrayCentring / move omega by %s' % relative_pos)
         self.omega_mot.sync_move_relative(relative_pos)
@@ -1057,7 +1087,7 @@ class PX1XrayCentring(HardwareObject):
         if omega_pos is None:
             omega_pos = self.omega_mot.get_position()
 
-        omega = math.radians(omega_pos) 
+        omega = math.radians(omega_pos)
 
         py =  y*math.cos(omega) + z*math.sin(omega)
         pz =  -y*math.sin(omega) + z*math.cos(omega)
@@ -1065,11 +1095,11 @@ class PX1XrayCentring(HardwareObject):
         return py,pz
 
     def calc_y_z(self, ypseudo, zpseudo, omega_pos=None):
-        """ normally we want z to be zero """ 
+        """ normally we want z to be zero """
         if omega_pos is None:
             omega_pos = self.omega_mot.get_position()
 
-        omega = math.radians(omega_pos) 
+        omega = math.radians(omega_pos)
 
         log.debug('calc_y_z - getting values for omega %s', omega)
         y = ypseudo * math.cos(omega) - zpseudo*math.sin(omega)
@@ -1097,19 +1127,19 @@ class PX1XrayCentring(HardwareObject):
 
 #####
 # COMMENTED OUT BY LEO ON 2020-07-20 TO CHECK BEHAVIOUR
-#        self.sgonaxis_dev.velocity = self.default_velocity 
+#        self.sgonaxis_dev.velocity = self.default_velocity
 #####
         self.emit('xcentringFinished')
         log.debug('Centring done. all finished')
 
     def get_base_project_directory(self, dirname):
-        """ 
+        """
         extract project base from dirname
            keep the first '5' path components for example:
 
            from:
              /data4/proxima1-soleil/2019_Run3/2019-05-30/20170814/RAW_DATA/AR
-           extract: 
+           extract:
              /data4/proxima1-soleil/2019_Run3/2019-05-30/20170814
         """
         path_c = dirname.split(os.sep)
@@ -1201,7 +1231,7 @@ class PX1XrayCentring(HardwareObject):
     #
     # Supporting actions
     #
-    def collect_snapshots(self,output_directory):
+    '''def collect_snapshots(self,output_directory):
         """
         Descript. :
         """
@@ -1226,25 +1256,25 @@ class PX1XrayCentring(HardwareObject):
             self.save_snapshot(snapshot_filename)
             self.snapshot_files.append(snapshot_filename)
 
-        #  this maybe (to be tested return the image from graphics manager without the need to save and load later 
+        #  this maybe (to be tested return the image from graphics manager without the need to save and load later
         #
         #  self.snapshot_image = self.graphics_manager_hwo.save_scene_snapshot(filename_noshape, return_as_array=True, include_items=False)
 
     def save_snapshot(self, filename):
         self.graphics_manager_hwo.save_scene_snapshot(filename, include_items=False)
-        log.debug("PX1Collect:  - snapshot saved to %s" % filename)
+        log.debug("PX1Collect:  - snapshot saved to %s" % filename)'''
 
     def is_sampleview_phase(self):
-        return self.px1env_hwo.isPhaseVisuSample()
+        return self.px1env_hwo.is_phase_visu_sample()
 
     def go_to_sampleview(self, timeout=180):
-        self.px1env_hwo.gotoSampleViewPhase()
+        self.px1env_hwo.goto_sample_view_phase()
 
         gevent.sleep(0.5)
 
         t0 = time.time()
         while True:
-            env_state = self.px1env_hwo.getState()
+            env_state = self.px1env_hwo.get_state()
             if env_state != "RUNNING" and self.is_sampleview_phase():
                 break
             if time.time() - t0 > timeout:
@@ -1257,7 +1287,7 @@ class PX1XrayCentring(HardwareObject):
 
     def wait_envready(self,timeout=20):
         while True:
-            env_state = self.px1env_hwo.getState()
+            env_state = self.px1env_hwo.get_state()
             if env_state != "RUNNING":
                 break
             if time.time() - t0 > timeout:
@@ -1268,18 +1298,18 @@ class PX1XrayCentring(HardwareObject):
         return True
 
     def is_collect_phase(self):
-        return self.px1env_hwo.isPhaseCollect()
+        return self.px1env_hwo.is_phase_collect()
 
     def go_to_collect(self, timeout=180):
         if self.testmode:
             return
 
-        self.px1env_hwo.gotoCollectPhase()
+        self.px1env_hwo.goto_collect_phase()
         gevent.sleep(0.5)
 
         t0 = time.time()
         while True:
-            env_state = self.px1env_hwo.getState()
+            env_state = self.px1env_hwo.get_state()
             if env_state != "RUNNING" and self.is_collect_phase():
                 break
             if time.time() - t0 > timeout:
@@ -1287,7 +1317,7 @@ class PX1XrayCentring(HardwareObject):
                 break
             gevent.sleep(0.5)
 
-        return self.px1env_hwo.isPhaseCollect()
+        return self.px1env_hwo.is_phase_collect()
 
     ###  supporting actions end
 
@@ -1301,7 +1331,7 @@ class PX1XrayCentring(HardwareObject):
         dials_output_dir = self.get_process_directory()
         #dials_cmd = "/data2/bioxsoft/bin/dials.find_spots"
         #dials_cmd = "/data2/bioxsoft/progs/PHENIX/phenix-1.18.2-3874/build/bin/dials.find_spots"
-        dials_cmd = "/usr/local/dials-v3-6-0/build/bin/dials.find_spots"
+        dials_cmd = "/usr/local/dials-v3-23-0/build/bin/dials.find_spots"
         dials_options = 'shoebox=False per_image_statistics=True spotfinder.filter.ice_rings.filter=True nproc=244'
 
         master_file = os.path.join(self.get_base_directory(), "%s_master.h5" % self.get_prefix())
@@ -1354,7 +1384,7 @@ class PX1XrayCentring(HardwareObject):
         #   new format:   "         |   image |   #spots |    [...]"
         mat=re.search("^[\ \t]*\|",buff[cursor:], re.DOTALL | re.MULTILINE)
         cursor += mat.end()
-    
+
         # search for second line starting with |
         #   old format:   "| 1     | 0      | 0    [...]"
         #   new format    "     |---------+---- [...]"
@@ -1362,8 +1392,8 @@ class PX1XrayCentring(HardwareObject):
         cursor += mat.end()
 
         if buff[cursor+1:cursor+2] == '-':
-        # if second | is followed by a - we are in new dials format. 
-        #    then search for a third | line 
+        # if second | is followed by a - we are in new dials format.
+        #    then search for a third | line
         #    new format:   "         |   image |   #spots |    [...]"
             log.debug("loading dials file with new format")
             print("new dials format")
@@ -1372,13 +1402,13 @@ class PX1XrayCentring(HardwareObject):
         else:
             log.debug("loading dials file with old format")
 
-        block_starts = cursor 
+        block_starts = cursor
         # search for last line of table
         #   old format "------------[..]"
         #   new format "     +--------+----[..]"
         mat=re.search("^\s*\+*\-{7}", buff[cursor:], re.DOTALL | re.MULTILINE)
         cursor = cursor + mat.start()
-    
+
         block_ends = cursor
         buff = buff[block_starts:block_ends]
         buff = buff.strip()
@@ -1386,7 +1416,7 @@ class PX1XrayCentring(HardwareObject):
 
         # Refactored to remove StringIO
         arr = np.fromstring(buff, sep='\n')
-        # in helical mode for test. 
+        # in helical mode for test.
         #   return an array with 12 images = self.helical_nimages
         if self.testmode and helical:  # this is a TEST ONLY feature. remove it when done
             arr = arr[:self.helical_nimgs]
@@ -1500,7 +1530,7 @@ class PX1XrayCentring(HardwareObject):
 
         top = self.snapshot_info[helicalno+1]['top']
         bottom = self.snapshot_info[helicalno+1]['bottom']
-   
+
         if self.only_helical:
             x_0 = (self.right + self.left)/2.0
         else:
@@ -1548,7 +1578,7 @@ class PX1XrayCentring(HardwareObject):
             axsnap.add_patch(p2)
             axheat.text(xc-w/3.0,yc+h/2.0,str(val), fontsize=7)
 
-    def snapshots_to_report(self):
+    '''def snapshots_to_report(self):
 
         snap_titles = ["MESH", "Helical@ omega+120", "Helical@ omega+240"]
 
@@ -1563,9 +1593,9 @@ class PX1XrayCentring(HardwareObject):
         image = plt.imread(snapshot_filename)
         total_range = self.snapshot_info[snap_no]['range']
         log.debug(" - showing snapshot %d - total_range is %s" % (snap_no, str(total_range)))
-        ax.imshow(image, extent=total_range)
+        ax.imshow(image, extent=total_range)'''
 
-    def show_grid(self, mpl_axis, helical=False):
+    """def show_grid(self, mpl_axis, helical=False):
         if helical:
             x = self.x_best - self.mesh_x_halfstep
             y_start = self.helical_visual_start
@@ -1582,11 +1612,11 @@ class PX1XrayCentring(HardwareObject):
         xy = [x,y]
 
         rect = Rectangle(xy, width=w, height=h, fill=False, alpha=0.4, color='red')
-        mpl_axis.add_patch(rect)
+        mpl_axis.add_patch(rect)"""
 
     def show_spots(self, ax, spots, show_values=False):
 
-        w=abs(self.mesh_x_step) 
+        w=abs(self.mesh_x_step)
         h=abs(self.mesh_y_step)
 
         # create a colormap to be used
@@ -1613,7 +1643,7 @@ class PX1XrayCentring(HardwareObject):
 
                 if show_values:
                    tx = xc - self.mesh_x_step - w/3.0
-                   ty = yc + self.mesh_y_halfstep 
+                   ty = yc + self.mesh_y_halfstep
                    ax.text(tx,ty,str(val), fontsize=7)
 
         # hightlight maximum value with an empty red rectangle
@@ -1639,7 +1669,7 @@ class PX1XrayCentring(HardwareObject):
         if not self.log_file:
             return
 
-        dtime = datetime.now() 
+        dtime = datetime.now()
         with open(self.log_file,'a') as fd:
             fd.write("%s - %s\n" % (str(dtime), msg))
 

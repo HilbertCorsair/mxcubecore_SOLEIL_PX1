@@ -826,7 +826,6 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
                 exception("Error in get_samples: could not connect to server")
 
         # Raw data from ISPyB contains bytes objects : needs preprocessing
-        time.sleep(10)
         if response_samples :
             response_samples = [self.adapter.convert_to_dict(z_obj)for z_obj in response_samples]
             response_samples = [self.repare_bytes_dict(d) for d in response_samples]
