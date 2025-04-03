@@ -141,20 +141,8 @@ class SOLEILSession(Session):
         :rtype: str
         """
 
-        starting_time = time.time()/3600 #self.get_property('starting_time')
-
-        if self.session_start_date:
-            start_time = self.session_start_date.split(' ')[0]
-        else:
-            local_time = time.localtime()
-            if local_time.tm_hour >= (float(starting_time) - 1):
-                start_time = time.strftime("%Y-%m-%d")
-            else:
-                local_time = time.gmtime(time.time() - (float(starting_time) * 3600))
-                start_time = time.strftime("%Y-%m-%d", local_time)
-
-
-        return os.path.join(self.base_directory, start_time, self.get_proposal_number())
+        starting_time = time.strftime("%Y-%m-%d")
+        return os.path.join(self.base_directory, starting_time, self.get_proposal_number())
 
 
     def get_archive_directory(self, directory: Optional[str] = None, *args) -> str:

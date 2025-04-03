@@ -409,6 +409,7 @@ class PX1Collect(AbstractCollect):
                 step_num = int(float(self.latest_imgnum))
 
             step_num = step_num * 100.0 / number_of_images
+            self.progress = round(step_num/100, 2)
             self.emit("progressStep", step_num)
             print(f"EMIT------------------progress step {step_num}")
             self.emit("collectImageTaken", int(self.latest_trignum))

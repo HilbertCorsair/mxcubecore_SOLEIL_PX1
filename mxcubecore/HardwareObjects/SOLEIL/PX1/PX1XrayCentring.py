@@ -8,6 +8,7 @@ import math
 import errno
 import time
 import copy
+import io
 
 from mxcubecore.BaseHardwareObjects import HardwareObjectState
 from enum import (
@@ -317,25 +318,27 @@ class PX1XrayCentring(AbstractXrayCentring):
 
     def get_xcentring_deltas_start_end_mm(self):
 
-        extent_dx_pix = self.shape_coords[2] - self.shape_coords[0]
-        extent_dy_pix = self.shape_coords[3] - self.shape_coords[1]
+        extent_dx_pix = self.shape.width
+        extent_dy_pix =  self.shape.height
+
         cent_x_pix = self.shape_coords[0] + extent_dx_pix/2
         cent_y_pix = self.shape_coords[1] + extent_dy_pix/2
-
+        print(f"X start {self.shape_coords[0]}, Y start {self.shape_coords[1]}, X end {self.shape_coords[0]+ self.shape.width},Y  end {self.shape_coords[1]+ self.shape.height} ")
         #start_coords, end_coords = self.xraycent_area_item.get_start_end_coords() # pixels
+
 
         start_dx_pix = self.shape_coords[0] - cent_x_pix
         start_dy_pix = self.shape_coords[1] - cent_y_pix
 
-        end_dx_pix = self.shape_coords[2] - cent_x_pix
-        end_dy_pix = self.shape_coords[3] - cent_y_pix
+        end_dx_pix = self.shape_coords[0] + self.shape.width - cent_x_pix
+        end_dy_pix = self.shape_coords[1] + self.shape.height - cent_y_pix
 
-        start_dx_mm = start_dx_pix / float(self.shape.pixels_per_mm[0])
+        start_dx_mm = -start_dx_pix / float(self.shape.pixels_per_mm[0])
         start_dy_mm = start_dy_pix / float(self.shape.pixels_per_mm[1])  # axe y opposite from grid to motor
 
         end_dx_mm = -end_dx_pix / float(self.shape.pixels_per_mm[0])
         end_dy_mm = end_dy_pix / float(self.shape.pixels_per_mm[1])
-
+        print(f"DX start {start_dx_pix}, DX end {end_dx_pix}")
 
 
         extent_dx_mm = extent_dx_pix / float(self.shape.pixels_per_mm[0])
@@ -364,7 +367,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             return
 
         self.mesh_nb_lines = nlines
-        self.mesh_img_per_line = nimgs
+        self.mesh_img_per_line = self.shape.num_cols
 
         self.mesh_dx_start = start_dx
         self.mesh_dy_start = start_dy
@@ -383,9 +386,11 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.mesh_y_interval_size = extent_y / self.mesh_nb_lines
         else:
             self.mesh_y_interval_size = 0
+        self.set_base_directories()
+        """try:
+            import pdb
+            pdb.set_trace()
 
-        try:
-            self.set_base_directories()
             self.centring_task = gevent.spawn(self.do_xcentring)
             self.centring_task.link(self.xcentring_done)
             self.centring_task.link_exception(self.xcentring_exception)
@@ -393,7 +398,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             import traceback
             log.debug("PX1XrayCentring - exception in set_grid_and continue")
             log.debug(traceback.format_exc())
-            self.xcentring_exception(str(e))
+            self.xcentring_exception(str(e))"""
 
 
     def stop_xcentring(self):
@@ -453,7 +458,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             #self.set_prefix("xraycent")
 
             self.prepare()
-            #self.prepare_report()
+            self.prepare_report()
 
             # get sample snapshots
             #self.emit('xcentringInfo', 'running', 'Collecting snapshots')
@@ -473,6 +478,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
             if not self.only_helical:
                 self.emit('xcentringInfo', 'running', 'Running mesh scan')
+                print("-------------------------------- Starting RUn MESH")
 
                 self.run_mesh()
 
@@ -655,7 +661,7 @@ class PX1XrayCentring(AbstractXrayCentring):
     def prepare(self):
 
         self.shape = self.graphics_manager_hwo.shapes
-        self.shape_name = [name for name in self.shape.keys()][0]
+        self.shape_name = [name for name in self.shape.keys() if name.startswith("G")][0]
         self.shape_coords = self.shape[self.shape_name].screen_coord
 
         self.shape = self.shape[self.shape_name]
@@ -670,14 +676,13 @@ class PX1XrayCentring(AbstractXrayCentring):
         # calculate scene range in motor coordinates
         #self.scene_size = self.graphics_manager_hwo.get_scene_size_mm()
 
-        """self.left = self.phiy_saved + self.scene_size[0]/2.0
-        self.right = self.phiy_saved - self.scene_size[0]/2.0
+        self.left = self.phiy_saved + self.shape.width/2.0
+        self.right = self.phiy_saved - self.shape.width/2.0
 
 
-        self.top = self.ps_y_saved + self.scene_size[1]/2.0
-        self.bottom = self.ps_y_saved - self.scene_size[1]/2.0
+        self.top = self.ps_y_saved + self.shape.height/2.0
+        self.bottom = self.ps_y_saved - self.shape.height/2.0
         self.total_range=[self.left, self.right, self.top, self.bottom]
-
         snapshot_0 = {'name': 'mesh', 'ps_y_saved': self.ps_y_saved, 'top': self.top, 'bottom': self.bottom, 'range': self.total_range }
 
         self.snapshot_info = [snapshot_0]
@@ -685,8 +690,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         for i in range(self.nb_helical_scans):
             omega = self.omega_saved +  self.omega_relative * (i+1)
             ps_y_saved, ps_z_saved = self.calc_pseudo(self.sampy_saved, self.sampx_saved, omega_pos=omega)
-            top = ps_y_saved + self.scene_size[1]/2.0
-            bottom = ps_y_saved - self.scene_size[1]/2.0
+            top = ps_y_saved + self.shape.height/2.0
+            bottom = ps_y_saved - self.shape.height/2.0
             total_range=[self.left, self.right, top, bottom]
             snapshot_info = {'name': 'helical%d' % (i+1),'ps_y_saved': ps_y_saved, 'top': top, 'bottom': bottom, 'range': total_range }
             self.snapshot_info.append(snapshot_info)
@@ -695,10 +700,12 @@ class PX1XrayCentring(AbstractXrayCentring):
             log.debug("initial (pseudo) positions for %s:" % info['name'])
             log.debug("    ps_y_saved: %s" % info['ps_y_saved'])
             log.debug("    top: %s" % info['top'])
-            log.debug("    bottom: %s" % info['bottom'])"""
+            log.debug("    bottom: %s" % info['bottom'])
 
         self.set_prefix(self.default_prefix)
 
+
+        self.set_grid_and_continue()
         self.calculate_mesh()
 
         self.print_current_positions(title="INITIAL")
@@ -735,8 +742,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         # pseudo y and z from motor positions
         #y_from_corner = self.mesh_y_interval_size / 2.0
-        import pdb
-        pdb.set_trace()
+
         self.mesh_x_start = self.phiy_saved + self.mesh_dx_start
         self.mesh_x_end = self.phiy_saved + self.mesh_dx_end
 
@@ -1117,7 +1123,47 @@ class PX1XrayCentring(AbstractXrayCentring):
         centring_status['motors'] = cpos
 
         self.emit('xcentringInfo', 'running', 'Registering point with Graphics Manager')
-        self.graphics_manager_hwo.create_centring_point(centring_state, centring_status)
+        self.create_centring_point(centring_state, centring_status)
+
+    def create_centring_point(self, centring_state, centring_status, emit=True):
+        """Creates a new centring position and adds it to graphics point.
+
+        :param centring_state:
+        :type centring_state: str
+        :param centring_status: dictionary with motor pos and etc
+        :type centring_status: dict
+        :emits: centringInProgress
+        """
+        from mxcubecore.model import queue_model_objects
+        p_dict = {}
+
+        if "motors" in centring_status and "extraMotors" in centring_status:
+
+            p_dict = dict(centring_status["motors"], **centring_status["extraMotors"])
+        elif "motors" in centring_status:
+            p_dict = dict(centring_status["motors"])
+
+        self.emit("centringInProgress", False)
+        if p_dict:
+            p_dict["beam_x"] = self.shape.beam_pos[0]
+            p_dict["beam_y"] = self.shape.beam_pos[1]
+            p_dict["zoom"] = HWR.beamline.diffractometer.zoom.get_value()
+            cpos = queue_model_objects.CentredPosition(p_dict)
+
+
+            screen_pos = HWR.beamline.diffractometer.motor_positions_to_screen(
+                cpos.as_dict()
+            )
+            #screen_coords = HWR.beamline.diffractometer.motor_positions_to_screen(cpos)
+            # this list might be completly useless hereà
+            mpos_list = [v for v in cpos.as_dict().values()]
+
+            point = self.graphics_manager_hwo.add_shape_from_mpos([cpos], screen_pos ,"P")
+            self.graphics_manager_hwo.add_shape(point)
+            #cpos.set_index(point.index)
+            return point
+
+
 
     def finish_centring(self):
         if self.moved:
@@ -1414,8 +1460,11 @@ class PX1XrayCentring(AbstractXrayCentring):
         buff = buff.strip()
         buff = buff.replace('|','')
 
+        arr = np.loadtxt(io.BytesIO(buff.encode()), usecols=columns)
+        print(f"<<<<<<<<<  DIALS ARRAY {arr.shape}")
+
         # Refactored to remove StringIO
-        arr = np.fromstring(buff, sep='\n')
+        #arr = np.fromstring(buff, sep='\n')
         # in helical mode for test.
         #   return an array with 12 images = self.helical_nimages
         if self.testmode and helical:  # this is a TEST ONLY feature. remove it when done
@@ -1489,7 +1538,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         axheat.set_yticklabels(ylabels, fontsize=8)
 
         self.show_grid(axheat)
-        self.show_snapshot(axheat,0)
+        #self.show_snapshot(axheat,0)
         self.show_spots(axheat, spots, show_values=True)
         self.show_center(axheat)
 
@@ -1505,7 +1554,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         self.fig2.savefig(self.filename_mesh,bbox_inches='tight', pad_inches=0)
 
-        self.graphics_manager_hwo.set_xray_heatmap(self.filename_mesh)
+        #self.graphics_manager_hwo.set_xray_heatmap(self.filename_mesh)
 
         return
 
@@ -1555,7 +1604,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         h = self.helical_y_step
 
         axheat.axis([self.x_best-w/2.0-2*w, self.x_best+w/2.0+2*w, y_end, y_start])
-        self.show_snapshot(axheat,helicalno+1)
+        #self.show_snapshot(axheat,helicalno+1)
         xticks = [self.x_best,]
         xlabels = ["%.3f" % self.x_best, ]
         ylabels = [ "%.3f" % label for label in y_positions]
@@ -1595,7 +1644,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         log.debug(" - showing snapshot %d - total_range is %s" % (snap_no, str(total_range)))
         ax.imshow(image, extent=total_range)'''
 
-    """def show_grid(self, mpl_axis, helical=False):
+    def show_grid(self, mpl_axis, helical=False):
         if helical:
             x = self.x_best - self.mesh_x_halfstep
             y_start = self.helical_visual_start
@@ -1612,7 +1661,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         xy = [x,y]
 
         rect = Rectangle(xy, width=w, height=h, fill=False, alpha=0.4, color='red')
-        mpl_axis.add_patch(rect)"""
+        mpl_axis.add_patch(rect)
 
     def show_spots(self, ax, spots, show_values=False):
 

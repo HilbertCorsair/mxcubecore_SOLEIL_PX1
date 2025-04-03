@@ -14,7 +14,7 @@ import math
 
 log = logging.getLogger("HWR")
 
-    
+
 
 class PX1MiniDiff(GenericDiffractometer):
     def __init__(self, name):
@@ -44,7 +44,8 @@ class PX1MiniDiff(GenericDiffractometer):
         self.pixels_per_mm_y = 0
         self.arrow_step = self.default_arrow_step
         self.backlight = self.get_object_by_role("backlight")
-    
+        self.update_zoom_calibration()
+
         GenericDiffractometer.init(self)
 
         self.phase_list = [
@@ -62,11 +63,11 @@ class PX1MiniDiff(GenericDiffractometer):
                  self.px1_automatic_centring,
              GenericDiffractometer.CENTRING_METHOD_MOVE_TO_BEAM: \
                  self.start_move_to_beam}
-   
+
     def set_chip_mode(self, flag):
         self.chip_mode = flag
-    
-    
+
+
     def update_backlight(self):
         self.back_light_phase_switch = "ON" if self.px1env_ho.device.currentPhase == "VISUSAMPLE" else "OFF"
 
@@ -75,9 +76,9 @@ class PX1MiniDiff(GenericDiffractometer):
             self.px1env_ho.set_phase("VISU_SAMPLE")
         elif self.back_light_phase_switch == "OFF":
             self.px1env_ho.set_phase("DEFAULT")
-        
+
         self.update_backlight()
-    
+
     def test_backlight (self):
         if self.back_light_phase_switch == "OFF":
             self.back_light_phase_switch =="ON"
@@ -94,26 +95,26 @@ class PX1MiniDiff(GenericDiffractometer):
         """
         translation_to_env = {"TRANSFER" :0,
                               "CENTRING" :1,
-                              "COLLECT" : 2, 
+                              "COLLECT" : 2,
                               "DEFAULT" : 3,
                               "VISU_SAMPLE" : 8 }
-    
-  
+
+
         if timeout:
             self.px1env_ho.ready_event.clear()
-            
-            self.px1env_ho.cmds.get(translation_to_env[phase])()            
+
+            self.px1env_ho.cmds.get(translation_to_env[phase])()
             #self.px1env_ho.set_phase(phase)
             self.px1env_ho.ready_event.wait()
             self.px1env_ho.ready_event.clear()
-            
+
         else:
             cmd = self.px1env_ho.cmds.get(translation_to_env[phase])
             if cmd is not None:
                 logging.debug(f"PX1environment.goto_phase state {self.get_state()}")
                 cmd()
         self.update_backlight()
-            
+
     def prepare_centring(self, timeout=20):
         env_state = self.px1env_ho.get_state()
         self.px1env_ho.goto_centring_phase()
@@ -165,7 +166,7 @@ class PX1MiniDiff(GenericDiffractometer):
 
         #self.smargon_state = str(self.smargon_state_ch.getValue())
         #return self.smargon_state == "STANDBY"
-    
+
     def get_pixels_per_mm(self):
         position = self.zoom.get_value()
         x= float(self.zoom.positions[position]['calibrationData']['pixelsPerMmY'])
@@ -328,6 +329,10 @@ class PX1MiniDiff(GenericDiffractometer):
 
     def move_to_beam(self, x,y, omega=None):
 
+        if not (self.beam_x and self.beam_y):
+            self.update_zoom_calibration()
+
+
         phi_angle = self.get_omega_position()
 
         mot_y = self.motor_hwobj_dict.get("sampy")
@@ -386,13 +391,13 @@ class PX1MiniDiff(GenericDiffractometer):
 
         self.wait_device_ready(timeout)
         #logging.getLogger("HWR").info("PX1MiniDiff.move_motors: motor_positions= %s" % motor_positions)
-       
+
         for motor in list(motor_positions.keys()):
             #logging.getLogger("HWR").info("PX1MiniDiff.move_motors: INP motor= %s name= %s" % (motor, motor.name()))
             position = motor_positions[motor]
 
 
-            # CHECK IF FUNCTIONAL !!! is it changing existing values or is it adding new ones? 
+            # CHECK IF FUNCTIONAL !!! is it changing existing values or is it adding new ones?
             if isinstance(motor, str):
                 motor_role = motor
                 motor = self.motor_hwobj_dict.get(motor_role)
@@ -411,6 +416,7 @@ class PX1MiniDiff(GenericDiffractometer):
                 logging.getLogger("HWR").debug("     / %s " % traceback.format_exc())
 
         self.wait_device_ready(timeout)
+        self.update_zoom_calibration()
 
     def motor_positions_to_screen(self, centred_positions_dict):
         """
