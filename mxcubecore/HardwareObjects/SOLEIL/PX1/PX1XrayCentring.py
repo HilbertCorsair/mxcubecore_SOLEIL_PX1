@@ -1158,7 +1158,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             # this list might be completly useless hereà
             mpos_list = [v for v in cpos.as_dict().values()]
 
-            point = self.graphics_manager_hwo.add_shape_from_mpos([cpos], screen_pos ,"P")
+            point = self.graphics_manager_hwo.add_shape_from_mpos([cpos.as_dict()], screen_pos ,"P")
             self.graphics_manager_hwo.add_shape(point)
             #cpos.set_index(point.index)
             return point
@@ -1170,6 +1170,9 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.emit('xcentringInfo', 'done', 'Centring finished')
         else:
             self.emit('xcentringInfo', 'finished', 'Centring finished')
+
+    def command_failure(self):
+        return False
 
 #####
 # COMMENTED OUT BY LEO ON 2020-07-20 TO CHECK BEHAVIOUR

@@ -20,7 +20,8 @@ class SOLEILSession(Session):
         self.ldap_ho = None
         self.ssh_name = None
         self.latest_projuser = ""
-        self.set_test_user_info()
+        self.username = None
+        self.projuser = None
 
     def init(self):
         super().init()
@@ -86,13 +87,10 @@ class SOLEILSession(Session):
 
         log.debug(f"SOLEILSession set_user_info. uid={uid}, gid={gid}")
 
-        super().set_user_info(username, uid, gid, projuser)
-
-    def set_test_user_info(self):
-        self.username = "idtest0"
-        self.projuser = "idtest0"
-        self.user_id = "5265"
-        self.group_id = "g5265"
+        self.username = username
+        self.projuser = projuser
+        self.user_id = uid
+        self.group_id = gid
 
     def get_user_info(self) -> Dict[str, str]:
         return {

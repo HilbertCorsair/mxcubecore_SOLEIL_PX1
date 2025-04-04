@@ -158,12 +158,14 @@ class PX1AutoProcessing(HardwareObject):
        for ky,val in collect_pars.items():
             logging.getLogger("HWR").debug("   - % 12s : %s" % (ky, str(val)))
        logging.getLogger("HWR").debug("\n")
-
-       jsonstr = json.dumps(collect_pars.encode("utf-8"))
+       collect_pars["beamShape"] = collect_pars["beamShape"].value
+       from mxcubecore import HardwareRepository as HWR
+       collect_pars = HWR.beamline.lims.repare_bytes_dict(collect_pars)
+       jsonstr = json.dumps(collect_pars)
 
        fd, name = tempfile.mkstemp(dir="/tmp")
-       logging.getLogger("HWR").error("PX1AutoProcessing / saving collect pars to file %s" % name)
-       os.write(fd, jsonstr)
+       logging.getLogger("HWR").debug("PX1AutoProcessing / saving collect pars to file %s" % name)
+       os.write(fd, jsonstr.encode("utf-8"))
        os.close(fd)
 
        try:

@@ -882,7 +882,7 @@ class AbstractCollect(HardwareObject, object):
         pass
 
     @abc.abstractmethod
-    def trigger_auto_processing(self, process_event, frame_number):
+    def trigger_auto_processing(self, process_event, collect_pars, frame_number):
         """
         Descript. :
         """

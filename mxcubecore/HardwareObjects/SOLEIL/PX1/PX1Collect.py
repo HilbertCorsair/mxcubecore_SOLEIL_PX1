@@ -130,6 +130,7 @@ class PX1Collect(AbstractCollect):
         self.total_exposure_time = 0
 
         self.mxcube_createdir_server = None
+        self.run_processing_after = True
 
     def init(self):
         """
@@ -243,7 +244,6 @@ class PX1Collect(AbstractCollect):
         collection_type = self.current_dc_parameters['experiment_type']
         logging.getLogger("HWR").info("PX1Collect: Running PX1 data collection hook. Type is %s" % collection_type )
         self.emit("collectStarted", (None, 1))
-        print("EMIT----------------Start data collection hook Collect started")
 
         user_info = self.session_hwobj.get_user_info()
 
@@ -316,7 +316,6 @@ class PX1Collect(AbstractCollect):
         self.latest_imgnum = 0
         self.latest_trignum = 0
         self.emit("progressInit", ("Data Collection", 100))
-        print("EMIT---------------------Data collection Hook ProgressInit")
         osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
         nb_images = osc_seq['number_of_images']
         exp_time = osc_seq['exposure_time']
@@ -411,9 +410,7 @@ class PX1Collect(AbstractCollect):
             step_num = step_num * 100.0 / number_of_images
             self.progress = round(step_num/100, 2)
             self.emit("progressStep", step_num)
-            print(f"EMIT------------------progress step {step_num}")
             self.emit("collectImageTaken", int(self.latest_trignum))
-            print(f"EMIT-----------------collectImqgeTaken {self.latest_trignum}")
 
     def prepare_standard_collection(self):
         #PL 11/11/18
@@ -488,7 +485,6 @@ class PX1Collect(AbstractCollect):
 
     def start_standard_collection(self):
         self.emit("collectStarted", (self.owner, 1))
-        print("EMIT------------------------Standard collection emit collectStarted")
         self.detector_hwobj.start_collection()
         self.collect_device.Start()
 
@@ -748,9 +744,7 @@ class PX1Collect(AbstractCollect):
         nb_trigger = osc_seq['number_of_images']
 
         self.emit("collectStarted", (self.owner, 1))
-        print("EMIT  --------------------Characterization collectStarted")
         self.emit("progressInit", ("Characterization", 100))
-        print("EMIT---------------------Characterization progressInit")
         self.detector_hwobj.start_collection()
         self.collect_device.start()
 
