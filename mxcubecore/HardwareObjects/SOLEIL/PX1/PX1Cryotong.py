@@ -116,7 +116,7 @@ class PX1Cryotong(Cats90):
             return val
         else :
             return str(val) in ["True","true"]
-        
+
     def cats_basket_presence_changed(self, value):
         pass
 
@@ -233,7 +233,7 @@ class PX1Cryotong(Cats90):
 
         elif dev_state == PyTango.DevState.UNKNOWN:
             _state = SampleChangerState.Unknown
-           
+
         elif has_loaded ^ on_diff:
             # go to Unknown state if a sample is detected on the gonio but not registered in the internal database
             # or registered but not on the gonio anymore
@@ -351,7 +351,7 @@ class PX1Cryotong(Cats90):
 
     # ## OVERLOADED CATS90 methods ####
     def cats_pathrunning_changed(self, value):
-        # Hack to prevent a numerical value being passd on. 
+        # Hack to prevent a numerical value being passd on.
         if not isinstance(value, bool):
             value = self._chnDryAndSoakNeeded.get_value()
 
@@ -479,8 +479,8 @@ class PX1Cryotong(Cats90):
         print("Waiting 45 sec befor final update of loaded sample")
         time.sleep(45)
 
-        
-        self._do_update_loaded_sample() 
+
+        self._do_update_loaded_sample()
 
     def _do_unload(self, sample=None, wash=None):
         print("\nDoing unload ... ")
@@ -504,7 +504,7 @@ class PX1Cryotong(Cats90):
 
         self._do_unload_operation(sample)
         self._update_loaded_list()
-    
+
     def _do_unload_operation(self,sample_slot=None, shifts=None):
         # if not self.hasLoadedSample() or not self._chnSampleIsDetected.getValue():
         if not self.has_loaded_sample():
@@ -553,7 +553,7 @@ class PX1Cryotong(Cats90):
             return False
 
         return True
-    
+
 
     """"def get_sample_list(self):
         import pdb
@@ -604,7 +604,7 @@ class PX1Cryotong(Cats90):
             sample._set_info(present, datamatrix, scanned)
             sample._set_loaded(loaded, has_been_loaded)
             sample._set_holder_length(spl[4])
-        
+
         self._set_state(SampleChangerState.Ready)
 
     def check_drysoak(self):

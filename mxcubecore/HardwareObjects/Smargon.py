@@ -170,7 +170,7 @@ class Smargon(HardwareObject):
             if self.signals[motor] == signal_name:
                 return motor
         return None
-    
+
     def get_state(self):
         print("------------- IN SMARGON GET STATE----------------------------")
         state = str(self._state_chan.get_value())
@@ -317,13 +317,15 @@ class Smargon(HardwareObject):
 
     def _wait_ready(self, timeout=20):
         t0 = time.time()
+        logging.getLogger("HWR").debug("SMARGON not yet ready, please wait a few seconds ..... " )
 
         while not self.is_ready():
             if (time.time() - t0) > timeout:
                 logging.getLogger("HWR").debug("SMARGON TIMEOUT" )
                 raise Timeout
-            logging.getLogger("HWR").debug("SMARGON wait" )
+
             gevent.sleep(0.03)
+        logging.getLogger("HWR").debug("SMARGON is now READY : moving on!" )
 
     def is_ready(self):
         return self.get_state() == "STANDBY"

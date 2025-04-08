@@ -145,8 +145,7 @@ class PX1AutoProcessing(HardwareObject):
        # adapt motors entry to avoid trying json on instance
        motors = collect_pars['motors']
        collect_pars["autoproc_options"] = self.get_options_as_dict()
-       import pdb
-       pdb.set_trace( )
+
        motors_by_name = {}
        for ky, val in motors.items():
            if type(ky) is not str:
@@ -159,8 +158,9 @@ class PX1AutoProcessing(HardwareObject):
        for ky,val in collect_pars.items():
             logging.getLogger("HWR").debug("   - % 12s : %s" % (ky, str(val)))
        logging.getLogger("HWR").debug("\n")
-       collect_pars["beamShape"] = collect_pars["beamShape"].value
+
        from mxcubecore import HardwareRepository as HWR
+       collect_pars["beamShape"] =  HWR.beamline.beam.get_beam_shape().value
        collect_pars = HWR.beamline.lims.repare_bytes_dict(collect_pars)
        jsonstr = json.dumps(collect_pars)
 

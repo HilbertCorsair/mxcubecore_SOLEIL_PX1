@@ -1465,12 +1465,14 @@ class PX1Collect(AbstractCollect):
         self.detector_hwobj.move_distance(value)
 
     def move_kappa(self, value):
+        value = value if value else 0
         if value < 0.1:
             pass
         else:
             self.kappa_mot_hwobj.sync_move(value)
 
     def move_phi(self,value):
+        value = value if value else 0
         if value < 0.1:
             pass
         else:

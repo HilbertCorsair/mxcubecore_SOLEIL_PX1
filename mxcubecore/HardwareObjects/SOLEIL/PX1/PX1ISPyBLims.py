@@ -713,62 +713,6 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
                 exception("Error in update_session: could not connect to server")
 
 
-    """def _get_proposals(self, username: str):
-        proposals = json.loads(
-            self._shipping.service.findProposalsByLoginName(username)
-        )
-
-        for proposal in proposals:
-            if proposal["type"].upper() not in ["MX", "MB"]:
-                continue
-            if proposal.get("state", "Open") != "Open":
-                continue
-
-            yield proposal
-
-    def _get_sessions(self, username: str, beamline_name: str) -> List[Session]:
-
-
-        def list_sessions():
-
-            for proposal in self._get_proposals(username):
-                sessions = self._collection.service.findSessionsByProposalAndBeamLine(
-                    proposal["code"], proposal["number"], beamline_name
-                )
-
-                for sesssion in sessions:
-                    yield _create_session_object(
-                        proposal, sesssion["sessionId"], beamline_name
-                    )
-
-                #
-                # A hack to lazily create new sessions.
-                #
-                # At MAXIV we don't schedule sessions for proposals ahead of time. Instead, we
-                # lazily create them as needed.
-                #
-                # If a proposal does not contain any active session, create a Session object
-                # with a special session ID.
-                #
-                # If user selects such a session, then we will ask ISPyB to create this session.
-                #
-                if len(sessions) == 0:
-                    yield _create_session_object(
-                        proposal, _get_lazy_session_id(proposal), beamline_name
-                    )
-
-        return sorted(list_sessions(), key=lambda s: f"{s.code}{s.number}")
-
-    def get_sessions_by_username(
-        self, username: str, beamline_name: str
-    ) -> LimsSessionManager:
-        try:
-            sessions = list(self._get_sessions(username, beamline_name))
-            return LimsSessionManager(sessions=sessions)
-        except Fault as e:
-            log.exception(e.message)"""
-
-
 class PX1ISPyBLims(ProposalTypeISPyBLims):
     def __init__(self, name):
         super().__init__(name)
@@ -801,8 +745,6 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
 
         response_samples = None
         proposal_id = self.session_manager.active_session.proposal_id
-        print(f"====================================PROPOSAL id updated to {proposal_id}")
-
         # at this point the proposal id is 4
         # Zeep SOAP request fails with pointer erro
         # also happens for prpoposal id 20100023
@@ -830,9 +772,6 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
             response_samples = [self.adapter.convert_to_dict(z_obj)for z_obj in response_samples]
             response_samples = [self.repare_bytes_dict(d) for d in response_samples]
 
-        print(f"====================================PX1ISPyBLims  get_samples {response_samples[0]}\n========================== dict exemple")
-
-
         return response_samples
 
     def repare_bytes_dict (self, dct):
@@ -857,22 +796,6 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         for e in range(len(dict_entries)):
             dct[dict_entries[e][0]] = dict_entries[e][1]
         return dct
-
-
-
-    """def convert_to_dict(self, zeep_obj):
-        # Convert the zeep object to a dictionary
-        proposal_dict = serialize_object(zeep_obj, dict)
-
-        def utf_encode(obj):
-            if isinstance(obj, str):
-                return obj.encode('utf-8')
-            elif isinstance(obj, dict):
-                return {k: utf_encode(v) for k, v in obj.items()}
-            elif isinstance(obj, (list, tuple)):
-                return [utf_encode(item) for item in obj]
-            return obj"""
-
 
         # Then wrap it in the 'Proposal' key and encode
         #return utf_encode(proposal_dict)

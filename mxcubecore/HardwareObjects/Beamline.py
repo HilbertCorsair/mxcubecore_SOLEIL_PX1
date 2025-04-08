@@ -877,13 +877,13 @@ class Beamline(ConfiguredObject):
 
         kappa = motor_positions.get("kappa")
         if kappa is None:
-            acq_parameters.kappa = None
+            acq_parameters.kappa = 0
         else:
             acq_parameters.kappa = round(float(kappa), 1)
 
         kappa_phi = motor_positions.get("kappa_phi")
         if kappa_phi is None:
-            acq_parameters.kappa_phi = None
+            acq_parameters.kappa_phi = 0
         else:
             acq_parameters.kappa_phi = round(float(kappa_phi), 1)
 
