@@ -118,13 +118,7 @@ class SOLEILSession(Session):
         return self.get_property("beamline_name")
 
     def get_proposal_number(self) -> str:
-        """
-        Returns the proposal number or 'local-user' if no proposal is available.
-
-        :return: The proposal number
-        :rtype: str
-        """
-        return self.proposal_number or "local-user"
+        return HWR.beamline.lims.session_manager.active_session.number
 
     def get_base_directory(self) -> str:
         return self.base_directory
@@ -140,7 +134,7 @@ class SOLEILSession(Session):
         """
 
         starting_time = time.strftime("%Y-%m-%d")
-        return os.path.join(self.base_directory, starting_time, self.get_proposal_number())
+        return os.path.join(self.base_directory, starting_time, self.get_proposal_number(), "RAW_DATA")
 
 
     def get_archive_directory(self, directory: Optional[str] = None, *args) -> str:

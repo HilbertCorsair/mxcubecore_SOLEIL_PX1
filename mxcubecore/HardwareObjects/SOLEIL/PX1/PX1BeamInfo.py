@@ -25,7 +25,7 @@ class PX1BeamInfo(BeamInfo):
         self.beam_position = (0, 0)
 
 
-    
+
 
     def init(self):
         self.chan_beam_size_microns = None
@@ -46,7 +46,7 @@ class PX1BeamInfo(BeamInfo):
             self.zoomPositionChanged()
         else:
             logging.getLogger().info("Zoom motor not defined")
-        
+
         """
         if beam_size_slits:
             self.beam_size_slits = tuple(map(float, beam_size_slits.split()))
@@ -67,7 +67,9 @@ class PX1BeamInfo(BeamInfo):
     def zoomPositionChanged(self, name=None, offset=None):
         if not self.current_zoom:
             self.current_zoom = self.zoomMotor.get_value()
-     
+
+            print("zoomPositionChanged ==================== ")
+
 
         zoom_props = self.zoomMotor.positions[self.current_zoom]["calibrationData"]
 
@@ -77,7 +79,7 @@ class PX1BeamInfo(BeamInfo):
                 zoom_props["beamPositionY"],
             ]
             self.positionUpdated()
-    
+
     """def get_beam_position(self):
         if self.beam_position == (0, 0):
             try:
@@ -88,10 +90,12 @@ class PX1BeamInfo(BeamInfo):
                     HWR.beamline.sample_view.camera.get_height() / 2,
                 )
         return self.beam_position"""
-    
+
     def positionUpdated(self):
+        print("Zoom CHANGED ============================ ")
         self.emit("beamPosChanged", (self.beam_position,))
-        
+
+
     def get_beam_position(self):
         return self.beam_position
 

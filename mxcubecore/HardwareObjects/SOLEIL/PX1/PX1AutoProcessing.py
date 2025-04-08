@@ -145,7 +145,8 @@ class PX1AutoProcessing(HardwareObject):
        # adapt motors entry to avoid trying json on instance
        motors = collect_pars['motors']
        collect_pars["autoproc_options"] = self.get_options_as_dict()
-
+       import pdb
+       pdb.set_trace( )
        motors_by_name = {}
        for ky, val in motors.items():
            if type(ky) is not str:

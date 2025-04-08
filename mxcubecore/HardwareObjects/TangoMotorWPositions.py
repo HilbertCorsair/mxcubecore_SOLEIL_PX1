@@ -15,9 +15,10 @@ class TangoMotorWPositions(AbstractNState):
         self.positions = {}
         self.position_names = []
         self.delta = 5
-        self._last_position = None
+        #self._last_position = None
         self._zoom_command = None
         self._cmds_menu = {}
+        self.zoom = None
 
     @property
     def zoom_command(self):
@@ -27,13 +28,13 @@ class TangoMotorWPositions(AbstractNState):
     def zoom_command(self, value):
         self._zoom_command = value
 
-    @property
+    """@property
     def last_position(self):
         return self._last_position
 
     @last_position.setter
     def last_position(self, val):
-        self._last_position = val
+        self._last_position = val"""
 
     # Adds a special type of command channel where the command is a variable (the zoom position)
 
@@ -99,7 +100,6 @@ class TangoMotorWPositions(AbstractNState):
             "current_zoom",
         )
 
-
     def initialise_values(self):
         values_dict = dict (**{item.name: item.value for item in self.VALUES })
         values_dict.update(
@@ -148,17 +148,23 @@ class TangoMotorWPositions(AbstractNState):
     def is_moving(self):
         return ( (self.get_state() == self.STATES.BUSY ) or (self.get_state() == self.SPECIFIC_STATES.MOVING))
 
-    def get_value(self):
-
-        self.add_channel({'type':'tango', 'name' : '_pos_chan', 'tangoname': self.tangoname,}, "current_zoom")
-        a = self.get_channel_object("_pos_chan").get_value()
-
+    '''def get_value(self):
+        val = self.get_channel_object("zoom_position").get_value()
         """Read the actuator position."""
-        return self.get_channel_object("_pos_chan").get_value()  #self._nominal_value
+        return val  #self._nominal_value'''
+    def get_value(self):
+        if not self.zoom:
+            return self._zoom_position.get_value()
+        else:
+            return self.zoom
+
 
     def _set_value(self, value):
         """Implementation of specific set actuator logic."""
         self.goto_position(value.name)
+        print(f"SETTING ZOOM and emit value =========================val.na,e > {value.name}, val is : {value}")
+        self.zoom = value.name
+        self.emit("stateChanged", (value.name ,))
 
     def get_state(self):
         val = self.get_value()
@@ -179,7 +185,6 @@ class TangoMotorWPositions(AbstractNState):
 
     def get_current_name(self):
         pos = self.get_value()
-
         min_dist = 1000.0
         curr_name = ''
         valid = False

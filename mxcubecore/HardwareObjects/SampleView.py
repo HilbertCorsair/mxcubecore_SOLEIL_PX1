@@ -83,13 +83,18 @@ class SampleView(AbstractSampleView):
 
 
     def _update_shape_positions(self, *args, **kwargs):
-        shapes_updated = False
-
         for shape in self.get_shapes():
-            previous_screen_coord = shape.screen_coord
             shape.update_position(HWR.beamline.diffractometer.motor_positions_to_screen)
 
         self.emit("shapesChanged")
+        '''def _update_shape_positions(self, *args, **kwargs):
+            shapes_updated = False
+
+            for shape in self.get_shapes():
+                previous_screen_coord = shape.screen_coord
+                shape.update_position(HWR.beamline.diffractometer.motor_positions_to_screen)
+
+            self.emit("shapesChanged")'''
 
     @property
     def shapes(self):

@@ -181,7 +181,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.smargon_hwo = self.get_object_by_role('smargon')
         self.beaminfo_hwo = self.get_object_by_role('beaminfo')
         self.gevent_event = gevent.event.Event()
-        self.set_base_directories()
+
         print(f" Init PX1XRayCentring from : {self.name()}")
 
     def define_state(self):
@@ -562,13 +562,13 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.errmsg = traceback.format_exc()
             log.debug(self.errmsg)
             raise(e)
-        """finally:
+        finally:
             if not self.only_helical:
                 if self.fig:
                     self.fig.savefig(self.report_image)
                     display_cmd = "display %s" % self.report_image
                     self.proc_display = subprocess.Popen(display_cmd, shell=True)
-                    log.debug("report display launched. process id is %s" % self.proc_display.pid)"""
+                    log.debug("report display launched. process id is %s" % self.proc_display.pid)
 
         self.finish_centring()
 
@@ -659,6 +659,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
     # run functions
     def prepare(self):
+        self.set_base_directories()
 
         self.shape = self.graphics_manager_hwo.shapes
         self.shape_name = [name for name in self.shape.keys() if name.startswith("G")][0]
