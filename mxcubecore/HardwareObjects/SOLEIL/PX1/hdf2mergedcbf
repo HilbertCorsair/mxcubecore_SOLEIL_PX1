@@ -7,10 +7,10 @@
 # - merge2cbf from Wolfgang Kabsch
 #   http://xds.mpimf-heidelberg.mpg.de/html_doc/merge2cbf_program.html
 
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 __author__ = "Pierre Legrand (pierre.legrand \at synchrotron-soleil.fr)"
-__date__ = "29-03-2019"
-__copyright__ = "Copyright (c) 2018 Pierre Legrand"
+__date__ = "09-04-2025"
+__copyright__ = "Copyright (c) 2018-2025 Pierre Legrand"
 __license__ = "New BSD http://www.opensource.org/licenses/bsd-license.php"
 
 import os
@@ -95,6 +95,7 @@ if __name__ == "__main__":
     merge2cbfinp = open(merge_input_file, "w").write( \
        MERGE2CBF_INP % (tmp_file, first_frame, last_frame, out_file))
     
+    print("cd %s; %s" % (tmp_dir, MERGE2CBF_EXE))
     run_exec_str("cd %s; %s" % (tmp_dir, MERGE2CBF_EXE))
     time.sleep(0.5)
 
@@ -102,7 +103,7 @@ if __name__ == "__main__":
     data = open(core_file,"rb").read().split(b"_array_data.data")[1]
 
     print("   HDF2MERGE: Creating file %s" % merged_file)
-    open(merged_file, "w").write(head + "_array_data.data" + data)
+    open(merged_file, "wb").write(bytes(head,"utf-8") + b"_array_data.data" + data)
 
     # remove temporary files and directory
-    Popen(["/bin/rm","-rf", tmp_dir]) 
+    #Popen(["/bin/rm","-rf", tmp_dir]) 

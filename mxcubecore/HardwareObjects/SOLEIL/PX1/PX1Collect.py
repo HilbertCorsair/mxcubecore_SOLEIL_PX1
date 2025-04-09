@@ -584,9 +584,9 @@ class PX1Collect(AbstractCollect):
 
 
             # Hack to bypass store_image_in_lims
-            try:
-                image_id, img_info = self.store_image_in_lims(imgno)
-            except:
+            #try:
+            image_id, img_info = self.store_image_in_lims(imgno)
+            """except:
                 info = {'image_id': "_007",
                     'image_no': 5,
                     'nb_images': 4,
@@ -595,7 +595,7 @@ class PX1Collect(AbstractCollect):
                     'thumb_ispyb': "/tmp/",
                     'jpeg_ispyb': "/tmp/",
                     }
-                return info
+                return info"""
 
             info = {'image_id': image_id,
                     'image_no': imgno,
