@@ -741,6 +741,9 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         print(f"Created data_adapter of type {data_adapter}")
         return data_adapter
 
+    def store_data_collection(self, mx_collection, bl_config=None):
+        return self.adapter.store_data_collection(mx_collection, bl_config)
+
     def get_samples(self, lims_name):
 
         response_samples = None

@@ -129,8 +129,6 @@ class ISPyBAbstractLIMS(AbstractLims):
 
         return self.ldapConnection.authenticate(login_name, psd)
 
-    def store_data_collection(self, mx_collection, bl_config=None):
-        return self._store_data_collection(mx_collection, bl_config)
 
     def update_data_collection(self, mx_collection):
         return self._update_data_collection(mx_collection)
@@ -142,8 +140,8 @@ class ISPyBAbstractLIMS(AbstractLims):
 
         return self._update_data_collection(mx_collection)
 
-    def _store_data_collection(self, mx_collection, bl_config=None):
-        return self.adapter.store_data_collection(mx_collection, bl_config)
+    '''def _store_data_collection(self, mx_collection, bl_config=None):
+        return self.adapter.store_data_collection(mx_collection, bl_config)'''
 
     def _update_data_collection(self, mx_collection):
         return self.adapter._update_data_collection(mx_collection)
