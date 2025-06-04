@@ -59,7 +59,7 @@ from mxcubecore.BaseHardwareObjects import HardwareObjectState
 from mxcubecore.HardwareObjects.abstract.AbstractShutter import AbstractShutter
 __copyright__ = """ Copyright © by the MXCuBE collaboration """
 __license__ = "LGPLv3+"
-
+from PyTango import DeviceProxy
 
 @unique
 class TangoShutterStates(Enum):
@@ -95,6 +95,7 @@ class TangoShutter(AbstractShutter):
         self._initialise_values()
         self.state_channel.connect_signal("update", self._update_value)
         self.update_state()
+        self.shutter = DeviceProxy("i10-c-c03/ex/obx.1")
 
     def _update_value(self, value):
         """Update the value.
@@ -149,10 +150,16 @@ class TangoShutter(AbstractShutter):
             (Enum): Enum member, corresponding to the 'VALUE' or UNKNOWN.
         """
         _val = str(self.state_channel.get_value())
+        if _val == "CLOSE":
+            _val = "CLOSED"
         return self.value_to_enum(_val)
+
+    def close_cmd(self):
+        self.shutter.Close()
 
     def _set_value(self, value):
         if value.name == "OPEN":
             self.open_cmd()
         elif value.name == "CLOSED":
-            self.close_cmd()
+            self.shutter.Close()
+

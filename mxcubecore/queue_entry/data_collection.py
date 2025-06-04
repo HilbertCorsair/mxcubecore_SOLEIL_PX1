@@ -244,6 +244,7 @@ class DataCollectionQueueEntry(BaseQueueEntry):
 
                 # inc_used_for_collection does nothing
                 HWR.beamline.sample_view.inc_used_for_collection(cpos)
+                dc.lims_session_id = HWR.beamline.lims.session_manager.active_session.session_id
                 param_list = queue_model_objects.to_collect_dict(
                     dc,
                     sample,

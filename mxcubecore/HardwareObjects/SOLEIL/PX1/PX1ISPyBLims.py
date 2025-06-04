@@ -425,7 +425,6 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
 
             # Create a session
             new_session_dict={}
-
             new_session_dict['proposalId']=prop['Proposal']['proposalId']
             new_session_dict['proposalNumber']=prop['Proposal']['number']
             new_session_dict['proposalTitle']=prop['Proposal']['title']

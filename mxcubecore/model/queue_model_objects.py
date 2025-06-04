@@ -2566,7 +2566,6 @@ def to_collect_dict(data_collection, sample, centred_pos=None):
     acquisition = data_collection.acquisitions[0]
     acq_params = acquisition.acquisition_parameters
     proc_params = data_collection.processing_parameters
-
     result = [
         {
             "comments": acq_params.comments,

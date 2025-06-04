@@ -202,7 +202,7 @@ class ISPyBDataAdapter():
             self.ws_root + "ToolsForBLSampleWebService?wsdl"
         )
         print("Initated")
-       
+
     def __create_client(self, url: str):
 
         #Given a url it will create
@@ -224,7 +224,7 @@ class ISPyBDataAdapter():
             #proxy=self.proxy,
         )
         client.set_options(cache=None, location=url)
-        return client 
+        return client
 
     def isEnabled(self) -> object:
         return self._shipping  # type: ignore"""
@@ -421,8 +421,6 @@ class ISPyBDataAdapter():
     def get_person_by_username(self, username: str) -> Dict:
 
         try:
-            #import pdb
-            #pdb.set_trace()
             person = self._shipping.service.findPersonByLogin(username)
             return asdict(person)
         except Fault as e:
@@ -474,6 +472,7 @@ class ISPyBDataAdapter():
         mx_collection["group_id"] = group_id
 
     def _update_data_collection(self, mx_collection):
+        mx_collection["collection_id"] = None
         if "collection_id" in mx_collection:
             try:
                 # Update the data collection group
@@ -481,7 +480,7 @@ class ISPyBDataAdapter():
                 data_collection = ISPyBValueFactory().from_data_collect_parameters(
                     self._collection, mx_collection
                 )
-                self._collection.service.storeOrUpdateDataCollection(data_collection)
+                mx_collection["collection_id"] = self._collection.service.storeOrUpdateDataCollection(data_collection)
             except Fault as e:
                 logging.getLogger("ispyb_client").exception(e)
             except URLError as e:
@@ -495,9 +494,11 @@ class ISPyBDataAdapter():
         return (0, 0)
 
     def store_image(self, image_dict):
+
         if self._collection:
             logging.getLogger("HWR").debug("Storing image in lims")
             if "dataCollectionId" in image_dict:
+                print(f"ISPyB data adapter--------------store image image dict {image_dict} ")
                 try:
                     image_id = self._collection.service.storeOrUpdateImage(image_dict)
                     logging.getLogger("HWR").debug(
@@ -677,6 +678,7 @@ class ISPyBDataAdapter():
             )
 
     def store_beamline_setup(self, session_id, bl_config):
+        print(f'Storing beamline setup in ISPYBdataAdapter: type of bl_config {type(bl_config)}\n{bl_config}')
         blSetupId = None
         if self._collection:
             session = {}
@@ -689,11 +691,12 @@ class ISPyBDataAdapter():
                 )
             else:
                 if session is not None:
+
                     try:
+
                         blSetupId = self._collection.service.storeOrUpdateBeamLineSetup(
                             bl_config
                         )
-
                         session["beamLineSetupId"] = blSetupId
                         self.update_session(session)
 
@@ -732,9 +735,7 @@ class ISPyBDataAdapter():
             lims_beamline_setup = ISPyBValueFactory.from_bl_config(
                 self._collection, bl_config
             )
-
             lims_beamline_setup.synchrotronMode = data_collection.synchrotronMode
-
             self.store_beamline_setup(mx_collection["sessionId"], lims_beamline_setup)
 
             detector_params = ISPyBValueFactory().detector_from_blc(
@@ -769,7 +770,7 @@ class ISPyBDataAdapter():
                 session.endDate = datetime.strftime(
                     session.endDate, "%Y-%m-%d %H:%M:%S"
                 )
-                return utf_encode(asdict(session))
+                return vars(session)
         except Exception as e:
             logging.getLogger("ispyb_client").exception(e)
 
@@ -828,8 +829,8 @@ class ISPyBDataAdapter():
         return status
 
     def update_bl_sample(self, bl_sample):
-        if self._disabled:
-            return {}
+        #if self._disabled:
+        #    return {}
 
         if self._tools_ws:
             try:

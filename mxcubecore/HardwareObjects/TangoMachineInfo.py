@@ -53,6 +53,7 @@ class TangoMachineInfo(AbstractMachineInfo):
 
         # we only want to update when the current changes.
         self.current.connect_signal("update", self._update_value)
+        self.filling_mode = self.get_channel_object("fillingMode")
         self.update_state(self.STATES.READY)
 
     def _check_attributes(self, attr_list=None):

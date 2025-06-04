@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from mxcubecore.utils.conversion import string_types
-
+from zeep import Client
 
 class ISPyBValueFactory:
     """
@@ -43,14 +43,14 @@ class ISPyBValueFactory:
         """
         beamline_setup = None
         try:
-            beamline_setup = ws_client.factory.create("ns0:beamLineSetup3VO")
+            beamline_setup = ws_client.type_factory("ns0").beamLineSetup3VO()
         except Exception:
             raise
         try:
             synchrotron_name = bl_config.synchrotron_name
             beamline_setup.synchrotronName = synchrotron_name
         except (IndexError, AttributeError):
-            beamline_setup.synchrotronName = "ESRF"
+            beamline_setup.synchrotronName = "SOLEIL"
 
         if bl_config.undulators:
             i = 1
@@ -91,11 +91,10 @@ class ISPyBValueFactory:
         """
         Creates a dataCollectionGroupWS3VO object from a mx_collect_dict.
         """
-
         group = None
 
         try:
-            group = ws_client.factory.create("ns0:dataCollectionGroupWS3VO")
+            group = ws_client.type_factory("ns0").dataCollectionGroupWS3VO()
         except Exception:
             raise
         else:
@@ -192,9 +191,8 @@ class ISPyBValueFactory:
                 + " must be 1 (until further notice...)"
             )
         data_collection = None
-
         try:
-            data_collection = ws_client.factory.create("ns0:dataCollectionWS3VO")
+            data_collection = ws_client.type_factory("ns0").dataCollectionWS3VO()
         except Exception:
             raise
 
@@ -415,7 +413,7 @@ class ISPyBValueFactory:
 
         try:
             ws_client = Client(_WS_COLLECTION_URL, cache=None)
-            workflow_vo = ws_client.factory.create("workflow3VO")
+            workflow_vo = ws_client.type_factory("workflow3VO")
         except Exception:
             raise
 
@@ -446,7 +444,7 @@ class ISPyBValueFactory:
 
         try:
             ws_client = Client(_WS_COLLECTION_URL, cache=None)
-            workflow_mesh_vo = ws_client.factory.create("workflowMeshWS3VO")
+            workflow_mesh_vo = ws_client.type_factory("workflowMeshWS3VO")
         except Exception:
             raise
 
@@ -480,7 +478,7 @@ class ISPyBValueFactory:
 
         try:
             ws_client = Client(_WS_COLLECTION_URL, cache=None)
-            workflow_step_vo = ws_client.factory.create("workflowStep3VO")
+            workflow_step_vo = ws_client.type_factory("workflowStep3VO")
         except Exception:
             raise
 
@@ -518,7 +516,7 @@ class ISPyBValueFactory:
 
         try:
             ws_client = Client(_WS_COLLECTION_URL, cache=None)
-            grid_info_vo = ws_client.factory.create("gridInfoWS3VO")
+            grid_info_vo = ws_client.type_factory("gridInfoWS3VO")
         except Exception:
             raise
 

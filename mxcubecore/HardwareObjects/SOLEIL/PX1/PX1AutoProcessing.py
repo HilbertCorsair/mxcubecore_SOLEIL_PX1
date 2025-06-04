@@ -138,6 +138,7 @@ class PX1AutoProcessing(HardwareObject):
                             for opt in self.proc_options.values() }
 
    def start_autoprocessing(self, collect_pars):
+       from mxcubecore import HardwareRepository as HWR
        logging.getLogger("HWR").debug("PX1AutoProcessing / Starting autoprocessing")
        logging.getLogger("HWR").debug("   - executable: %s" % self.exec_program)
        logging.getLogger("HWR").debug("   - collect_pars (keys only): %s" % collect_pars.keys())
@@ -145,6 +146,7 @@ class PX1AutoProcessing(HardwareObject):
        # adapt motors entry to avoid trying json on instance
        motors = collect_pars['motors']
        collect_pars["autoproc_options"] = self.get_options_as_dict()
+       HWR.beamline.lims.update_data_collection(collect_pars)
 
        motors_by_name = {}
        for ky, val in motors.items():

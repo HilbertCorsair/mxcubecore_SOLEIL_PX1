@@ -24,7 +24,7 @@ class ISPyBAbstractLIMS(AbstractLims):
         self.authServerType = None
         self.loginTranslate = None
         self.base_result_url = None
-        self.login_ok = False
+        #self.login_ok = False
 
     def init(self):
         super().init()

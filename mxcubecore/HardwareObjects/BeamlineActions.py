@@ -15,7 +15,7 @@ from mxcubecore.CommandContainer import (
 )
 from mxcubecore.TaskUtils import task
 from mxcubecore.utils.conversion import camel_to_snake
-
+from PyTango import DeviceProxy
 
 class ControllerCommand(CommandObject):
     def __init__(self, name, cmd=None, username=None, klass=None):
@@ -263,7 +263,6 @@ class BeamlineActions(HardwareObject):
             cmds = self.get_commands()
         except Exception:
             cmds = []
-
         for cmd in cmds:
             if cmd.name() == name:
                 try:
@@ -327,3 +326,26 @@ class BeamlineActions(HardwareObject):
                 if cmd.name() == name:
                     cmd.abort()
                     break
+class SafetyShutterClose(BeamlineActions):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+        self.shutter = DeviceProxy("i10-c-c03/ex/obx.1")
+
+    def SafetyShutterClose(self):
+        if self.shutter is None:
+            return
+        else :
+            self.shutter.Close()
+
+class EndBlSession(BeamlineActions):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+        self.shutter = DeviceProxy("i10-c-c03/ex/obx.1")
+
+    def EndBlSession(self):
+        if self.shutter is None:
+            return
+        else :
+            self.shutter.Close()

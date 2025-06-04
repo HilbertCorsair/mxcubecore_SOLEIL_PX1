@@ -347,6 +347,7 @@ class PX1Collect(AbstractCollect):
                 #
                 thumblist = self.thumbnails_characterization()
                 self.generate_thumbnails(thumblist)
+                print("Trigger autoprocessing depuis PX1Collect Data collection Hook Charaterization")
                 self.trigger_auto_processing("characterization",self.current_dc_parameters,-1)
 
             # includes
@@ -358,7 +359,6 @@ class PX1Collect(AbstractCollect):
                 user_log.info("Waiting for last image in disk...")
                 log.info("Waiting for last image in disk...")
                 log.debug("   directory: %s" % directory)
-
             self.data_collection_end()
             self.collection_finished()
 
@@ -605,6 +605,7 @@ class PX1Collect(AbstractCollect):
                     'thumb_ispyb': img_info['jpegThumbnailFileFullPath'],
                     'jpeg_ispyb': img_info['jpegFileFullPath'],
                     }
+            print(f" PX1Collect-----------------------do store image in lims info dont image_id: {info}")
             return info
 
     def store_first_last_in_lims(self):
@@ -631,7 +632,7 @@ class PX1Collect(AbstractCollect):
 
         self.generate_thumbnails()
 
-    def generate_eiger_thumbnails(self):
+    '''def generate_eiger_thumbnails(self):
         # NOT USED
         osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
         fileinfo = self.current_dc_parameters['fileinfo']
@@ -678,7 +679,7 @@ class PX1Collect(AbstractCollect):
             imgno = datafile_number * nb_frames_file + first_imgno
             last_image_jpegpath = os.path.join(archive_dir, jpeg_template) # % imgno)
             last_image_thumbpath = os.path.join(archive_dir, thumb_template) # % imgno)
-            self.store_image_in_lims(imgno)
+            self.store_image_in_lims(imgno)'''
 
     def prepare_characterization(self):
         _templ = self.current_dc_parameters['fileinfo']['template']
@@ -895,7 +896,7 @@ class PX1Collect(AbstractCollect):
         if process_event == "characterization":
             # always start it if characterization
             collect_pars['auto_processing'] = False
-            runit = True
+            runit = False
         else:
             collect_pars['auto_processing'] = runit
 
@@ -982,7 +983,7 @@ class PX1Collect(AbstractCollect):
                           'machineMessage': self.get_machine_message(),
                           'temperature': self.get_cryo_temperature()}
             archive_directory = self.current_dc_parameters['fileinfo']['archive_directory']
-
+            print(f"-----------store_image_in_lims {lims_image}")
             if archive_directory:
                 jpeg_filename = "%s.jpeg" % os.path.splitext(filename)[0]
                 thumb_filename = "%s.thumb.jpeg" % os.path.splitext(filename)[0]
@@ -1458,7 +1459,9 @@ class PX1Collect(AbstractCollect):
 
     def do_set_resolution(self):
         value = self.resolution_target
-        self.resolution_hwobj.resolution_to_distance(value)
+        print(f"I------------do_set_resolution {value}")
+        distance = self.resolution_hwobj.resolution_to_distance(value)
+        self.resolution_hwobj.move_distance(distance)
 
     # Check if in use in other classes ? -method might be depricated
     def move_detector(self,value):
@@ -1585,8 +1588,10 @@ class PX1Collect(AbstractCollect):
         """
         Descript. :
         """
+        print("++++++++++++ GET Machine FILL MODE 1++++++++++++++++++++")
         if self.machine_info_hwobj:
-            return self.machine_info_hwobj.get_fill_mode()
+            print("++++++++++++ GET Machine FILL MODE 2++++++++++++++++++++")
+            return self.machine_info_hwobj.filling_mode.get_value()
         else:
             return ''
 
