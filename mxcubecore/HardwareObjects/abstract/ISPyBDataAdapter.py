@@ -202,7 +202,7 @@ class ISPyBDataAdapter():
             self.ws_root + "ToolsForBLSampleWebService?wsdl"
         )
         print("Initated")
-       
+
     def __create_client(self, url: str):
 
         #Given a url it will create
@@ -224,7 +224,7 @@ class ISPyBDataAdapter():
             #proxy=self.proxy,
         )
         client.set_options(cache=None, location=url)
-        return client 
+        return client
 
     def isEnabled(self) -> object:
         return self._shipping  # type: ignore"""
@@ -474,6 +474,7 @@ class ISPyBDataAdapter():
         mx_collection["group_id"] = group_id
 
     def _update_data_collection(self, mx_collection):
+        mx_collection["collection_id"] = None
         if "collection_id" in mx_collection:
             try:
                 # Update the data collection group
@@ -481,7 +482,7 @@ class ISPyBDataAdapter():
                 data_collection = ISPyBValueFactory().from_data_collect_parameters(
                     self._collection, mx_collection
                 )
-                self._collection.service.storeOrUpdateDataCollection(data_collection)
+                mx_collection["collection_id"] = self._collection.service.storeOrUpdateDataCollection(data_collection)
             except Fault as e:
                 logging.getLogger("ispyb_client").exception(e)
             except URLError as e:
