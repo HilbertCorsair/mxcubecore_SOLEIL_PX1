@@ -15,6 +15,20 @@ import math
 log = logging.getLogger("HWR")
 
 
+import os
+import sys
+import simplejpeg
+
+from redis_camera import camera
+from imageio import imwrite
+
+murko_path = os.getenv("MURKO_PATH")
+sys.path.insert(1, murko_path)
+from utils import (
+    get_predictions,
+    plot_analysis,
+)
+
 
 class PX1MiniDiff(GenericDiffractometer):
     def __init__(self, name):
@@ -63,6 +77,377 @@ class PX1MiniDiff(GenericDiffractometer):
                  self.px1_automatic_centring,
              GenericDiffractometer.CENTRING_METHOD_MOVE_TO_BEAM: \
                  self.start_move_to_beam}
+
+    def px1_start(
+        self,
+        centring_motors_dict,
+        pixelsPerMm_Hor,
+        pixelsPerMm_Ver,
+        beam_x,
+        beam_y,
+        chi_angle=0,
+        n_points=2,
+        phi_incr=120.0,
+        sample_type="LOOP",
+        automatic=False,
+    ):
+
+        global CURRENT_CENTRING
+
+        phi, phiy, phiz, sampx, sampy = sample_centring.prepare(centring_motors_dict)
+
+        CURRENT_CENTRING = gevent.spawn(
+            self.px1_center,
+            phi,
+            phiy,
+            phiz,
+            sampx,
+            sampy,
+            pixelsPerMm_Hor,
+            pixelsPerMm_Ver,
+            beam_x,
+            beam_y,
+            chi_angle,
+            n_points,
+            phi_incr,
+            sample_type,
+            automatic=automatic,
+        )
+        return CURRENT_CENTRING
+
+    def takePictureMurko(self):
+        """
+        would be great to integrate InFine the different lighting conditions with the ringlight
+        maybe need the following line for imports:
+        sys.path.append("/nfs/ruche/share-dev/px1dev/MXCuBE/tools/camera_app/")
+        """
+        pathing = "/nfs/ruche/share-dev/px1dev/Arthur/CapturedImagesMXCuBE"
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        img = None
+        try:
+            img = camera().get_image()
+            imgName = pathing + "/img_" + timestamp
+            omega = self.get_omega_position()
+            if zoom != None or omega != None:
+                imgName += "_" + str(zoom) + "_" + str(omega)
+            imgName += ".jpg"
+            imwrite(imgName, img)
+            logging.getLogger("user_level_log").info("img saved as : %s" %imgName)
+        except Exception as e:
+            logging.getLogger("user_level_log").info("Could not save image at %s" %timestamp)
+        return img
+
+    def px1_center_murko(self, X, Y, PHI, phi, n_points, PHI_ANGLE_START, phi_incr):
+        """ Method to center the sample using the Neural Network murko
+
+        WIP
+        Take last frame, send to murko to get coordinates and add to positions list.
+        This could be improved with multithreading instead of waiting for murko results
+        to start moving the motors for the next position.
+
+        Args:
+            X: list of X coords where a click event happened, should be given
+                to this method empty
+            Y: list of Y coords where a click event happened, should be given
+                to this method empty
+            PHI: list of coords phi of the sample when a click event happened,
+                should be given to this method empty
+            phi: variable to control the movement in phi of the sample
+            n_points: number of points to be taken by the user
+            PHI_ANGLE_START: original position phi of the sample, used to
+                return to original location after movements
+        Returns:
+            No return value, coordinates stored in X, Y, PHI
+
+        """
+
+        for i in range(n_points):
+
+            img = takePictureMurko()
+            x_click, y_click = estimate_click_murko(img)
+            x = x_click * int(os.getenv("MURKO_SIZEX"))
+            y = y_click * int(os.getenv("MURKO_SIZEY"))
+            X.append(x)
+            Y.append(y)
+            PHI.append(phi.get_positions())
+            phi.sync_move_relative(phi_incr)
+
+        logging.getLogger("user_level_log").info(
+            "returning PHI to initial position %s" % PHI_ANGLE_START
+        )
+        phi.move(PHI_ANGLE_START)
+
+    def px1_center_user_input(self, X, Y, PHI, phi, n_points, PHI_ANGLE_START, phi_incr):
+        """ Method to get the user inputs for the centring of the sample
+
+        global USER_CLICKED_EVENT is assumed declared before calling this method
+
+        Args:
+            X: list of X coords where a click event happened, should be given
+                to this method empty
+            Y: list of Y coords where a click event happened, should be given
+                to this method empty
+            PHI: list of coords phi of the sample when a click event happened,
+                should be given to this method empty
+            phi: variable to control the movement in phi of the sample
+            n_points: number of points to be taken by the user
+            PHI_ANGLE_START: original position phi of the sample, used to
+                return to original location after movements
+        Returns:
+            No return value, coordinates stored in X, Y, PHI
+
+        """
+
+        # OBTAIN CLICKS
+        while True:
+            USER_CLICKED_EVENT = gevent.event.AsyncResult()
+            user_info = USER_CLICKED_EVENT.get()
+            if user_info == "abort":
+                sample_centring.bort_centring()
+                return None
+            else:
+                x, y = user_info
+
+            USER_CLICKED_EVENT = gevent.event.AsyncResult()
+
+            X.append(x) # X needed later
+            Y.append(y) # Y needed later
+            PHI.append(phi.get_position()) # PHI needed later
+
+            if len(X) == n_points:
+                # PHI_LAST_ANGLE = phi.get_position()
+                # GO_ANGLE_START = PHI_ANGLE_START - PHI_LAST_ANGLE
+                sample_centring.READY_FOR_NEXT_POINT.set()
+                # phi.sync_move_relative(GO_ANGLE_START)
+                break
+
+            phi.sync_move_relative(phi_incr)
+            sample_centring.READY_FOR_NEXT_POINT.set()
+
+        logging.getLogger("user_level_log").info(
+            "returning PHI to initial position %s" % PHI_ANGLE_START
+        )
+        phi.move(PHI_ANGLE_START)
+
+    def px1_center_computations(self, X, Y, beam_x, beam_y, PHI, PhiCamera, n_points):
+        """ Method to compute the positions need to center the sample based on
+            X and Y coordiantes
+
+        Args:
+            X: list of X coordinates to use for centring
+            Y: list of Y coordinates to use for centring
+            beam_x:
+            beam_y:
+            PHI: list of PHI positions to use for centring
+            PhiCamera: phi value to add to correctly compute angle
+            n_points: number of points taken as input
+        Return:
+            x_echantillon: resulting x coordinate to center sample to
+            y_echantillon: resulting y coordinate to center sample to
+            z_echantillon: resulting z coordinate to center sample to
+
+        """
+
+        P, Q, XB, YB, ANG = [], [], [], [], []
+
+        logging.getLogger("HWR").debug("sample_centring: INPUT for calculation")
+        logging.getLogger("HWR").debug(
+            "sample_centring:   beam_x = %s, beam_y = %s " % (beam_x, beam_y)
+        )
+        logging.getLogger("HWR").debug(
+            "sample_centring:   X = %s, Y = %s " % (str(X), str(Y))
+        )
+        logging.getLogger("HWR").debug(
+            "sample_centring:   PHI = %s, PhiCamera = %s, n_points = %s "
+            % (str(PHI), PhiCamera, n_points)
+        )
+
+        try:
+            for i in range(n_points):
+                xb = X[i] - beam_x
+                yb = Y[i] - beam_y
+                ang = math.radians(PHI[i] + PhiCamera)
+
+                XB.append(xb)
+                YB.append(yb)
+                ANG.append(ang)
+
+            for i in range(n_points):
+                y0 = YB[i]
+                a0 = ANG[i]
+                if i < (n_points - 1):
+                    y1 = YB[i + 1]
+                    a1 = ANG[i + 1]
+                else:
+                    y1 = YB[0]
+                    a1 = ANG[0]
+
+                p = (y0 * math.sin(a1) - y1 * math.sin(a0)) / math.sin(a1 - a0)
+                q = (y0 * math.cos(a1) - y1 * math.cos(a0)) / math.sin(a0 - a1)
+
+                P.append(p)
+                Q.append(q)
+
+            x_echantillon = -sum(P) / n_points
+            y_echantillon = sum(Q) / n_points
+            z_echantillon = -sum(XB) / n_points
+        except:
+            import traceback
+
+            logging.getLogger("HWR").info(
+                "sample_centring: error while centering: %s"
+                % traceback.format_exc()
+            )
+
+        return (x_echantillon, y_echantillon, z_echantillon)
+
+    def px1_center_move_motors(self, echantillon, sample, pixelsPerMm_Hor, PHI_ANGLE_START):
+        """ Method to move motors given a certain set of coordinates
+
+        Args:
+            echantillon: (x_echantillon, y_echantillon, z_echantillon)
+                positions computed for the sample
+            sample: (sampx, sampy, phiy)
+                hwo to get current position of sample
+            pixelsPerMm_Hor: conversion rate from computed position on screen
+                to real world movement
+            PHI_ANGLE_START: phi angle before moving the sample around to find
+                center
+        Returns:
+            New position, which would be a centred position for the sample
+
+        """
+
+        (x_echantillon, y_echantillon, z_echantillon) = echantillon
+        (sampx, sampy, phiy) = sample
+
+        x_echantillon_real = x_echantillon / pixelsPerMm_Hor + sampx.get_position()
+        y_echantillon_real = y_echantillon / pixelsPerMm_Hor + sampy.get_position()
+        z_echantillon_real = z_echantillon / pixelsPerMm_Hor + phiy.get_position()
+
+        if phiy.get_limits() is not None:
+            if z_echantillon_real + phiy.get_position() < phiy.get_limits()[0] * 2:
+                logging.getLogger("HWR").info(
+                    "sample_centring: phiy limits: %s" % str(phiy.get_limits())
+                )
+                logging.getLogger("HWR").info(
+                    "sample_centring:  requiring: %s"
+                    % str(z_echantillon_real + phiy.get_position())
+                )
+                logging.getLogger("HWR").error("sample_centring: loop too long")
+
+                self.move_motors(sample_centring.SAVED_INITIAL_POSITIONS)
+                raise Exception()
+
+        centred_pos = sample_centring.SAVED_INITIAL_POSITIONS.copy()
+
+        centred_pos.update(
+            {
+                phi.motor: PHI_ANGLE_START,
+                sampx.motor: x_echantillon_real,
+                sampy.motor: y_echantillon_real,
+                phiy.motor: z_echantillon_real,
+            }
+        )
+        logging.getLogger("HWR").info("sample_centring: centring result")
+
+        logging.getLogger("HWR").info(
+            "sample_centring: SampX: %s" % x_echantillon_real
+        )
+        logging.getLogger("HWR").info(
+            "sample_centring: SampY: %s" % y_echantillon_real
+        )
+        logging.getLogger("HWR").info(
+            "sample_centring: PhiY: %s" % z_echantillon_real
+        )
+
+        return centred_pos
+
+
+    def px1_center(
+        self,
+        phi,
+        phiy,
+        phiz,
+        sampx,
+        sampy,
+        pixelsPerMm_Hor,
+        pixelsPerMm_Ver,
+        beam_x,
+        beam_y,
+        chi_angle,
+        n_points,
+        phi_incr,
+        sample_type,
+        automatic=False,
+    ):
+
+        if sample_type.upper() in ["PLATE", "CHIP"]:
+            # go back half of the total range
+            logging.getLogger("user_level_log").info(
+                "centerig in plate mode / n_points %s / incr %s" % (n_points, phi_incr)
+            )
+            half_range = (phi_incr * (n_points - 1)) / 2.0
+            phi.sync_move_relative(-half_range)
+        else:
+            logging.getLogger("user_level_log").info(
+                "centerig in loop mode / n_points %s / incr %s " % (n_points, phi_incr)
+            )
+
+        # VARIABLE DEFINITION
+
+        global USER_CLICKED_EVENT
+
+        PHI_ANGLE_START = phi.get_position()
+        PhiCamera = 90
+
+        X, Y, PHI = [], [], []
+
+        try:
+
+            # TAKE USER INPUT
+            if automatic:
+                px1_center_murko(X, Y, PHI, n_points, PHI_ANGLE_START, phi_incr)
+            else:
+                px1_center_user_input(X, Y, PHI, phi, n_points, PHI_ANGLE_START, phi_incr)
+
+            # COMPUTATIONS
+            echantillon = px1_center_computations(X, Y, beam_x, beam_y, PHI, PhiCamera, n_points)
+            (x_echantillon, y_echantillon, z_echantillon) = echantillon
+
+            logging.getLogger("HWR").info(
+                "sample_centring: Calculating centred position with"
+            )
+            logging.getLogger("HWR").info(
+                "sample_centring:    / x_ech: %s / y_ech: %s / z_ech: %s"
+                % (x_echantillon, y_echantillon, z_echantillon)
+            )
+            logging.getLogger("HWR").info(
+                "sample_centring:    / sampx: %s / sampy: %s / phiy: %s"
+                % (sampx.get_position(), sampy.get_position(), phiy.get_position())
+            )
+            logging.getLogger("HWR").info(
+                "sample_centring:    / pixels_per_mm: %s " % (pixelsPerMm_Hor)
+            )
+
+
+            # MOVE MOTORS
+            centred_pos = px1_center_move_motors(echantillon, (sampx, sampy, phiy), pixelsPerMm_Hor, PHI_ANGLE_START)
+
+            return centred_pos
+
+        except gevent.GreenletExit:
+            logging.getLogger("HWR").debug("sample_centring.py - Centring aborted")
+
+            sample_centring.abort_centring()
+            # return None
+
+        except:
+            import traceback
+
+            logging.getLogger("HWR").error(
+                "sample_centring: Exception. %s" % traceback.format_exc()
+            )
 
     def set_chip_mode(self, flag):
         self.chip_mode = flag
@@ -245,6 +630,115 @@ class PX1MiniDiff(GenericDiffractometer):
         """
         """
         self.emit_progress_message("Automatic centring...")
+        logging.getLogger("HWR").debug("   starting automatic centring. phiy is %s" % str(self.centring_phiy))
+
+        centring_points = self.px1conf_ho.get_centring_points()
+        centring_phi_incr = self.px1conf_ho.get_centring_phi_increment()
+        centring_sample_type = self.px1conf_ho.get_centring_sample_type()
+        self.current_centring_procedure = self.px1_start(
+            {
+                "phi": self.centring_phi,
+                "phiy": self.centring_phiy,
+                "sampx": self.centring_sampx,
+                "sampy": self.centring_sampy,
+                "phiz": self.centring_phiz,
+            },
+            self.pixels_per_mm_x,
+            self.pixels_per_mm_y,
+            self.beam_position[0],
+            self.beam_position[1],
+            n_points=centring_points,
+            phi_incr=centring_phi_incr,
+            sample_type=centring_sample_type,
+            automatic=True,
+        )
+
+        self.current_centring_procedure.link(self.centring_done)
+        """
+        right now need to link murko with host, port, import and
+        set env variables to find paths
+
+        current version doesn't do zooms and does only 1 time 3 takes to center
+        """
+
+        """
+        if (HWR.beamline.diffractometer.zoom.get_value() != "zoom1"):
+            HWR.beamline.diffractometer.zoom.set_value("zoom1")
+        if (HWR.beamline.diffractometer.zoom.get_value() != "zoom4"):
+            HWR.beamline.diffractometer.zoom.set_value("zoom4")
+        """
+
+    def estimate_click_murko(self, frame):
+        """Gets relative coordinates from murko
+
+        Calls the murko server running on localhost:89011 to retrieve estimated
+        relative coordinates of the crystal presence in the image given
+
+        Args:
+            frame: current frame to be analysed
+
+        Returns:
+            Relative coordinates (x, y) of the click a user would do.
+            If there is a crystal this would be the center of the crystal
+            If not it would be the center of the loop seen in the frame
+            If nothing is found would be (0.5, 0.5) being center of the frame
+
+        """
+
+        if (frame is None):
+            frame = '/home/experiences/proxima1/com-proxima1/arthur_mxcube/img_test.jpg'
+            frame = HWR.beamline.sample_view.camera.get_last_image_path()
+            HWR.beamline.sample_view.save_snapshot("/home/experiences/proxima1/com-proxima1/arthur_mxcube/image_testing.jpg")
+
+
+        request_args = {}
+        request_args["to_predict"] = frame
+        image_jpeg = request_args["to_predict"]
+        #image_jpeg = simplejpeg.decode_jpeg(image_jpeg)
+        request_args["description"] = [
+            "foreground",
+            "crystal",
+            "loop_inside",
+            "loop",
+            ["crystal", "loop"],
+            ["crystal", "loop", "stem"],
+        ]
+        request_args["save"] = False
+        request_args["prefix"] = "predicted"
+        mhost = os.getenv("MURKO_HOST")
+        mport = int(os.getenv("MURKO_PORT"))
+        analysis = get_predictions(request_args, host=mhost, port = mport)
+
+        original_image_shape = analysis["original_image_shape"]
+        sizeOfImgY, sizeOfImgX = original_image_shape[:2]
+        descriptions = analysis['descriptions']
+
+        if descriptions[0]['present']:
+            loop_present, r, c, h, w = descriptions[0]["aoi_bbox"]
+            if loop_present:
+                logging.getLogger("HWR").debug(
+                    "Loop found! Its bounding box parameters in fractional coordianates are: center (vertical %.3f, horizontal %.3f), height %.3f, width %.3f"
+                    % (r, c, h, w)
+                )
+            else:
+                logging.getLogger("HWR").debug("loop not found")
+            v, h = descriptions[0]["most_likely_click"]
+        else:
+            logging.getLogger("HWR").debug("nothing found on image, click on center")
+            v = 0.5
+            h = 0.5
+
+        """
+        name_pattern = f"{os.getuid()}_{time.asctime().replace(' ', '_')}.jpg"
+        directory = f"{os.getenv('HOME')}/murko"
+        os.makedirs(directory, exist_ok=True)
+        template = os.path.join(directory, name_pattern)
+        plot_analysis([image_jpeg], analysis)
+        """
+
+        print("Finished estimating murko, hope it get's reached")
+
+        return h, v
 
     def centring_motor_moved(self, pos):
         """
