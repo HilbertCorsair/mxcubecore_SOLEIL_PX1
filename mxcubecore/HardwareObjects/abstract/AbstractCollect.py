@@ -60,6 +60,14 @@ BeamlineConfig = collections.namedtuple(
         "beam_divergence_horizontal",
         "polarisation",
         "input_files_server",
+        "goniostatMinOscillationWidth",
+        "goniostatMaxOscillationSpeed",
+        "maxExpTimePerDataCollection",
+        "focalSpotSizeAtSample",
+        "minTransmission",
+        "undulatorType1",
+        "undulatorType2",
+        "undulatorType3"
     ],
 )
 
@@ -84,7 +92,7 @@ class AbstractCollect(HardwareObject, object):
     def __init__(self, name) -> None:
         HardwareObject.__init__(self, name)
 
-        self.bl_config = BeamlineConfig(*[None] * 18)
+        self.bl_config = BeamlineConfig(*[None] * 26)
 
         self._collecting = False
         self._error_msg = ""
@@ -134,6 +142,14 @@ class AbstractCollect(HardwareObject, object):
             beam_divergence_horizontal=beam_div_ver,
             polarisation=self.get_property("polarisation"),
             input_files_server=self.get_property("input_files_server"),
+            goniostatMinOscillationWidth=float(self.get_property("goniostatMinOscillationWidth")),
+            goniostatMaxOscillationSpeed=float(self.get_property("goniostatMaxOscillationSpeed")),
+            maxExpTimePerDataCollection=float(self.get_property("maxExpTimePerDataCollection")),
+            focalSpotSizeAtSample=float(self.get_property("focalSpotSizeAtSample")),
+            minTransmission=self.get_property("minTransmission"),
+            undulatorType1=self.get_property("undulatorType1"),
+            undulatorType2=self.get_property("undulatorType2"),
+            undulatorType3=self.get_property("undulatorType3")
         )
 
     def set_beamline_configuration(self, **configuration_parameters) -> None:

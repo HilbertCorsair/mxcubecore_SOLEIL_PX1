@@ -63,6 +63,8 @@ from PyTango import DeviceProxy
 from mxcubecore.TaskUtils import *
 from mxcubecore.HardwareObjects.abstract.AbstractCollect import AbstractCollect
 from CreateDirClient import CreateDirectoryClient
+from mxcubecore import HardwareRepository as HWR
+
 
 __author__ = "Vicente Rey Bakaikoa"
 __credits__ = ["MXCuBE colaboration"]
@@ -219,7 +221,7 @@ class PX1Collect(AbstractCollect):
              synchrotron_name="SOLEIL",
              directory_prefix=self.get_property("directory_prefix"),
              default_exposure_time=self.detector_hwobj.get_default_exposure_time(),
-             minimum_exposure_time=self.detector_hwobj.get_minimum_exposure_time(),
+             minimum_exposure_time=HWR.beamline.detector.minimum_exposure_time,
              detector_fileext=self.detector_hwobj.get_file_suffix(),
              detector_type=self.detector_hwobj.get_detector_type(),
              detector_manufacturer=self.detector_hwobj.get_manufacturer(),
@@ -232,9 +234,17 @@ class PX1Collect(AbstractCollect):
              monochromator_type=self.get_property('monochromator'),
              beam_divergence_vertical=self.beam_info_hwobj.get_beam_divergence_hor(),
              beam_divergence_horizontal=self.beam_info_hwobj.get_beam_divergence_ver(),
-             polarisation=self.get_property('polarisation'),
-             input_files_server=self.get_property("input_files_server"))
-
+             polarisation=float(self.get_property('polarisation')),
+             input_files_server=self.get_property("input_files_server"),
+             goniostatMinOscillationWidth=float(self.get_property("goniostatMinOscillationWidth")),
+             goniostatMaxOscillationSpeed=float(self.get_property("goniostatMaxOscillationSpeed")),
+             maxExpTimePerDataCollection=float(self.get_property("maxExpTimePerDataCollection")),
+             focalSpotSizeAtSample=float(self.get_property("focalSpotSizeAtSample")),
+             minTransmission=self.get_property("minTransmission"),
+             undulatorType1=self.get_property("undulatorType1"),
+             undulatorType2=self.get_property("undulatorType2"),
+             undulatorType3=self.get_property("undulatorType3")
+             )
         self.emit("collectConnected", (True,))
         self.emit("collectReady", (True, ))
 
@@ -326,6 +336,7 @@ class PX1Collect(AbstractCollect):
 
         try:
             log = logging.getLogger("HWR")
+            print(f"************PX1Collect---------Data collection hook collection type = {collection_type}")
             if collection_type != 'Characterization':  # standard or helical
                 self.start_standard_collection()
                 log.debug("Waiting for collect to finish. max time waiting: %s" % max_wait_time)
@@ -336,7 +347,7 @@ class PX1Collect(AbstractCollect):
                 log.debug("Collect is now finished")
 
                 thumblist = self.thumbnails_standard()
-                self.generate_thumbnails(thumblist)
+
                 #self.generate_thumbnails()
             else:
                 # CHARACTERIZATION
@@ -346,7 +357,6 @@ class PX1Collect(AbstractCollect):
                     raise BaseException("Timeout waiting for collection end")
                 #
                 thumblist = self.thumbnails_characterization()
-                self.generate_thumbnails(thumblist)
                 print("Trigger autoprocessing depuis PX1Collect Data collection Hook Charaterization")
                 self.trigger_auto_processing("characterization",self.current_dc_parameters,-1)
 
@@ -361,7 +371,7 @@ class PX1Collect(AbstractCollect):
                 log.debug("   directory: %s" % directory)
             self.data_collection_end()
             self.collection_finished()
-
+            self.generate_thumbnails(thumblist)
         except:
             log.warning("Error during data collection. ABORTED. Check app log")
             self.collect_failed('collect exception')

@@ -481,6 +481,7 @@ class ISPyBDataAdapter():
                     self._collection, mx_collection
                 )
                 mx_collection["collection_id"] = self._collection.service.storeOrUpdateDataCollection(data_collection)
+                print(f"####################-------------ISPyB data adapter--------------update data collection {mx_collection} ")
             except Fault as e:
                 logging.getLogger("ispyb_client").exception(e)
             except URLError as e:
@@ -498,7 +499,8 @@ class ISPyBDataAdapter():
         if self._collection:
             logging.getLogger("HWR").debug("Storing image in lims")
             if "dataCollectionId" in image_dict:
-                print(f"ISPyB data adapter--------------store image image dict {image_dict} ")
+                #image_dict["dataCollectionId"] = ["collection_id"]
+                print(f"$$$$$$$$$$$$$$$$$$$$$$$$$$-------------ISPyB data adapter--------------store image image dict {image_dict} ")
                 try:
                     image_id = self._collection.service.storeOrUpdateImage(image_dict)
                     logging.getLogger("HWR").debug(
@@ -678,7 +680,6 @@ class ISPyBDataAdapter():
             )
 
     def store_beamline_setup(self, session_id, bl_config):
-        print(f'Storing beamline setup in ISPYBdataAdapter: type of bl_config {type(bl_config)}\n{bl_config}')
         blSetupId = None
         if self._collection:
             session = {}
@@ -693,7 +694,7 @@ class ISPyBDataAdapter():
                 if session is not None:
 
                     try:
-
+                        print(f'Storing beamline setup in ISPYBdataAdapter: bl_config {bl_config}')
                         blSetupId = self._collection.service.storeOrUpdateBeamLineSetup(
                             bl_config
                         )
@@ -701,6 +702,8 @@ class ISPyBDataAdapter():
                         self.update_session(session)
 
                     except Fault as e:
+                        print("------------Enter to FAULT")
+                        logging.getLogger('zeep').setLevel(logging.DEBUG)
                         logging.getLogger("ispyb_client").exception(str(e))
                     except URLError:
                         logging.getLogger("ispyb_client").exception(

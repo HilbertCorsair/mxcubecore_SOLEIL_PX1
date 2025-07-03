@@ -52,11 +52,12 @@ class ISPyBValueFactory:
         except (IndexError, AttributeError):
             beamline_setup.synchrotronName = "SOLEIL"
 
-        if bl_config.undulators:
+        """if bl_config.undulators:
             i = 1
             for und in bl_config.undulators:
+                print(f"-----------------Setting undulators type : {und.type} ")
                 beamline_setup.__setattr__("undulatorType%d" % i, und.type)
-                i += 1
+                i += 1"""
 
         try:
             beamline_setup.monochromatorType = bl_config.monochromator_type

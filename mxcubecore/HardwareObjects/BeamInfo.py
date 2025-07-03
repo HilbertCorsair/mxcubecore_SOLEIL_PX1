@@ -85,10 +85,10 @@ class BeamInfo(HardwareObject):
         default_beam_divergence_vertical = None
         default_beam_divergence_horizontal = None
         try:
-            default_beam_divergence_vertical = int(
+            default_beam_divergence_vertical = float(
                 self.get_property("beam_divergence_vertical")
             )
-            default_beam_divergence_horizontal = int(
+            default_beam_divergence_horizontal = float(
                 self.get_property("beam_divergence_horizontal")
             )
         except Exception:
