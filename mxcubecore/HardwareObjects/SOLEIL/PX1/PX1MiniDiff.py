@@ -8,6 +8,7 @@ from mxcubecore.HardwareObjects.GenericDiffractometer import (
 )
 #from mxcubecore.HardwareObjects import sample_centring
 
+from mxcubecore import HardwareRepository as HWR
 from mxcubecore.HardwareObjects import sample_centring
 import numpy as np
 import math
