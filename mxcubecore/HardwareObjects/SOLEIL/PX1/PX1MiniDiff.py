@@ -19,7 +19,6 @@ import os
 import sys
 import simplejpeg
 
-from redis_camera import camera
 from imageio import imwrite
 
 murko_path = os.getenv("MURKO_PATH")
@@ -125,7 +124,7 @@ class PX1MiniDiff(GenericDiffractometer):
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         img = None
         try:
-            img = camera().get_image()
+            img = HWR.beamline.sample_view.camera.get_last_image_path()
             imgName = pathing + "/img_" + timestamp
             omega = self.get_omega_position()
             if zoom != None or omega != None:
