@@ -2,6 +2,12 @@
 import logging
 import gevent
 import time
+import os
+import sys
+import simplejpeg
+
+from redis_camera import camera
+from imageio import imwrite
 
 from mxcubecore.HardwareObjects.GenericDiffractometer import (
     GenericDiffractometer,
@@ -14,13 +20,6 @@ import numpy as np
 import math
 
 log = logging.getLogger("HWR")
-
-
-import os
-import sys
-import simplejpeg
-
-from imageio import imwrite
 
 murko_path = os.getenv("MURKO_PATH")
 sys.path.insert(1, murko_path)
@@ -119,25 +118,94 @@ class PX1MiniDiff(GenericDiffractometer):
         """
         would be great to integrate InFine the different lighting conditions with the ringlight
         maybe need the following line for imports:
-        sys.path.append("/nfs/ruche/share-dev/px1dev/MXCuBE/tools/camera_app/")
+        /home/experiences/proxima1/com-proxima1/arthur_mxcube/MurkoImagingTest
         """
-        pathing = "/nfs/ruche/share-dev/px1dev/Arthur/CapturedImagesMXCuBE"
+        pathing = "/home/experiences/proxima1/com-proxima1/arthur_mxcube/MurkoImagingTest"
+        os.makedirs(pathing, exist_ok=True)
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         img = None
+        imgName = pathing + "/img_" + timestamp + ".jpg"
         try:
-            img = HWR.beamline.sample_view.camera.get_last_image_path()
-            imgName = pathing + "/img_" + timestamp
-            omega = self.get_omega_position()
-            if zoom != None or omega != None:
-                imgName += "_" + str(zoom) + "_" + str(omega)
-            imgName += ".jpg"
+            redisCamera = camera()
+            img = redisCamera.get_image()
             imwrite(imgName, img)
-            logging.getLogger("user_level_log").info("img saved as : %s" %imgName)
+            logging.getLogger("user_level_log").info("img saved as %s in MurkoImageTesting" %imgName)
         except Exception as e:
-            logging.getLogger("user_level_log").info("Could not save image at %s" %timestamp)
+            logging.getLogger("user_level_log").info("%s" %e)
         return img
 
-    def px1_center_murko(self, X, Y, PHI, phi, n_points, PHI_ANGLE_START, phi_incr):
+    def estimate_click_murko(self, frame):
+        """Gets relative coordinates from murko
+
+        Calls the murko server running on localhost:89011 to retrieve estimated
+        relative coordinates of the crystal presence in the image given
+
+        Args:
+            frame: current frame to be analysed
+
+        Returns:
+            Relative coordinates (x, y) of the click a user would do.
+            If there is a crystal this would be the center of the crystal
+            If not it would be the center of the loop seen in the frame
+            If nothing is found would be (0.5, 0.5) being center of the frame
+
+        """
+
+        if (frame is None):
+            frame = '/home/experiences/proxima1/com-proxima1/arthur_mxcube/img_test.jpg'
+            frame = HWR.beamline.sample_view.camera.get_last_image()
+            HWR.beamline.sample_view.save_snapshot("/home/experiences/proxima1/com-proxima1/arthur_mxcube/image_testing.jpg")
+
+
+        request_args = {}
+        request_args["to_predict"] = frame
+        image_jpeg = request_args["to_predict"]
+        #image_jpeg = simplejpeg.decode_jpeg(image_jpeg)
+        request_args["description"] = [
+            "foreground",
+            "crystal",
+            "loop_inside",
+            "loop",
+            ["crystal", "loop"],
+            ["crystal", "loop", "stem"],
+        ]
+        request_args["save"] = False
+        request_args["prefix"] = "predicted"
+        mhost = os.getenv("MURKO_HOST")
+        mport = int(os.getenv("MURKO_PORT"))
+        analysis = get_predictions(request_args, host=mhost, port = mport)
+
+        original_image_shape = analysis["original_image_shape"]
+        sizeOfImgY, sizeOfImgX = original_image_shape[:2]
+        descriptions = analysis['descriptions']
+
+        if descriptions[0]['present']:
+            loop_present, r, c, h, w = descriptions[0]["aoi_bbox"]
+            if loop_present:
+                logging.getLogger("HWR").debug(
+                    "Loop found! Its bounding box parameters in fractional coordianates are: center (vertical %.3f, horizontal %.3f), height %.3f, width %.3f"
+                    % (r, c, h, w)
+                )
+            else:
+                logging.getLogger("HWR").debug("loop not found")
+            v, h = descriptions[0]["most_likely_click"]
+        else:
+            logging.getLogger("user_level_log").debug("nothing found on image, click on center")
+            v = 0.5
+            h = 0.5
+
+        """
+        name_pattern = f"{os.getuid()}_{time.asctime().replace(' ', '_')}.jpg"
+        directory = f"{os.getenv('HOME')}/murko"
+        os.makedirs(directory, exist_ok=True)
+        template = os.path.join(directory, name_pattern)
+        plot_analysis([image_jpeg], analysis)
+        """
+        logging.getLogger("user_level_log").info("Murko finished computing position for image")
+
+        return h, v
+
+    def px1_center_murko(self, X, Y, phi_positions, phi, n_points, PHI_ANGLE_START, phi_incr):
         """ Method to center the sample using the Neural Network murko
 
         WIP
@@ -160,16 +228,14 @@ class PX1MiniDiff(GenericDiffractometer):
             No return value, coordinates stored in X, Y, PHI
 
         """
-
         for i in range(n_points):
-
-            img = takePictureMurko()
-            x_click, y_click = estimate_click_murko(img)
-            x = x_click * int(os.getenv("MURKO_SIZEX"))
-            y = y_click * int(os.getenv("MURKO_SIZEY"))
-            X.append(x)
-            Y.append(y)
-            PHI.append(phi.get_positions())
+            img = self.takePictureMurko()
+            x_click, y_click = self.estimate_click_murko(img)
+            x_coord = x_click * int(os.getenv("MURKO_SIZEX"))
+            y_coord = y_click * int(os.getenv("MURKO_SIZEY"))
+            X.append(x_coord)
+            Y.append(y_coord)
+            phi_positions.append(phi.get_position())
             phi.sync_move_relative(phi_incr)
 
         logging.getLogger("user_level_log").info(
@@ -177,7 +243,7 @@ class PX1MiniDiff(GenericDiffractometer):
         )
         phi.move(PHI_ANGLE_START)
 
-    def px1_center_user_input(self, X, Y, PHI, phi, n_points, PHI_ANGLE_START, phi_incr):
+    def px1_center_user_input(self, X, Y, phi_positions, phi, n_points, PHI_ANGLE_START, phi_incr):
         """ Method to get the user inputs for the centring of the sample
 
         global USER_CLICKED_EVENT is assumed declared before calling this method
@@ -212,7 +278,7 @@ class PX1MiniDiff(GenericDiffractometer):
 
             X.append(x) # X needed later
             Y.append(y) # Y needed later
-            PHI.append(phi.get_position()) # PHI needed later
+            phi_positions.append(phi.get_position()) # PHI needed later
 
             if len(X) == n_points:
                 # PHI_LAST_ANGLE = phi.get_position()
@@ -229,7 +295,7 @@ class PX1MiniDiff(GenericDiffractometer):
         )
         phi.move(PHI_ANGLE_START)
 
-    def px1_center_computations(self, X, Y, beam_x, beam_y, PHI, PhiCamera, n_points):
+    def px1_center_computations(self, X, Y, beam_x, beam_y, phi_positions, PhiCamera, n_points):
         """ Method to compute the positions need to center the sample based on
             X and Y coordiantes
 
@@ -238,7 +304,7 @@ class PX1MiniDiff(GenericDiffractometer):
             Y: list of Y coordinates to use for centring
             beam_x:
             beam_y:
-            PHI: list of PHI positions to use for centring
+            phi_positions: list of PHI positions to use for centring
             PhiCamera: phi value to add to correctly compute angle
             n_points: number of points taken as input
         Return:
@@ -259,14 +325,14 @@ class PX1MiniDiff(GenericDiffractometer):
         )
         logging.getLogger("HWR").debug(
             "sample_centring:   PHI = %s, PhiCamera = %s, n_points = %s "
-            % (str(PHI), PhiCamera, n_points)
+            % (str(phi_positions), PhiCamera, n_points)
         )
 
         try:
             for i in range(n_points):
                 xb = X[i] - beam_x
                 yb = Y[i] - beam_y
-                ang = math.radians(PHI[i] + PhiCamera)
+                ang = math.radians(phi_positions[i] + PhiCamera)
 
                 XB.append(xb)
                 YB.append(yb)
@@ -301,7 +367,7 @@ class PX1MiniDiff(GenericDiffractometer):
 
         return (x_echantillon, y_echantillon, z_echantillon)
 
-    def px1_center_move_motors(self, echantillon, sample, pixelsPerMm_Hor, PHI_ANGLE_START):
+    def px1_center_move_motors(self, echantillon, sample, pixelsPerMm_Hor, PHI_ANGLE_START, phi):
         """ Method to move motors given a certain set of coordinates
 
         Args:
@@ -401,18 +467,19 @@ class PX1MiniDiff(GenericDiffractometer):
         PHI_ANGLE_START = phi.get_position()
         PhiCamera = 90
 
-        X, Y, PHI = [], [], []
+        X, Y = [], []
+        phi_positions = []
 
         try:
 
             # TAKE USER INPUT
             if automatic:
-                px1_center_murko(X, Y, PHI, n_points, PHI_ANGLE_START, phi_incr)
+                self.px1_center_murko(X, Y, phi_positions, phi, n_points, PHI_ANGLE_START, phi_incr)
             else:
-                px1_center_user_input(X, Y, PHI, phi, n_points, PHI_ANGLE_START, phi_incr)
+                self.px1_center_user_input(X, Y, phi_positions, phi, n_points, PHI_ANGLE_START, phi_incr) # Wrong but not reached here so don't touch if no break :)
 
             # COMPUTATIONS
-            echantillon = px1_center_computations(X, Y, beam_x, beam_y, PHI, PhiCamera, n_points)
+            echantillon = self.px1_center_computations(X, Y, beam_x, beam_y, phi_positions, PhiCamera, n_points)
             (x_echantillon, y_echantillon, z_echantillon) = echantillon
 
             logging.getLogger("HWR").info(
@@ -432,7 +499,7 @@ class PX1MiniDiff(GenericDiffractometer):
 
 
             # MOVE MOTORS
-            centred_pos = px1_center_move_motors(echantillon, (sampx, sampy, phiy), pixelsPerMm_Hor, PHI_ANGLE_START)
+            centred_pos = self.px1_center_move_motors(echantillon, (sampx, sampy, phiy), pixelsPerMm_Hor, PHI_ANGLE_START, phi)
 
             return centred_pos
 
@@ -668,77 +735,6 @@ class PX1MiniDiff(GenericDiffractometer):
             HWR.beamline.diffractometer.zoom.set_value("zoom4")
         """
 
-    def estimate_click_murko(self, frame):
-        """Gets relative coordinates from murko
-
-        Calls the murko server running on localhost:89011 to retrieve estimated
-        relative coordinates of the crystal presence in the image given
-
-        Args:
-            frame: current frame to be analysed
-
-        Returns:
-            Relative coordinates (x, y) of the click a user would do.
-            If there is a crystal this would be the center of the crystal
-            If not it would be the center of the loop seen in the frame
-            If nothing is found would be (0.5, 0.5) being center of the frame
-
-        """
-
-        if (frame is None):
-            frame = '/home/experiences/proxima1/com-proxima1/arthur_mxcube/img_test.jpg'
-            frame = HWR.beamline.sample_view.camera.get_last_image_path()
-            HWR.beamline.sample_view.save_snapshot("/home/experiences/proxima1/com-proxima1/arthur_mxcube/image_testing.jpg")
-
-
-        request_args = {}
-        request_args["to_predict"] = frame
-        image_jpeg = request_args["to_predict"]
-        #image_jpeg = simplejpeg.decode_jpeg(image_jpeg)
-        request_args["description"] = [
-            "foreground",
-            "crystal",
-            "loop_inside",
-            "loop",
-            ["crystal", "loop"],
-            ["crystal", "loop", "stem"],
-        ]
-        request_args["save"] = False
-        request_args["prefix"] = "predicted"
-        mhost = os.getenv("MURKO_HOST")
-        mport = int(os.getenv("MURKO_PORT"))
-        analysis = get_predictions(request_args, host=mhost, port = mport)
-
-        original_image_shape = analysis["original_image_shape"]
-        sizeOfImgY, sizeOfImgX = original_image_shape[:2]
-        descriptions = analysis['descriptions']
-
-        if descriptions[0]['present']:
-            loop_present, r, c, h, w = descriptions[0]["aoi_bbox"]
-            if loop_present:
-                logging.getLogger("HWR").debug(
-                    "Loop found! Its bounding box parameters in fractional coordianates are: center (vertical %.3f, horizontal %.3f), height %.3f, width %.3f"
-                    % (r, c, h, w)
-                )
-            else:
-                logging.getLogger("HWR").debug("loop not found")
-            v, h = descriptions[0]["most_likely_click"]
-        else:
-            logging.getLogger("HWR").debug("nothing found on image, click on center")
-            v = 0.5
-            h = 0.5
-
-        """
-        name_pattern = f"{os.getuid()}_{time.asctime().replace(' ', '_')}.jpg"
-        directory = f"{os.getenv('HOME')}/murko"
-        os.makedirs(directory, exist_ok=True)
-        template = os.path.join(directory, name_pattern)
-        plot_analysis([image_jpeg], analysis)
-        """
-
-        print("Finished estimating murko, hope it get's reached")
-
-        return h, v
 
     def centring_motor_moved(self, pos):
         """
@@ -1052,9 +1048,6 @@ class PX1MiniDiff(GenericDiffractometer):
         mot = self.motor_hwobj_dict.get("phiy")
         mot.move_relative(-self.arrow_step)
 ### end arrow methods
-
-### start autocentring methods
-### end autocentring methods
 
 def test_hwo(hwo):
     print ("Current positions are:")
