@@ -129,7 +129,7 @@ class PX1MiniDiff(GenericDiffractometer):
             redisCamera = camera()
             img = redisCamera.get_image()
             imwrite(imgName, img)
-            logging.getLogger("user_level_log").info("img saved as %s in MurkoImageTesting" %imgName)
+            logging.getLogger("HWR").debug("img saved as %s in MurkoImageTesting" %imgName)
         except Exception as e:
             logging.getLogger("user_level_log").info("%s" %e)
         return img
@@ -156,6 +156,11 @@ class PX1MiniDiff(GenericDiffractometer):
             frame = HWR.beamline.sample_view.camera.get_last_image()
             HWR.beamline.sample_view.save_snapshot("/home/experiences/proxima1/com-proxima1/arthur_mxcube/image_testing.jpg")
 
+
+        """
+        TODO
+        Add warning in case murko isn't up
+        """
 
         request_args = {}
         request_args["to_predict"] = frame
@@ -188,11 +193,12 @@ class PX1MiniDiff(GenericDiffractometer):
                 )
             else:
                 logging.getLogger("HWR").debug("loop not found")
-            v, h = descriptions[0]["most_likely_click"]
+            h, w = descriptions[0]["most_likely_click"]
+            logging.getLogger("HWR").debug("Most likely click to be at [%.3f, %.3f]" % (h, w))
         else:
             logging.getLogger("user_level_log").debug("nothing found on image, click on center")
-            v = 0.5
             h = 0.5
+            w = 0.5
 
         """
         name_pattern = f"{os.getuid()}_{time.asctime().replace(' ', '_')}.jpg"
@@ -201,9 +207,9 @@ class PX1MiniDiff(GenericDiffractometer):
         template = os.path.join(directory, name_pattern)
         plot_analysis([image_jpeg], analysis)
         """
-        logging.getLogger("user_level_log").info("Murko finished computing position for image")
+        logging.getLogger("HWR").debug("Murko finished computing position for image")
 
-        return h, v
+        return w, h
 
     def px1_center_murko(self, X, Y, phi_positions, phi, n_points, PHI_ANGLE_START, phi_incr):
         """ Method to center the sample using the Neural Network murko
@@ -233,6 +239,7 @@ class PX1MiniDiff(GenericDiffractometer):
             x_click, y_click = self.estimate_click_murko(img)
             x_coord = x_click * int(os.getenv("MURKO_SIZEX"))
             y_coord = y_click * int(os.getenv("MURKO_SIZEY"))
+            logging.getLogger("HWR").debug("Center found at [%s;%s]", x_coord, y_coord)
             X.append(x_coord)
             Y.append(y_coord)
             phi_positions.append(phi.get_position())
