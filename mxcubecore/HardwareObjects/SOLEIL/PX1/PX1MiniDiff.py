@@ -77,6 +77,13 @@ class PX1MiniDiff(GenericDiffractometer):
              GenericDiffractometer.CENTRING_METHOD_MOVE_TO_BEAM: \
                  self.start_move_to_beam}
 
+    def is_murko_available(self):
+        """
+        Returns True if murko is available
+        :returns: boolean
+        """
+        return True
+
     def px1_start(
         self,
         centring_motors_dict,
@@ -129,7 +136,7 @@ class PX1MiniDiff(GenericDiffractometer):
             redisCamera = camera()
             img = redisCamera.get_image()
             imwrite(imgName, img)
-            logging.getLogger("HWR").debug("img saved as %s in MurkoImageTesting" %imgName)
+            log.debug("img saved as %s in MurkoImageTesting" %imgName)
         except Exception as e:
             logging.getLogger("user_level_log").info("%s" %e)
         return img
@@ -187,14 +194,14 @@ class PX1MiniDiff(GenericDiffractometer):
         if descriptions[0]['present']:
             loop_present, r, c, h, w = descriptions[0]["aoi_bbox"]
             if loop_present:
-                logging.getLogger("HWR").debug(
+                log.debug(
                     "Loop found! Its bounding box parameters in fractional coordianates are: center (vertical %.3f, horizontal %.3f), height %.3f, width %.3f"
                     % (r, c, h, w)
                 )
             else:
-                logging.getLogger("HWR").debug("loop not found")
+                log.debug("loop not found")
             h, w = descriptions[0]["most_likely_click"]
-            logging.getLogger("HWR").debug("Most likely click to be at [%.3f, %.3f]" % (h, w))
+            log.debug("Most likely click to be at [%.3f, %.3f]" % (h, w))
         else:
             logging.getLogger("user_level_log").debug("nothing found on image, click on center")
             h = 0.5
@@ -207,7 +214,7 @@ class PX1MiniDiff(GenericDiffractometer):
         template = os.path.join(directory, name_pattern)
         plot_analysis([image_jpeg], analysis)
         """
-        logging.getLogger("HWR").debug("Murko finished computing position for image")
+        log.debug("Murko finished computing position for image")
 
         return w, h
 
@@ -239,7 +246,7 @@ class PX1MiniDiff(GenericDiffractometer):
             x_click, y_click = self.estimate_click_murko(img)
             x_coord = x_click * int(os.getenv("MURKO_SIZEX"))
             y_coord = y_click * int(os.getenv("MURKO_SIZEY"))
-            logging.getLogger("HWR").debug("Center found at [%s;%s]", x_coord, y_coord)
+            log.debug("Center found at [%s;%s]", x_coord, y_coord)
             X.append(x_coord)
             Y.append(y_coord)
             phi_positions.append(phi.get_position())
@@ -323,14 +330,14 @@ class PX1MiniDiff(GenericDiffractometer):
 
         P, Q, XB, YB, ANG = [], [], [], [], []
 
-        logging.getLogger("HWR").debug("sample_centring: INPUT for calculation")
-        logging.getLogger("HWR").debug(
+        log.debug("sample_centring: INPUT for calculation")
+        log.debug(
             "sample_centring:   beam_x = %s, beam_y = %s " % (beam_x, beam_y)
         )
-        logging.getLogger("HWR").debug(
+        log.debug(
             "sample_centring:   X = %s, Y = %s " % (str(X), str(Y))
         )
-        logging.getLogger("HWR").debug(
+        log.debug(
             "sample_centring:   PHI = %s, PhiCamera = %s, n_points = %s "
             % (str(phi_positions), PhiCamera, n_points)
         )
@@ -367,7 +374,7 @@ class PX1MiniDiff(GenericDiffractometer):
         except:
             import traceback
 
-            logging.getLogger("HWR").info(
+            log.info(
                 "sample_centring: error while centering: %s"
                 % traceback.format_exc()
             )
@@ -400,14 +407,14 @@ class PX1MiniDiff(GenericDiffractometer):
 
         if phiy.get_limits() is not None:
             if z_echantillon_real + phiy.get_position() < phiy.get_limits()[0] * 2:
-                logging.getLogger("HWR").info(
+                log.info(
                     "sample_centring: phiy limits: %s" % str(phiy.get_limits())
                 )
-                logging.getLogger("HWR").info(
+                log.info(
                     "sample_centring:  requiring: %s"
                     % str(z_echantillon_real + phiy.get_position())
                 )
-                logging.getLogger("HWR").error("sample_centring: loop too long")
+                log.error("sample_centring: loop too long")
 
                 self.move_motors(sample_centring.SAVED_INITIAL_POSITIONS)
                 raise Exception()

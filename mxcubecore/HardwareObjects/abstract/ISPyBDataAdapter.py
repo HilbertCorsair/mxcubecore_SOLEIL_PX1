@@ -654,6 +654,9 @@ class ISPyBDataAdapter():
 
                 # changing back to string representation of the dates,
                 # since the session_dict is used after this method is called,
+                import pdb
+                pdb.set_trace()
+
                 session_dict["startDate"] = datetime.strftime(
                     session_dict["startDate"], "%Y-%m-%d %H:%M:%S"
                 )

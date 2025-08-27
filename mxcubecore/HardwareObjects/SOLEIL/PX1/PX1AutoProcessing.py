@@ -173,8 +173,10 @@ class PX1AutoProcessing(HardwareObject):
 
        try:
            cmd = "%s %s" % (self.exec_program, name)
+           print(f"_____________^^^^ PX1Autoprocessing   after cmd.  Type self.execcmd :{type(self.exec_program)}")
            logging.getLogger("HWR").error("PX1AutoProcessing /  executing command %s" % cmd)
            p1 = subprocess.Popen(cmd,  shell=True, stdin=None,stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
+           print("_____________^^^^ PX1Autoprocessing   after p1")
            out,err = p1.communicate()
            if out:
                 logging.getLogger("HWR").error("PX1AutoProcessing / <output>\n%s" % out)

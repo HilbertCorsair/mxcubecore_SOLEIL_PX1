@@ -370,8 +370,8 @@ class PX1Collect(AbstractCollect):
                 log.info("Waiting for last image in disk...")
                 log.debug("   directory: %s" % directory)
             self.data_collection_end()
-            self.collection_finished()
             self.generate_thumbnails(thumblist)
+            self.collection_finished()
         except:
             log.warning("Error during data collection. ABORTED. Check app log")
             self.collect_failed('collect exception')
@@ -522,7 +522,7 @@ class PX1Collect(AbstractCollect):
 
     def thumbnails_standard(self):
         imgs_per_thumb = 10
-
+        print("*******************PX1Collect  def thumbnails_standard****")
         osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
 
         nb_images = osc_seq['number_of_images']
@@ -1007,7 +1007,8 @@ class PX1Collect(AbstractCollect):
             if motor_position_id:
                 lims_image['motorPositionId'] = motor_position_id
 
-            image_id = self.lims_client_hwobj.store_image(lims_image)
+            image_id = HWR.beamline.lims.adapter.store_image(lims_image)
+            print(f" PX1COlect------------------------store image in lims image_id:{image_id}")
 
             # saving changed the FullPath to the ispyb path (ruche). keep original
             lims_image['jpegFileOrigPath'] = jpeg_full_path
@@ -1370,7 +1371,6 @@ class PX1Collect(AbstractCollect):
         t0 = time.time()
         while self.is_disabled():
             elapsed = time.time() - t0
-            print(f"COLLECT DISABLED: waiting ..... {elapsed}")
 
             if elapsed > timeout:
                  break

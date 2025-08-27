@@ -664,20 +664,53 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
             try:
                 # The old API used date formated strings and the new
                 # one uses DateTime objects.
-                session_dict["startDate"]  = datetime.\
+
+                """OrderedDict([('beamLineSetupVO', None), ('beamlineName', 'PROXIMA1'), ('beamlineOperator', None), ('comments', 'Session created by the BCM'),
+                  ('dataCollectionGroupVOs', []), ('databackupEurope', None), ('databackupFrance', None), ('dewarTransport', None),
+                    ('endDate', '2025-07-10 07:59:59'), ('energyScanVOs', []), ('expSessionPk', None), ('externalId', None),
+                    ('lastUpdate', datetime.datetime(2025, 7, 10, 7, 59, 59, tzinfo=<FixedOffset '+02:00'>)), ('nbReimbDewars', None),
+                    ('nbShifts', 3), ('operatorSiteNumber', None), ('projectCode', None), ('proposalVO', None), ('protectedData', None),
+                    ('scheduled', 0), ('sessionId', 46580), ('sessionTitle', None), ('startDate', '2025-07-09 00:00:00'),
+                    ('structureDeterminations', None), ('timeStamp', datetime.datetime(2025, 7, 9, 10, 42, tzinfo=<FixedOffset '+02:00'>)),
+                    ('usedFlag', None), ('visit_number', None), ('xfeSpectrumVOs', []), ('beamLineSetupId', None), ('proposalId', 4),
+                    ('proposalName', 'mx20100023')]"""
+
+
+                try:
+                    session_dict["startDate"]  = datetime.\
                     strptime(session_dict["startDate"] , "%Y-%m-%d %H:%M:%S")
-                session_dict["endDate"] = datetime.\
+                    session_dict["endDate"] = datetime.\
                     strptime(session_dict["endDate"], "%Y-%m-%d %H:%M:%S")
-
-                session = self._collection.service.\
+                    session = self._collection.service.\
                     storeOrUpdateSession(session_dict)
+                    print(" §§§§ After service call §§§ ")
 
-                # changing back to string representation of the dates,
-                # since the session_dict is used after this method is called,
-                session_dict["startDate"]  = datetime.\
+                    # changing back to string representation of the dates,
+                    # since the session_dict is used after this method is called,
+                    session_dict["startDate"]  = datetime.\
                     strftime(session_dict["startDate"] , "%Y-%m-%d %H:%M:%S")
-                session_dict["endDate"] = datetime.\
+                    session_dict["endDate"] = datetime.\
                     strftime(session_dict["endDate"], "%Y-%m-%d %H:%M:%S")
+
+
+
+                except:
+
+                    print ("$$$$$$  FROM COLLECT £££ ")
+                    session_dict["__values__"]["startDate"] =  datetime. strptime( session_dict["__values__"]["startDate"] , "%Y-%m-%d %H:%M:%S")
+                    session_dict["__values__"]["endDate"] =  datetime. strptime( session_dict["__values__"]["endDate"] , "%Y-%m-%d %H:%M:%S")
+                    session = self._collection.service.storeOrUpdateSession(session_dict["__values__"])
+
+
+
+
+
+
+
+
+
+
+
 
             except Fault as e:
                 session = {}
