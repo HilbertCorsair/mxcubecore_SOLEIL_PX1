@@ -422,7 +422,7 @@ def px1_center(phi, phiy, phiz, sampx, sampy,
         half_range = (phi_incr * (n_points - 1)) / 2.0
         phi.sync_move_relative(-half_range)
     else:
-        logging.getLogger("user_level_log").info(f"Centering in loop mode / n_points {n_points} / incr {phi_incr}")
+        logging.getLogger("user_level_log").info(f"Centring in loop mode / n_points {n_points} / incr {phi_incr}")
 
     try:
         while True:
@@ -479,7 +479,7 @@ def px1_center(phi, phiy, phiz, sampx, sampy,
             y_sample = sum(q) / n_points
             z_sample = -sum(xb) / n_points
         except Exception:
-            logging.getLogger("HWR").error("Error while centering", exc_info=True)
+            logging.getLogger("HWR").error("Error while centring", exc_info=True)
 
 
         try:

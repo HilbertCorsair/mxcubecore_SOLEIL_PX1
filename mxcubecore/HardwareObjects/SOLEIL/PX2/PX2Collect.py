@@ -62,7 +62,7 @@ class PX2Collect(AbstractCollect, HardwareObject):
         "nested_helical_acquisition",
         "tomography",
         "film",
-        "optical_centering",
+        "optical_centring",
     ]
 
     # experiment_types = ['OSC',

@@ -51,7 +51,7 @@ __category__ = "General"
 TEST_DICT = {
     "ppu": "PPU control",
     "focusing": "Focusing modes",
-    "centerbeam": "Beam centering",
+    "centerbeam": "Beam centring",
 }
 
 TEST_COLORS_TABLE = {False: "#FFCCCC", True: "#CCFFCC"}

@@ -103,10 +103,10 @@ class EMBLBeamline(Beamline):
     __content_roles.append("back_light")
 
     @property
-    def beam_centering(self):
-        return self._objects.get("beam_centering")
+    def beam_centring(self):
+        return self._objects.get("beam_centring")
 
-    __content_roles.append("beam_centering")
+    __content_roles.append("beam_centring")
 
 
     # Additional procedures

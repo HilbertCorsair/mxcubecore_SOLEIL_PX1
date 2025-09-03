@@ -153,7 +153,7 @@ class EMBLFlexHarvester(EMBLFlexHCD):
 
             logging.getLogger("user_level_log").info("Start Auto Harvesting Centring")
 
-            computed_offset = HWR.beamline.harvester.get_offsets_for_sample_centering()
+            computed_offset = HWR.beamline.harvester.get_offsets_for_sample_centring()
             dm.start_harvester_centring(computed_offset)
 
         except Exception:

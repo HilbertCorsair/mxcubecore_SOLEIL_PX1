@@ -141,7 +141,7 @@ class PX1MiniDiff(GenericDiffractometer):
             logging.getLogger("user_level_log").info("%s" %e)
         return img
 
-    def estimate_click_murko(self, frame):
+    def estimate_click_murko(self, frame, autoGrid=False):
         """Gets relative coordinates from murko
 
         Calls the murko server running on localhost:89011 to retrieve estimated
@@ -191,6 +191,8 @@ class PX1MiniDiff(GenericDiffractometer):
         sizeOfImgY, sizeOfImgX = original_image_shape[:2]
         descriptions = analysis['descriptions']
 
+        r, c = -1, -1
+
         if descriptions[0]['present']:
             loop_present, r, c, h, w = descriptions[0]["aoi_bbox"]
             if loop_present:
@@ -215,6 +217,10 @@ class PX1MiniDiff(GenericDiffractometer):
         plot_analysis([image_jpeg], analysis)
         """
         log.debug("Murko finished computing position for image")
+
+        if autoGrid:
+            # instead of returning drawing directly with graphics manager
+            return w, h, r, c
 
         return w, h
 
@@ -375,7 +381,7 @@ class PX1MiniDiff(GenericDiffractometer):
             import traceback
 
             log.info(
-                "sample_centring: error while centering: %s"
+                "sample_centring: error while centring: %s"
                 % traceback.format_exc()
             )
 

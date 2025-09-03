@@ -277,7 +277,7 @@ class Sample(TaskNode):
             display_name = self.get_name()
 
         if self.lims_code:
-            display_name += " (%s)" % self.lims_code            
+            display_name += " (%s)" % self.lims_code
 
         return display_name
 
@@ -414,7 +414,7 @@ class Sample(TaskNode):
         return processing_params
 
     def get_snapshot_filename(self, prefix):
-        return prefix 
+        return prefix
 
 
 class Basket(TaskNode):
@@ -464,7 +464,7 @@ class Basket(TaskNode):
         self.sample_list = []
 
     def add_sample(self, sample):
-        self.sample_list.append(sample) 
+        self.sample_list.append(sample)
 
     def get_sample_list(self):
         return self.sample_list
@@ -517,7 +517,7 @@ class DataCollection(TaskNode):
         self.run_processing_after = None
         self.run_processing_parallel = None
         self.grid = None
-        self.parallel_processing_result = None        
+        self.parallel_processing_result = None
         self.processing_msg_list = []
 
     def as_dict(self):
@@ -627,7 +627,7 @@ class DataCollection(TaskNode):
         Descript. : Return indexes of points associated to the helical line
         Args.     :
         Return    : index (integer), index (integer)
-        """ 
+        """
         cp = self.get_centred_positions()
         return cp[0].get_index(), cp[1].get_index()
 
@@ -635,7 +635,7 @@ class DataCollection(TaskNode):
         """
         Descript. : Sets grid id associated to the data collection
         Args.     : grid_id (integer)
-        Return    : 
+        Return    :
         """
         self.grid_id = grid_id
 
@@ -653,7 +653,7 @@ class DataCollection(TaskNode):
                 display_name = self.get_name()
         elif self.is_mesh():
             display_name = "%s (%s)" %(self.get_name(),
-                                       self.grid.get_display_name()) 
+                                       self.grid.get_display_name())
         else:
             index = self.get_point_index()
             if index:
@@ -937,7 +937,7 @@ class EnergyScanResult(object):
         self.first_remote = None
         self.second_remote = None
         self.data_file_path = PathTemplate()
- 
+
         self.data = []
 
         self.pk = None
@@ -956,7 +956,7 @@ class EnergyScanResult(object):
 class XRFSpectrum(TaskNode):
     """
     Class represents XRF spectrum task
-    """ 
+    """
     def __init__(self, sample=None, path_template=None, cpos=None):
         TaskNode.__init__(self)
         self.count_time = 1
@@ -1030,7 +1030,7 @@ class XRFSpectrumResult(object):
         self.mca_calib = None
         self.mca_config = None
 
-class XrayCentering(TaskNode):
+class XrayCentring(TaskNode):
     def __init__(self, ref_data_collection=None, crystal=None):
         TaskNode.__init__(self)
 
@@ -1061,7 +1061,7 @@ class XrayCentering(TaskNode):
         pass
 
 class SampleCentring(TaskNode):
-    """Manual 3 click centering"""
+    """Manual 3 click centring"""
 
     def __init__(self, name = None, kappa = None, kappa_phi = None):
         TaskNode.__init__(self)
@@ -1069,7 +1069,7 @@ class SampleCentring(TaskNode):
 
         if name:
             self.set_name(name)
- 
+
         self.kappa = kappa
         self.kappa_phi = kappa_phi
 
@@ -1089,7 +1089,7 @@ class SampleCentring(TaskNode):
         return self.kappa_phi
 
 class OpticalCentring(TaskNode):
-    """Optical automatic centering with lucid"""
+    """Optical automatic centring with lucid"""
 
     def __init__(self, user_confirms=False):
         TaskNode.__init__(self)
@@ -1265,12 +1265,12 @@ class PathTemplate(object):
             archive_directory = archive_directory.replace("/data/data1/visitor", "/data/ispyb")
             archive_directory = archive_directory.replace("/data/data1/inhouse", "/data/ispyb")
             archive_directory = archive_directory.replace("/data/data1", "/data/ispyb")
-        elif PathTemplate.synchotron_name == "EMBL-HH": 
+        elif PathTemplate.synchotron_name == "EMBL-HH":
             archive_directory = os.path.join(PathTemplate.archive_base_directory,
                                              PathTemplate.archive_folder)
             archive_directory = os.path.join(archive_directory,
                                              *folders[4:])
-        elif PathTemplate.synchotron_name == "SOLEIL": 
+        elif PathTemplate.synchotron_name == "SOLEIL":
             archive_directory = self.directory
             archive_directory = archive_directory.replace("RAW_DATA", PathTemplate.archive_folder)
         else:
@@ -1311,12 +1311,12 @@ class PathTemplate(object):
                rh_pt.start_num < (self.start_num + self.num_files):
 
                result = True
-    
+
         return result
 
     def get_master_filename(self):
         file_name_template = self.get_image_file_name()
-        img_num_format = "%" + str(self.precision).zfill(2) + "d" 
+        img_num_format = "%" + str(self.precision).zfill(2) + "d"
         master_name = file_name_template.replace(img_num_format, "master")
         return os.path.join(self.directory, master_name)
 
@@ -1326,7 +1326,7 @@ class PathTemplate(object):
 
         for i in range(self.start_num,
                        self.start_num + self.num_files):
-           
+
             file_locations.append(os.path.join(self.directory,
                                                file_name_template % i))
 
@@ -1334,12 +1334,12 @@ class PathTemplate(object):
 
     def is_part_of(self, path_template):
         result = False
-        
+
         if self == path_template and \
                self.run_number == path_template.run_number:
             if path_template.start_num >= self.start_num and \
                path_template.num_files + path_template.start_num <= self.num_files + self.start_num:
-                
+
                 result = True
         else:
             result = False
@@ -1376,7 +1376,7 @@ class AcquisitionParameters(object):
         self.skip_existing_images = False
         self.detector_mode = str()
         self.induce_burn = False
-        self.mesh_range = ()        
+        self.mesh_range = ()
         self.mesh_snapshot = None
         self.comments = ""
         self.in_queue = False
@@ -1385,8 +1385,8 @@ class AcquisitionParameters(object):
     def set_from_dict(self, params_dict):
         for item in params_dict.items():
             if hasattr(self, item[0]):
-                if item[0] == "centred_position": 
-                    self.centred_position.set_from_dict(item[1])     
+                if item[0] == "centred_position":
+                    self.centred_position.set_from_dict(item[1])
                 else:
                      setattr(self, item[0], item[1])
 
@@ -1458,7 +1458,7 @@ class CentredPosition(object):
     @staticmethod
     def set_diffractometer_motor_names(*names):
         CentredPosition.DIFFRACTOMETER_MOTOR_NAMES = names[:]
-        
+
     def __init__(self, motor_dict=None):
         self.snapshot_image = None
         self.centring_method = True
@@ -1663,7 +1663,7 @@ def dc_from_edna_output(edna_result, reference_image_collection,
         except AttributeError:
             resolution = None
 
-        try: 
+        try:
             transmission = collection_plan.getStrategySummary().\
                            getAttenuation().getValue()
             transmission = round(transmission, 2)
@@ -1699,7 +1699,7 @@ def dc_from_edna_output(edna_result, reference_image_collection,
             acq.path_template = copy.deepcopy(ref_pt)
             acq.path_template.wedge_prefix = 'w' + str(i + 1)
             acq.path_template.reference_image_prefix = str()
-            
+
             if resolution:
                 acquisition_parameters.resolution = resolution
 
@@ -1730,12 +1730,12 @@ def dc_from_edna_output(edna_result, reference_image_collection,
             try:
                 num_images = int(abs(acquisition_parameters.osc_end - \
                                      acquisition_parameters.osc_start) / acquisition_parameters.osc_range)
-                
+
                 acquisition_parameters.first_image = 1
                 acquisition_parameters.num_images = num_images
                 acq.path_template.num_files = num_images
                 acq.path_template.start_num = 1
-                
+
             except AttributeError:
                 pass
 
@@ -1744,7 +1744,7 @@ def dc_from_edna_output(edna_result, reference_image_collection,
             except AttributeError:
                 pass
 
-            try: 
+            try:
                 acquisition_parameters.energy = \
                    round((123984.0/beam.getWavelength().getValue())/10000.0, 4)
             except AttributeError:
@@ -1780,7 +1780,7 @@ def create_subwedges(total_num_images, sw_size, osc_range, osc_start):
 
     :param osc_start: The start angle/offset of the oscillation
     :type osc_start: double
-    
+
     :returns: List of tuples with the format:
               (start image number, number of images, oscilation start)
     """
@@ -1829,22 +1829,22 @@ def create_inverse_beam_sw(num_images, sw_size, osc_range,
 
     # Interlave subwedges
     subwedges = [sw_pair for pair in zip(w1, w2) for sw_pair in pair]
-    
+
     return subwedges
 
 def create_interleave_sw(interleave_list, num_images, sw_size):
     """
     Creates subwedges for interleved collection.
     Wedges W1, W2, Wm (where m is num_collections) are created:
-    (W1_1, W2_1, ..., W1_m), ... (W1_n-1, W2_n-1, ..., Wm_n-1), 
+    (W1_1, W2_1, ..., W1_m), ... (W1_n-1, W2_n-1, ..., Wm_n-1),
     (W1_n, W2_n, ..., Wm_n)
 
     :param interleave_list: list of interleaved items
     :type interleave_list: list of dict
 
-    :param num_images: number of images of first collection. Based on the 
-    first collection certain number of subwedges will be created. If 
-    first collection contains more images than others then in the end 
+    :param num_images: number of images of first collection. Based on the
+    first collection certain number of subwedges will be created. If
+    first collection contains more images than others then in the end
     the rest of images from first collections are created as last subwedge
     :type num_images: int
 
@@ -1853,7 +1853,7 @@ def create_interleave_sw(interleave_list, num_images, sw_size):
 
     :returns: A list of tuples containing the swb wedges.
               The tuples are in the form:
-              (collection_index, subwedge_index, subwedge_firt_image, 
+              (collection_index, subwedge_index, subwedge_firt_image,
                subwedge_start_osc)
     :rtype: List [(...), (...)]
     """
@@ -1878,13 +1878,13 @@ def create_interleave_sw(interleave_list, num_images, sw_size):
                 sw_osc_range = collection_osc_range * sw_actual_size
                 subwedges.append({"collect_index" : collection_index,
                                   "collect_first_image" : collection_first_image,
-                                  "collect_num_images" : collection_num_images, 
+                                  "collect_num_images" : collection_num_images,
                                   "sw_index" : sw_index,
-                                  "sw_first_image" : sw_first_image, 
+                                  "sw_first_image" : sw_first_image,
                                   "sw_actual_size": sw_actual_size,
                                   "sw_osc_start" : sw_osc_start,
                                   "sw_osc_range" : sw_osc_range})
-        sw_first_image += sw_actual_size 
+        sw_first_image += sw_actual_size
     return subwedges
 
 def try_parse_int(n):

@@ -2192,14 +2192,14 @@ class ISPyBValueFactory():
             pass
 
         try:
-            data_collection.centeringMethod = \
-                mx_collect_dict['centeringMethod']
+            data_collection.centringMethod = \
+                mx_collect_dict['centringMethod']
         except KeyError :
             pass
 
         try:
-            data_collection.actualCenteringPosition = \
-                mx_collect_dict['actualCenteringPosition']
+            data_collection.actualCentringPosition = \
+                mx_collect_dict['actualCentringPosition']
         except KeyError:
             pass
 

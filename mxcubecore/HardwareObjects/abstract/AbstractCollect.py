@@ -811,7 +811,7 @@ class AbstractCollect(HardwareObject, object):
                     positions_str += " %s=%f" % (motor, position)
                 else:
                     positions_str += " %s=%f" % (motor.get_motor_mnemonic(), position)
-        self.current_dc_parameters["actualCenteringPosition"] = positions_str
+        self.current_dc_parameters["actualCentringPosition"] = positions_str
         self.move_motors(self.current_dc_parameters["motors"])
 
     @abc.abstractmethod

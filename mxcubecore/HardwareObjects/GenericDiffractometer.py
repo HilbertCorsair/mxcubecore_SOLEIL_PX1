@@ -331,7 +331,7 @@ class GenericDiffractometer(HardwareObject):
         self.beamstop = self.get_object_by_role("beamstop")
         self.aperture = self.get_object_by_role("aperture")
         self.capillary = self.get_object_by_role("capillary")
-        self.cryo = self.get_object_by_role("cryo") 
+        self.cryo = self.get_object_by_role("cryo")
         # Hardware objects ----------------------------------------------------
         # if HWR.beamline.sample_view.camera is not None:
         #     self.image_height = HWR.beamline.sample_view.camera.get_height()
@@ -824,7 +824,7 @@ class GenericDiffractometer(HardwareObject):
         :returns: list with str
         """
         return self.phase_list
- 
+
     def prepare_centring(self):
         """ stub. to be filled by implementing class"""
         logging.getLogger('HWR').debug('>>> LEO GenericDiffractometer entering the prepare_centring() function')
@@ -1172,7 +1172,7 @@ class GenericDiffractometer(HardwareObject):
         if "motors" not in centring_status:
             centring_status["motors"] = self.get_positions()
         self.emit("centringAccepted", (True, centring_status))
-        self.emit("fsmConditionChanged", "centering_position_accepted", True)
+        self.emit("fsmConditionChanged", "centring_position_accepted", True)
 
     def reject_centring(self):
         """
@@ -1183,7 +1183,7 @@ class GenericDiffractometer(HardwareObject):
         self.centring_status = {"valid": False}
         self.emit_progress_message("")
         self.emit("centringAccepted", (False, self.get_centring_status()))
-        self.emit("fsmConditionChanged", "centering_position_accepted", False)
+        self.emit("fsmConditionChanged", "centring_position_accepted", False)
 
     def emit_centring_started(self, method):
         """

@@ -245,6 +245,8 @@ class PX1XrayCentring(AbstractXrayCentring):
             dict_workflow = dict()
             dict_workflow["name"] = str(wf.title)
             dict_workflow["path"] = str(wf.path)
+            print(f" === {wf.title}")
+            print(f" === {wf.path}")
             try:
                 req = [r.strip() for r in wf.get_property("requires").split(",")]
                 dict_workflow["requires"] = req

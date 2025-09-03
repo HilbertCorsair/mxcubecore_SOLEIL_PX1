@@ -162,7 +162,7 @@ We strongly encourage the usage of type hints
 #### Naming convention
 
 ##### Language and spelling
-* UK english should be used for the spelling in documentation and code. Relevant examples for the mxcubecore code base are for instance the words *centring* and *characterisation* that are the prefered spelling instead of *centering* and *characterization*.
+* UK english should be used for the spelling in documentation and code. Relevant examples for the mxcubecore code base are for instance the words *centring* and *characterisation* that are the prefered spelling instead of *centring* and *characterization*.
 
 ##### Functions
   * functions names should be recognisable as actions and should generally contain a verb

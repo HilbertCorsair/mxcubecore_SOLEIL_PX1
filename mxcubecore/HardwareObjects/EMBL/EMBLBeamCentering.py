@@ -31,7 +31,7 @@ __credits__ = ["EMBL Hamburg"]
 __category__ = "General"
 
 
-class EMBLBeamCentering(HardwareObject):
+class EMBLBeamCentring(HardwareObject):
     def __init__(self, name):
         HardwareObject.__init__(self, name)
 
@@ -149,7 +149,7 @@ class EMBLBeamCentering(HardwareObject):
         log_msg = ""
 
         if not HWR.beamline.safety_shutter.is_opened():
-            log_msg = "Beam centering failed! Safety shutter is closed! Open the shutter to continue."
+            log_msg = "Beam centring failed! Safety shutter is closed! Open the shutter to continue."
 
             gui_log.error(log_msg)
             self.ready_event.set()
@@ -160,12 +160,12 @@ class EMBLBeamCentering(HardwareObject):
         current_transmission = HWR.beamline.transmission.get_value()
         active_mode, beam_size = self.get_focus_mode()
 
-        log_msg = "Beam centering: Active mode %s" % active_mode
+        log_msg = "Beam centring: Active mode %s" % active_mode
         gui_log.info(log_msg)
 
         if active_mode in ("Imaging", "TREXX"):
 
-            log_msg = "Beam centering: doing pitch scan only"
+            log_msg = "Beam centring: doing pitch scan only"
             gui_log.info(log_msg)
 
             if current_energy < 10:
@@ -185,19 +185,19 @@ class EMBLBeamCentering(HardwareObject):
             if current_energy < 10:
                 self.crl_hwobj.set_crl_value(crl_value, timeout=30)
                 sleep(2)
-            gui_log.info("Beam centering: done")
+            gui_log.info("Beam centring: done")
             self.ready_event.set()
             return
 
         try:
             step = 1
             log_msg = "Starting beam centring"
-            gui_log.info("Beam centering: %s" % log_msg)
-            self.emit("progressInit", ("Beam centering...", 20, True))
+            gui_log.info("Beam centring: %s" % log_msg)
+            self.emit("progressInit", ("Beam centring...", 20, True))
 
             # Diffractometer in BeamLocation phase ---------------------------
             msg = "Setting diffractometer in BeamLocation phase"
-            gui_log.info("Beam centering: %s" % msg)
+            gui_log.info("Beam centring: %s" % msg)
             self.emit("progressStep", step, msg)
 
             HWR.beamline.diffractometer.wait_device_ready(10)
@@ -209,7 +209,7 @@ class EMBLBeamCentering(HardwareObject):
 
             step += 1
             log_msg = "Opening fast shutter and setting aperture out"
-            gui_log.info("Beam centering: %s" % log_msg)
+            gui_log.info("Beam centring: %s" % log_msg)
             self.emit("progressStep", step, log_msg)
 
             HWR.beamline.fast_shutter.openShutter()
@@ -221,7 +221,7 @@ class EMBLBeamCentering(HardwareObject):
             log_msg = (
                 "Adjusting transmission to the current energy %.1f keV" % current_energy
             )
-            gui_log.info("Beam centering: %s" % log_msg)
+            gui_log.info("Beam centring: %s" % log_msg)
             self.emit("progressStep", step, log_msg)
 
             if current_energy < 7:
@@ -259,13 +259,13 @@ class EMBLBeamCentering(HardwareObject):
                     )
                     #HWR.beamline.diffractometer.set_zoom("Zoom 4")
                 else:
-                    # 2% transmission for beam centering in double foucused mode
+                    # 2% transmission for beam centring in double foucused mode
                     HWR.beamline.transmission.set_value(2, timeout=45)
                     #HWR.beamline.diffractometer.set_zoom("Zoom 8")
 
                 step += 1
                 log_msg = "Opening slits to 1 x 1 mm"
-                gui_log.info("Beam centering: %s" % log_msg)
+                gui_log.info("Beam centring: %s" % log_msg)
                 self.emit("progressStep", step, log_msg)
 
                 # GB: keep standard slits settings for double foucsed mode
@@ -277,7 +277,7 @@ class EMBLBeamCentering(HardwareObject):
 
                 result = self.move_beam_to_center()
                 if not result:
-                    gui_log.error("Beam centering: Failed")
+                    gui_log.error("Beam centring: Failed")
                     self.emit("progressStop", ())
                     self.ready_event.set()
                     return
@@ -286,7 +286,7 @@ class EMBLBeamCentering(HardwareObject):
                 if active_mode in ("Collimated", "Imaging", "TREXX"):
                     step += 1
                     log_msg = "Setting slits to 0.1 x 0.1 mm"
-                    gui_log.info("Beam centering: %s" % log_msg)
+                    gui_log.info("Beam centring: %s" % log_msg)
                     self.emit("progressStep", step, log_msg)
 
                     slits_hwobj.set_horizontal_gap(0.1)  # "Hor", 0.1)
@@ -297,7 +297,7 @@ class EMBLBeamCentering(HardwareObject):
                 step += 1
                 log_msg = "Updating beam mark position"
                 self.emit("progressStep", step, log_msg)
-                gui_log.info("Beam centering: %s" % log_msg)
+                gui_log.info("Beam centring: %s" % log_msg)
 
                 HWR.beamline.sample_view.move_beam_mark_auto()
 
@@ -307,12 +307,12 @@ class EMBLBeamCentering(HardwareObject):
             )
 
             log_msg = "Done"
-            gui_log.info("Beam centering: %s" % log_msg)
+            gui_log.info("Beam centring: %s" % log_msg)
             self.emit("progressStop", ())
             self.ready_event.set()
 
         except Exception as ex:
-            log_msg = "Beam centering failed in the step: %s (%s)" % (log_msg, str(ex))
+            log_msg = "Beam centring failed in the step: %s (%s)" % (log_msg, str(ex))
             gui_log.error(log_msg)
             self.emit("progressStop", ())
             self.ready_event.set()
@@ -331,10 +331,10 @@ class EMBLBeamCentering(HardwareObject):
 
         try:
             if HWR.beamline.session.beamline_name == "P13":
-                # Beam centering procedure for P13 ---------------------------------
+                # Beam centring procedure for P13 ---------------------------------
 
                 log_msg = "Executing pitch scan"
-                gui_log.info("Beam centering: %s" % log_msg)
+                gui_log.info("Beam centring: %s" % log_msg)
                 self.emit("progressStep", step, log_msg)
 
                 if HWR.beamline.energy.get_value() <= 8.75:
@@ -363,8 +363,8 @@ class EMBLBeamCentering(HardwareObject):
                 """
 
                 step += 1
-                log_msg = "Detecting beam position and centering the beam"
-                gui_log.info("Beam centering: %s" % log_msg)
+                log_msg = "Detecting beam position and centring the beam"
+                gui_log.info("Beam centring: %s" % log_msg)
                 self.emit("progressStep", step, log_msg)
 
                 for i in range(3):
@@ -396,30 +396,30 @@ class EMBLBeamCentering(HardwareObject):
                         delta_ver = -0.03
 
                     log_msg = (
-                        "Beam centering: Applying %.4f mm horizontal " % delta_hor
+                        "Beam centring: Applying %.4f mm horizontal " % delta_hor
                         + "and %.4f mm vertical correction" % delta_ver
                     )
                     gui_log.info(log_msg)
 
                     if abs(delta_hor) > 0.0001:
                         log_msg = (
-                            "Beam centering: Moving horizontal by %.4f" % delta_hor
+                            "Beam centring: Moving horizontal by %.4f" % delta_hor
                         )
                         gui_log.info(log_msg)
                         self.horizontal_motor_hwobj.set_value_relative(delta_hor)
                         sleep(5)
                     if abs(delta_ver) > 0.0001:
-                        log_msg = "Beam centering: Moving vertical by %.4f" % delta_ver
+                        log_msg = "Beam centring: Moving vertical by %.4f" % delta_ver
                         gui_log.info(log_msg)
                         self.vertical_motor_hwobj.set_value_relative(delta_ver)
                         sleep(5)
 
             else:
-                # Beam centering procedure for P14 -----------------------------------
+                # Beam centring procedure for P14 -----------------------------------
                 # If energy < 10: set all lenses in ----------------------------
                 active_mode, beam_size = self.get_focus_mode()
                 log_msg = "Applying Perp and Roll2nd correction"
-                gui_log.info("Beam centering: %s" % log_msg)
+                gui_log.info("Beam centring: %s" % log_msg)
                 self.emit("progressStep", step, log_msg)
                 delta_ver = 1.0
 
@@ -535,7 +535,7 @@ class EMBLBeamCentering(HardwareObject):
                             sleep(2)
             finished = True
         except Exception:
-            gui_log.error("Beam centering failed")
+            gui_log.error("Beam centring failed")
             finished = False
         finally:
             return finished

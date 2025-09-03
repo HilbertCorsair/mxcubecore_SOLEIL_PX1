@@ -151,7 +151,7 @@ force-exclude = '''
   | mxcubecore/HardwareObjects/DESY/P11Collect.py
   | mxcubecore/HardwareObjects/EMBL/EMBLBeamline.py
   | mxcubecore/HardwareObjects/EMBL/EMBLBeamFocusing.py
-  | mxcubecore/HardwareObjects/EMBL/EMBLBeamCentering.py
+  | mxcubecore/HardwareObjects/EMBL/EMBLBeamCentring.py
   | mxcubecore/HardwareObjects/EMBL/EMBLBeamstop.py
   | mxcubecore/HardwareObjects/EMBL/EMBLBeamlineTest.py
   | mxcubecore/HardwareObjects/EMBL/EMBLCRL.py

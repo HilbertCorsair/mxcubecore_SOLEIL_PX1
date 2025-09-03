@@ -2,7 +2,7 @@
 <object class="Microdiff">
   <username>Microdiff</username>
   <object role="camera" hwrid="/ccd/prosilica_md2"></object>
-  <autoCentering>
+  <autoCentring>
     <debugLevel>1</debugLevel>
     <centring_server>id29/mxautocentring/1</centring_server>
     <c3d>/users/blissadm/applications/c3d/c3d_search</c3d>
@@ -33,7 +33,7 @@
       <sampy delta="0.01">-0.55</sampy>
       <bstopz delta="0.01">-30</bstopz>
     </referencePosition>
-  </autoCentering>
+  </autoCentring>
   <referencePosition>
     <phi delta="1">0</phi>
     <phiz delta="0.1">0.350033</phiz>
