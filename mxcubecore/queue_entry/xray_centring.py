@@ -26,6 +26,8 @@ __category__ = "General"
 
 
 class XrayCentringQueueEntry(BaseQueueEntry):
+    NAME = "X-ray Centring"
+    DATA_MODEL = queue_model_objects.XrayCentring
     """
     Defines the behaviour of an Advanced scan
     """

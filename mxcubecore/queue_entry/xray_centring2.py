@@ -79,4 +79,4 @@ class XrayCentring2QueueEntry(BaseQueueEntry):
         HWR.beamline.xray_centring.post_execute()
 
     def get_type_str(self):
-        return "X-ray centring"
+        return "X-ray centring2"
