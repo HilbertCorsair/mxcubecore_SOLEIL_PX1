@@ -288,10 +288,136 @@ class PX1XrayCentring(AbstractXrayCentring):
             return
 
         time0 = time.time()
-        self.do_xcentring()
+        self.do_nothing()
         time1 = time.time()
         logging.info("Time to start workflow: %f sec", time1 - time0)
 
+    def do_nothing(self):
+        """
+        The do_nothing method aims to be a placeholder of an automatic collect of all samples
+
+        It goes through a double for loop, one for the basket (1 to 3) and inside one for the position (1 to 16)
+        This creates a sampleLocation to load with the sampleChanger
+
+        Once loaded we set the zoom to 1 and do a first centring with murko
+        We follow up with a second centring with murko at zoom 3
+
+        Next we ask the coordinates of the bounding box of the loop at Murko and create a Grid shape based of it
+
+        We then perferm an do_xcentring() which should find the Grid and use it for the heatmap
+
+        Finally we prepare a params_list based on some dynamic modification and a xml file for static parameters and
+        run a collect of the sample.
+
+        ######################
+        # CLUES AND WARNINGS #
+        ######################
+
+        => NB_PUCK and NB_SAMPLES should be put in the same xml file to avoid needing restart of MXCuBE (open xml file, parse, close xml file)
+        => _do_load has been tested through pdb and worked
+        => zoom.goto_position has been tested through pdb and worked
+        => Automatic centring works through the button on the interface, if an error occurs due to start_centring_method we might need to call
+            one method higher level or one lower, not sure
+        => wait=True of start_centring_method doesn't seem to wait anywhere in code, we might need to add manual wait in PX1MiniDiff or here
+        => Automatic grid coord generation has been tested outside of MXCuBE app and worked
+        => grid_shape probably gives an error as it is currently, haven't had time to correctly convert coords into Grid shape to add to
+            the graphics_manager but there is another method doing something a bit similar further in this file with create_centring_point
+        => prepareParamList still needs to be finished, importing xmltodict to parse file paramCollect.xml, and then override certain values
+        => paramList is still a WIP as some of the values we don't know where to get or what they are used for
+        => collect method seemed to work in our testing for one sample, needs to be tested with multiple samples in the loop
+
+        """
+        import pdb
+        pdb.set_trace()
+        """
+        minidiff = HWR.beamline.diffractometer
+        # Change and add possibility to modify nb basket (number of pucks) who should be pulled from an xml to avoid restarting mxcube on change
+        NB_PUCK = 3
+        NB_SAMPLES = 16
+        for basket in range(1, NB_PUCK + 1):
+            for position in range(1, NB_SAMPLES + 1):
+            
+                # Generate sample location string of format "basket:position"
+                sampleLocation = None
+                if position <= 10:
+                    sampleLocation = str(basket) + ":0" + str(position)
+                else:
+                    sampleLocation = str(basket) + ":" + str(position)
+
+                # unload current sample and load new sample found in position sampleLocation
+                HWR.beamline.sample_changer._do_load(sample=sampleLocation, wash=False)
+
+                # It is possible that we need to wait for the centring to finish to not
+                # get an error, testing should be done with the wait flag but I couldn't
+                # find any code about waiting linked to this variable in PX1MiniDiff.py
+                minidiff.zoom.goto_position('zoom1')
+                minidiff.start_centring_method(minidiff.CENTRING_METHOD_AUTO, wait=True)
+                minidiff.zoom.goto_position('zoom3')
+                minidiff.start_centring_method(minidiff.CENTRING_METHOD_AUTO, wait=True)
+
+                # Automatic grid coordinates generation from murko analysis
+                snapshot = minidiff.takePictureMurko()
+                w, h, r, c = minidiff.estimate_click_murko(snapshot, True)
+                og_h, og_w = int(os.getenv("MURKO_SIZEY")), int(os.getenv("MURKO_SIZEX"))
+                PERCENTAGE_AUGMENTATION_BOX = 1.1
+                # Corresponding coordinates in the viewer
+                # (x1, y1, x2, y2) = (Left, Top, Right, Bottom)
+                y1, x1 = int((r - (h / 2) * PERCENTAGE_AUGMENTATION_BOX) * og_h), int((c - (w / 2) * PERCENTAGE_AUGMENTATION_BOX) * og_w) 
+                y2, x2 = int((r + (h / 2) * PERCENTAGE_AUGMENTATION_BOX) * og_h), int((c + (w / 2) * PERCENTAGE_AUGMENTATION_BOX) * og_w)
+
+                # Still TODO adding a Grid shape correctly with points above
+                grid_shape = self.graphics_manager_hwo.add_shape_from_mpos(
+                    mpos_list,
+                    (topLeftCornerGridTuple),
+                    'G',
+                    'SAVED',
+                    'SAVED
+                )
+                grid_shape.width = None
+                grid_shape.height = None
+                grid_shape.num_rows = None
+                grid_shape.num_cols = None
+                grid_shape.cell_width = None
+                grid_shape.cell_height = None
+                grid_shape.label = 'Murko Grid'
+                self.graphics_manager_hwo.add_shape(grid_shape)
+
+                # do_xcentring() calls for a prepare method which pulls all grids from graphics_manager
+                # should then finish centring the sample, ready for collect
+                self.do_xcentring()
+
+                # Generate a param_list to give to the collect
+                param_list = self.prepareParamList()
+                HWR.beamline.collect.collect("mxcube", param_list)
+        """
+
+    def prepareParamList(self):
+        """
+        Method to parse config/paramCollect.xml, convert into a python dict, override certain values and put inside param_list to be returned
+        """
+        param_list = []
+        
+        # When a sample is mounted it's value of containerSampleChangerLocation is set to 1 instead of None
+        # We use this to 'blindly' mount a sample based on position, and find it in lims based of this parameter
+        currentSample = HWR.beamline.lims.get_samples("")['containerSampleChangerLocation'==1]
+        proteinAcronym = currentSample['proteinAcronym']
+        sampleName = currentSample['sampleName']
+        samplePrefix = proteinAcronym + "-" + sampleName
+        exposureTime = 0.01
+        oscillationRange = 0.1
+        runNumber = 1
+        sessionID =  HWR.beamline.lims.session_manager.active_session.session_id
+        collectionID = None #TODO Need to find where it is stored
+        blSampleID = None #TODO We don't know what this is but is important
+        template = samplePrefix + "_" + str(runNumber)
+        # CurrentPosition of motors after XrayCentring # motors': {'omega': 0.00010000000149011611, 'phiz': 0.170211866, 'phiy': -2.1051165140641674, 'sampx': 0.1591116471931281, 'sampy': 0.16615923299344282, 'kappa': -1.6742011532187464e-05, 'kappa_phi': 0.00020000000298023223}
+        # take au moment t => 'collection_start_time': '2025-09-09 11:12:55'
+        # 'actualSampleSlotInContainer': 1, 'actualContainerSlotInSC': 1, 'actualCentringPosition': ' /omega=0.000100 /phiz=0.170212 /phiy=-2.105117 /sampx=0.159112 /sampy=0.166159 /kappa=-0.000017 /kappa_phi=0.000200',
+        # archiveDir + '/' + template + '_1.snapshot.jpeg'# xtalSnapshotFullPath1': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_1.snapshot.jpeg'
+        # do the above from 1 to 4 xtalSnapshotFullPath1
+        # TODO # thumbnails': {'hdf5_master': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/RAW_DATA/MyoII-lysi01_01_1_master.h5', 'thumb00': {'image_id': None, 'image_no': 1, 'nb_images': 10, 'thumb_path': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0001.thumb.jpeg', 'jpeg_path': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0001.jpeg', 'thumb_ispyb': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0001.thumb.jpeg', 'jpeg_ispyb': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0001.jpeg'}, 'thumb01': {'image_id': None, 'image_no': 991, 'nb_images': 10, 'thumb_path': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0991.thumb.jpeg', 'jpeg_path': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0991.jpeg', 'thumb_ispyb': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0991.thumb.jpeg', 'jpeg_ispyb': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0991.jpeg'}}
+        return param_list
+        
     def is_user_enabled(self):
         return self.user_enabled
 

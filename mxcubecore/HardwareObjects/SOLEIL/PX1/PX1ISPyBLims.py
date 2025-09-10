@@ -1,5 +1,7 @@
 #import json
 import logging
+import re
+import math
 #from json.decoder import JSONDecodeError
 from typing import (
     Dict,
@@ -20,6 +22,8 @@ from urllib.error import URLError
 from pprint import pformat
 #from urllib.parse import urljoin
 #import requests
+
+from mxcubecore import HardwareRepository as HWR
 from mxcubecore.HardwareObjects.abstract.ISPyBDataAdapter import ISPyBDataAdapter
 from mxcubecore.HardwareObjects.ProposalTypeISPyBLims import ProposalTypeISPyBLims
 from mxcubecore.model.lims_session import LimsSessionManager
@@ -953,6 +957,92 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
             )
 
         return session
+
+    def get_default_prefix(self, sample_data, generic_name=False):
+
+        if isinstance(sample_data, dict):
+            sample = qmo.Sample()
+            sample.code = sample_data.get("code", "")
+            sample.name = sample_data.get("sampleName", "")
+            sample.name = sample.name.replace(":", "-")
+            sample.location = sample_data.get("location", "").split(":")
+            sample.lims_id = sample_data.get("limsID", -1)
+            sample.crystals[0].protein_acronym = sample_data.get("proteinAcronym", "")
+        else:
+            sample = sample_data
+        #print(f"==========================mxcubeweb core component lims.py get defait prefix  {sample_data} ")
+        return HWR.beamline.session.get_default_prefix(sample, generic_name)
+
+
+    def synch_with_lims(self, lims_name): #(self, proposal_id):
+        samples_info_list = self.get_samples(lims_name)
+
+        if not samples_info_list:
+            samples_info_list = []
+
+
+        for sample_info in samples_info_list:
+
+
+            sample_info["limsID"] = sample_info["sampleId"]
+            sample_info["defaultPrefix"] = self.get_default_prefix(sample_info)
+            #print(f"==========================mxcubeweb core component lims.py PREFIX synch_with_lims {sample_info['defaultPrefix']} ")
+            sample_info["defaultSubDir"] = self.get_default_subdir(sample_info)
+            #print(f"==========================mxcubeweb core component lims.py SUBDIR synch_with_lims {sample_info['defaultSubDir']} ")
+
+
+            VALID_SAMPLE_NAME_REGEXP = re.compile("^[a-zA-Z0-9:+_-]+$")
+            if not VALID_SAMPLE_NAME_REGEXP.match(sample_info["sampleName"]):
+                #print ("SL1")
+                raise AttributeError(
+                    "sample name for sample %s contains an incorrect character"
+                    % sample_info
+                )
+
+
+            try:
+                basket = int(sample_info["containerSampleChangerLocation"])
+                #print ("SL2")
+            except (TypeError, ValueError, KeyError):
+                #print("SL3")
+                continue
+            else:
+                #print("SL4")
+                if HWR.beamline.sample_changer.__class__.__TYPE__ in [
+                    "Flex Sample Changer",
+                    "FlexHCD",
+                    "RoboDiff",
+                    "Cryotong"
+                ]:
+                    #print("SL5")
+                    cell = int(math.ceil((basket) / 3.0))
+                    puck = basket - 3 * (cell - 1)
+                    sample_info["containerSampleChangerLocation"] = "%d:%d" % (
+                        cell,
+                        puck,
+                    )
+
+            try:
+                #print("SL6")
+                lims_location = sample_info[
+                    "containerSampleChangerLocation"
+                ] + ":%02d" % int(sample_info["sampleLocation"])
+            except Exception:
+                #print("SL7")
+                logging.getLogger("MX3.HWR").info(
+                    "[LIMS] Could not parse sample loaction from"
+                    " LIMS, (perhaps not set ?)"
+                )
+            else:
+                #print("SL8")
+                sample_info["lims_location"] = lims_location
+
+                self.sample_list_sync_sample(sample_info)
+
+        print(f"SL COUNTER = {self.sl_counter}")
+
+        return self.sample_list_get()
+
     """
     def get_full_user_name(self) -> str:
         if not self.adapter:

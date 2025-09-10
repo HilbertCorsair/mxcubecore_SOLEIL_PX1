@@ -255,6 +255,7 @@ class DataCollectionQueueEntry(BaseQueueEntry):
                 self.collect_task = HWR.beamline.collect.collect(
                     COLLECTION_ORIGIN_STR.MXCUBE, param_list
                 )
+
                 self.collect_task.get()
 
                 if "collection_id" in param_list[0]:

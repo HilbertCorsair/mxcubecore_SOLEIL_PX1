@@ -172,6 +172,8 @@ class AbstractCollect(HardwareObject, object):
         """
         self.ready_event.clear()
         self.current_dc_parameters = dc_parameters_list[0]
+        import pdb
+        pdb.set_trace()
         self.data_collect_task = gevent.spawn(self.do_collect, owner)
         self.ready_event.wait()
         self.ready_event.clear()

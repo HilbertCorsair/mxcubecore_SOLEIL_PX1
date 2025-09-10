@@ -733,6 +733,12 @@ class Beamline(ConfiguredObject):
     __content_roles.append("centring")
 
     @property
+    def unattended(self):
+        return self._objects.get("unattended")
+
+    __content_roles.append("unattended")
+
+    @property
     def xray_centring(self):
         """Xray Ccntring hardware object.
 

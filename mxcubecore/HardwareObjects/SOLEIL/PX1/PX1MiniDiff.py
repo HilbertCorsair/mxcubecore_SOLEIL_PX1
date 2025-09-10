@@ -32,6 +32,7 @@ from utils import (
 class PX1MiniDiff(GenericDiffractometer):
     def __init__(self, name):
         super().__init__(name)
+
         #Attribute that holsd the "ON" "OFF" state for the light UI button
         #The button has in fact nothing to do with the light direcly
         #it should just chande the psase to VISU_SAMPLE when pressed and to DEFAULT
@@ -750,9 +751,9 @@ class PX1MiniDiff(GenericDiffractometer):
 
         """
         if (HWR.beamline.diffractometer.zoom.get_value() != "zoom1"):
-            HWR.beamline.diffractometer.zoom.set_value("zoom1")
+            HWR.beamline.diffractometer.zoom.goto_position('zoom1')
         if (HWR.beamline.diffractometer.zoom.get_value() != "zoom4"):
-            HWR.beamline.diffractometer.zoom.set_value("zoom4")
+            HWR.beamline.diffractometer.zoom.goto_position('zoom4')
         """
 
 

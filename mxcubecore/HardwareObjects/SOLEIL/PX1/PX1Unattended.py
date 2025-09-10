@@ -10,17 +10,21 @@ import time
 import os
 import sys
 
+
+from mxcubecore.BaseHardwareObjects import HardwareObject
 from mxcubecore import HardwareRepository as HWR
 
 
 log = logging.getLogger("HWR")
 
-class PX1Unattended():
+class PX1Unattended(HardwareObject):
 
-    def __init__(self):
-
+    def __init__(self, *args):
+        HardwareObject.__init__(self, *args)
         self.flagZoomValChange = 0
-        pass
+
+    def init(self):
+        print("PX1Unattended init")
 
     def __getBeamsize__(self):
         try:
@@ -63,6 +67,12 @@ class PX1Unattended():
         Raises:
 
         """
+
+        print("We were called succesfully")
+
+        # basket:basketPosition = location
+
+        #HWR.beamline.sample_changer._do_load(sample="1:02", wash=False)
 
         # For sample in Queue:
         #   Zoom(1)                                Done
