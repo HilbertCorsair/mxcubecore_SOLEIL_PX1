@@ -654,8 +654,6 @@ class ISPyBDataAdapter():
 
                 # changing back to string representation of the dates,
                 # since the session_dict is used after this method is called,
-                import pdb
-                pdb.set_trace()
 
                 session_dict["startDate"] = datetime.strftime(
                     session_dict["startDate"], "%Y-%m-%d %H:%M:%S"
@@ -754,6 +752,9 @@ class ISPyBDataAdapter():
             if detector:
                 detector_id = detector.detectorId
                 data_collection.detectorId = detector_id
+
+        #import pdb
+        #pdb.set_trace()
 
         collection_id = self._collection.service.storeOrUpdateDataCollection(
             data_collection

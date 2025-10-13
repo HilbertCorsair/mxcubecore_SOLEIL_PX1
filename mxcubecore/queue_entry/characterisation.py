@@ -44,8 +44,6 @@ class CharacterisationGroupQueueEntry(BaseQueueEntry):
         self.dc_qe = None
         self.char_qe = None
         self.in_queue = False
-        import pdb
-        pdb.set_trace()
 
     def execute(self):
         BaseQueueEntry.execute(self)

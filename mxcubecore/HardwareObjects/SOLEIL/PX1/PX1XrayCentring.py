@@ -9,27 +9,25 @@ import errno
 import time
 import copy
 import io
-
+import xmltodict
+from xml.dom.minidom import parseString
 from mxcubecore.BaseHardwareObjects import HardwareObjectState
 from enum import (
     Enum,
     unique,)
-
 from shutil import copyfile
 import numpy as np
 from scipy import optimize
 from scipy.ndimage.filters import gaussian_filter
-
 from datetime import datetime
-
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Rectangle
 from matplotlib import cm
-
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.HardwareObjects.abstract.AbstractXrayCentring import AbstractXrayCentring
 from mxcubecore.BaseHardwareObjects import HardwareObject
 from PyTango import DeviceProxy
+from mxcubecore.HardwareObjects.SampleView import Shape, Line, Point, Grid
 
 from CreateDirClient import CreateDirectoryClient
 
@@ -131,6 +129,8 @@ class PX1XrayCentring(AbstractXrayCentring):
     def init(self):
         print("Init X ray centring")
         self.centring_task = None
+
+        self.flag_is_centring = False
 
         self.collect_dev = DeviceProxy(self.get_property('tangoname'))
         self.collect_dev.set_timeout_millis(20000)
@@ -259,6 +259,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         return workflow_list
 
     def start(self, list_arguments):
+
+
         # If necessary unblock dialog
         if not self.gevent_event.is_set():
             self.gevent_event.set()
@@ -327,79 +329,235 @@ class PX1XrayCentring(AbstractXrayCentring):
         => collect method seemed to work in our testing for one sample, needs to be tested with multiple samples in the loop
 
         """
-        import pdb
-        pdb.set_trace()
-        """
+
+
         minidiff = HWR.beamline.diffractometer
-        # Change and add possibility to modify nb basket (number of pucks) who should be pulled from an xml to avoid restarting mxcube on change
-        NB_PUCK = 3
-        NB_SAMPLES = 16
-        for basket in range(1, NB_PUCK + 1):
-            for position in range(1, NB_SAMPLES + 1):
-            
-                # Generate sample location string of format "basket:position"
-                sampleLocation = None
-                if position <= 10:
-                    sampleLocation = str(basket) + ":0" + str(position)
-                else:
-                    sampleLocation = str(basket) + ":" + str(position)
+        print("Debut de la methode do nothing")
 
-                # unload current sample and load new sample found in position sampleLocation
-                HWR.beamline.sample_changer._do_load(sample=sampleLocation, wash=False)
-
-                # It is possible that we need to wait for the centring to finish to not
-                # get an error, testing should be done with the wait flag but I couldn't
-                # find any code about waiting linked to this variable in PX1MiniDiff.py
-                minidiff.zoom.goto_position('zoom1')
-                minidiff.start_centring_method(minidiff.CENTRING_METHOD_AUTO, wait=True)
-                minidiff.zoom.goto_position('zoom3')
-                minidiff.start_centring_method(minidiff.CENTRING_METHOD_AUTO, wait=True)
-
-                # Automatic grid coordinates generation from murko analysis
-                snapshot = minidiff.takePictureMurko()
-                w, h, r, c = minidiff.estimate_click_murko(snapshot, True)
-                og_h, og_w = int(os.getenv("MURKO_SIZEY")), int(os.getenv("MURKO_SIZEX"))
-                PERCENTAGE_AUGMENTATION_BOX = 1.1
-                # Corresponding coordinates in the viewer
-                # (x1, y1, x2, y2) = (Left, Top, Right, Bottom)
-                y1, x1 = int((r - (h / 2) * PERCENTAGE_AUGMENTATION_BOX) * og_h), int((c - (w / 2) * PERCENTAGE_AUGMENTATION_BOX) * og_w) 
-                y2, x2 = int((r + (h / 2) * PERCENTAGE_AUGMENTATION_BOX) * og_h), int((c + (w / 2) * PERCENTAGE_AUGMENTATION_BOX) * og_w)
-
-                # Still TODO adding a Grid shape correctly with points above
-                grid_shape = self.graphics_manager_hwo.add_shape_from_mpos(
-                    mpos_list,
-                    (topLeftCornerGridTuple),
-                    'G',
-                    'SAVED',
-                    'SAVED
-                )
-                grid_shape.width = None
-                grid_shape.height = None
-                grid_shape.num_rows = None
-                grid_shape.num_cols = None
-                grid_shape.cell_width = None
-                grid_shape.cell_height = None
-                grid_shape.label = 'Murko Grid'
-                self.graphics_manager_hwo.add_shape(grid_shape)
-
-                # do_xcentring() calls for a prepare method which pulls all grids from graphics_manager
-                # should then finish centring the sample, ready for collect
-                self.do_xcentring()
-
-                # Generate a param_list to give to the collect
-                param_list = self.prepareParamList()
-                HWR.beamline.collect.collect("mxcube", param_list)
+        # Nb samples go from 0-47 in order of [1_1; 1_2; ...; 3_15; 3_16]
+        samples = HWR.beamline.sample_changer.get_sample_list()[2:3] # Inlusif:Exclusif et - 1
+        counter = 0
         """
+        samples = HWR.beamline.sample_changer.get_sample_list()[:48]
+        samplePositions = self.interpretSampleRange()
 
-    def prepareParamList(self):
+        for position in samplePosition:
+            sample = sample[position]
+        """
+        for sample in samples:
+
+            #import pd
+            #pdb.set_trace()
+
+            # It is possible that we need to wait for the centring to finish to not
+            # get an error, testing should be done with the wait flag but I couldn't
+            # find any code about waiting linked to this variable in PX1MiniDiff.py
+
+            """minidiff.zoom._set_value(minidiff.zoom.VALUES['zoom1'])
+            time.sleep(10)
+            minidiff.start_centring_method(minidiff.CENTRING_METHOD_AUTO)
+            time.sleep(10)"""
+            minidiff.zoom._set_value(minidiff.zoom.VALUES['zoom2'])
+            time.sleep(10)
+            minidiff.start_centring_method(minidiff.CENTRING_METHOD_AUTO)
+            time.sleep(20)
+
+
+
+            # Automatic grid coordinates generation from murko analysis
+            snapshot, imgName = minidiff.takePictureMurko()
+            w, h, r, c = minidiff.estimate_click_murko(snapshot, autoGrid=True, imgName=imgName)
+            og_h, og_w = int(os.getenv("MURKO_SIZEY")), int(os.getenv("MURKO_SIZEX"))
+            PERCENTAGE_AUGMENTATION_BOX = 1.1
+            # Corresponding coordinates in the viewer
+            # (x1, y1, x2, y2) = (Left, Top, Right, Bottom)
+            y1 = int((r - (h / 2) * PERCENTAGE_AUGMENTATION_BOX) * og_h)
+            x1 = int((c - (w / 2) * PERCENTAGE_AUGMENTATION_BOX) * og_w)
+            y2 = int((r + (h / 2) * PERCENTAGE_AUGMENTATION_BOX) * og_h)
+            x2 = int((c + (w / 2) * PERCENTAGE_AUGMENTATION_BOX) * og_w)
+            # creation de la grille en accord avec la taille du faisceau, le tout en pixel
+
+            zoom_position = minidiff.zoom.get_value()
+            beam_size_x = HWR.beamline.beam.get_beam_size()[0] * minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmY']
+            number_colums = math.ceil((x2-x1)/beam_size_x)
+            x2n = x1 + number_colums*beam_size_x
+            beam_size_y = HWR.beamline.beam.get_beam_size()[1] * minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmZ']
+            number_lines = math.ceil((y2-y1)/beam_size_y)
+            y2n = y1 + number_lines*beam_size_y
+
+
+            #Creating virtual grid
+
+            mpos_left_top = minidiff.get_centred_point_from_coord(x1,y1)
+            mpos_right_bottom = minidiff.get_centred_point_from_coord(x2n,y2n)
+            mpos_list = [mpos_left_top, mpos_right_bottom]
+            center_x = x1 + 1/2* (x2n -x1)
+            center_y = y1 +1/2 *(y2n - y1)
+            screen_coords = [center_x, center_y]
+            #screen_coords = [x1, y1]
+
+            # Create Grid object from imported Grid clas
+            grid1 = Grid(mpos_list, screen_coords)
+            #Grid default attributes :
+            grid1.width = x2n-x1
+            grid1.height = y2n- y1
+            grid1.cell_count_fun = "zig-zag"
+            grid1.cell_h_space = -1
+            grid1.cell_height = beam_size_y
+            grid1.cell_v_space = -1
+            grid1.cell_width = beam_size_x
+            grid1.label = "Grid"
+            grid1.num_cols = number_colums
+            grid1.num_rows = number_lines
+            grid1.selected = False
+
+
+            # Grid.as_dict() (or Shape.as_dict() in general) exports the object as a dictionary if necessary.
+
+
+
+            topLeftCornerGridTuple = (x1, y1)
+
+            # Still TODO adding a Grid shape correctly with points above
+            """  grid_shape = self.graphics_manager_hwo.add_shape_from_mpos(
+                mpos_list,
+                topLeftCornerGridTuple,
+                'G',
+                'SAVED',
+                'SAVED'
+            )
+            grid_shape.width = x2n-x1
+            grid_shape.height = y2n-y1
+            grid_shape.num_rows = number_lines
+            grid_shape.num_cols = number_colums
+            grid_shape.cell_width = beam_size_x
+            grid_shape.cell_height = beam_size_y
+            grid_shape.label = 'Murko Grid'"""
+            self.graphics_manager_hwo.add_shape(grid1)
+
+            #import pdb
+            #pdb.set_trace()
+
+            # do_xcentring() calls for a prepare method which pulls all grids from graphics_manager
+            # should then finish centring the sample, ready for collect
+            self.flag_is_centring = True
+            self.do_xcentring()
+            while (self.flag_is_centring):
+                time.sleep(1)
+
+            #import pdb
+            #pdb.set_trace()
+
+            #id = HWR.beamline.sample_changer.get_sample_list()[counter].id
+
+            # Generate a param_list to give to the collect
+            #param_list = self.prepareParamList( sample.get_id())
+            #HWR.beamline.collect.collect("mxcube", param_list)
+
+            # unload current sample and load new sample found in position sampleLocation
+            # l'argument sample doit etre un objet de type sample
+
+
+            # A verifier l'etat du PX1Cryotong
+            HWR.beamline.sample_changer._wait_device_ready()
+            HWR.beamline.sample_changer._do_load(sample=sample, wash=False)
+            counter += 1
+
+    def interpretSampleRange(self):
+        """
+        xml format:
+
+        <?xml version="1.0" ?>
+        <root>
+            <puck1 type="dict">
+                <start_sample type="int">1</start_sample>
+                <end_sample type="int">4</end_sample>
+            </puck1>
+            <puck2 type="dict">
+                <start_sample type="int">10</start_sample>
+                <end_sample type="int">16</end_sample>
+            </puck2>
+            <puck3 type="dict">
+                <start_sample type="int">0</start_sample>
+                <end_sample type="int">0</end_sample>
+            </puck3>
+        </root>
+        """
+        dataFromXML = None # read xml
+        res = []
+        for nb in range(0, 3):
+            puck = dataFromXML[nb]
+            if puck['start_sample'] == 0 or puck['end_sample'] == 0:
+                pass
+            res.extend(range(puck['start_sample'] - 1 + 16 * nb, puck['end_sample'] - 1 + 16 * nb))
+        return res
+
+    def createMotorDict(self):
+        ordered_motors = {
+            'phi': self.omega_mot.get_position(),
+            'phiz': self.phiz_mot.get_position(),
+            'phiy': self.phiy_mot.get_position(),
+            'sampx': self.sampx_mot.get_position(),
+            'sampy': self.sampy_mot.get_position(),
+            'kappa': self.kappa_mot.get_position(),
+            'kappa_phi': self.kappaphi_mot.get_position(),
+            'beam_x': None,
+            'beam_y':None,
+            'zoom':None,
+
+        }
+        return ordered_motors
+
+    def convert_xml_dict(self, xml_dict):
+        if isinstance(xml_dict, dict):
+            if '#text' in xml_dict:
+                value = xml_dict['#text']
+                type_info = xml_dict.get('@type')
+                if type_info == 'int':
+                    return int(value)
+                elif type_info == 'float':
+                    return float(value)
+                elif type_info == 'bool':
+                    return value.lower() == 'true'
+                else:
+                    return value
+            elif '@type' in xml_dict and xml_dict['@type'] == 'null':
+                return None
+            elif all(key.startswith('@') for key in xml_dict.keys()):
+                if xml_dict.get('@type') == 'dict':
+                    return {}
+                return ""
+            else:
+                if xml_dict.get('@type') == 'list':
+                    if 'item' in xml_dict:
+                        return [self.convert_xml_dict(xml_dict['item'])]
+                    else:
+                        return []
+
+                new_dict = {}
+                for key, value in xml_dict.items():
+                    if not key.startswith('@'):
+                        new_dict[key] = self.convert_xml_dict(value)
+                return new_dict
+        elif isinstance(xml_dict, list):
+            return [self.convert_xml_dict(item) for item in xml_dict]
+        else:
+            return xml_dict
+
+    def prepareParamList(self, sampleID):
         """
         Method to parse config/paramCollect.xml, convert into a python dict, override certain values and put inside param_list to be returned
+
+        xmlfile = open("paramCollect.xml", "r") # Need to give actual path
+        param_list = [].append(xmltodict.parse(xmlfile))
         """
-        param_list = []
-        
+        with open('/home/experiences/proxima1/com-proxima1/arthur_mxcube/WebApp/config/paramCollect.xml') as fd:
+            retrieved_data = xmltodict.parse(fd.read())
+
+        param_list = self.convert_xml_dict(retrieved_data)['root']
         # When a sample is mounted it's value of containerSampleChangerLocation is set to 1 instead of None
         # We use this to 'blindly' mount a sample based on position, and find it in lims based of this parameter
-        currentSample = HWR.beamline.lims.get_samples("")['containerSampleChangerLocation'==1]
+        currentSample = HWR.beamline.lims.get_samples("")['sampleName'==sampleID]
         proteinAcronym = currentSample['proteinAcronym']
         sampleName = currentSample['sampleName']
         samplePrefix = proteinAcronym + "-" + sampleName
@@ -407,17 +565,30 @@ class PX1XrayCentring(AbstractXrayCentring):
         oscillationRange = 0.1
         runNumber = 1
         sessionID =  HWR.beamline.lims.session_manager.active_session.session_id
-        collectionID = None #TODO Need to find where it is stored
-        blSampleID = None #TODO We don't know what this is but is important
-        template = samplePrefix + "_" + str(runNumber)
-        # CurrentPosition of motors after XrayCentring # motors': {'omega': 0.00010000000149011611, 'phiz': 0.170211866, 'phiy': -2.1051165140641674, 'sampx': 0.1591116471931281, 'sampy': 0.16615923299344282, 'kappa': -1.6742011532187464e-05, 'kappa_phi': 0.00020000000298023223}
-        # take au moment t => 'collection_start_time': '2025-09-09 11:12:55'
-        # 'actualSampleSlotInContainer': 1, 'actualContainerSlotInSC': 1, 'actualCentringPosition': ' /omega=0.000100 /phiz=0.170212 /phiy=-2.105117 /sampx=0.159112 /sampy=0.166159 /kappa=-0.000017 /kappa_phi=0.000200',
-        # archiveDir + '/' + template + '_1.snapshot.jpeg'# xtalSnapshotFullPath1': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_1.snapshot.jpeg'
-        # do the above from 1 to 4 xtalSnapshotFullPath1
-        # TODO # thumbnails': {'hdf5_master': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/RAW_DATA/MyoII-lysi01_01_1_master.h5', 'thumb00': {'image_id': None, 'image_no': 1, 'nb_images': 10, 'thumb_path': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0001.thumb.jpeg', 'jpeg_path': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0001.jpeg', 'thumb_ispyb': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0001.thumb.jpeg', 'jpeg_ispyb': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0001.jpeg'}, 'thumb01': {'image_id': None, 'image_no': 991, 'nb_images': 10, 'thumb_path': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0991.thumb.jpeg', 'jpeg_path': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0991.jpeg', 'thumb_ispyb': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0991.thumb.jpeg', 'jpeg_ispyb': '/data4/proxima1-soleil/2025_Run2/2025-09-09/20100023/ARCHIVE/MyoII-lysi01_01_1_0991.jpeg'}}
-        return param_list
-        
+        blSampleID = sampleID #None #TODO We don't know what this is but is important
+        template = samplePrefix + "_" + str(runNumber) + "_%004\d.h5"
+        motors = self.createMotorDict()
+        stringTimestamp = str(datetime.now())
+        masterPath = "/data4/proxima1-soleil/" + stringTimestamp[:10] + "/" + str(sessionID) + "/"
+
+        param_list["fileinfo"]["prefix"] = samplePrefix
+        param_list["fileinfo"]["directory"] = masterPath + "RAW_DATA/"
+        param_list["fileinfo"]["runNumber"] = runNumber
+        param_list["fileinfo"]["archive_directory"] = masterPath + "ARCHIVE/"
+        param_list["fileinfo"]["process_directory"] = masterPath + "PROCESSED_DATA/"
+        param_list["fileinfo"]["template"] = template
+        param_list["sessionId"] = sessionID
+        param_list["sample_reference"]["blSampleId"] = blSampleID
+        param_list['sample_reference']['sample_name'] = sampleName
+        param_list['sample_reference']['acronym'] = proteinAcronym
+        param_list['oscillation_sequence']['exposure_time'] = exposureTime
+        param_list['oscillation_sequence']['range'] = oscillationRange
+        param_list["EDNA_files_dir"] = masterPath + "PROCESSED_DATA/"
+        param_list['motors'] = motors
+        param_list['blSampleId'] = blSampleID
+
+        return [].param_list
+
     def is_user_enabled(self):
         return self.user_enabled
 
@@ -453,6 +624,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         cent_y_pix = self.shape_coords[1] + extent_dy_pix/2
         print(f"X start {self.shape_coords[0]}, Y start {self.shape_coords[1]}, X end {self.shape_coords[0]+ self.shape.width},Y  end {self.shape_coords[1]+ self.shape.height} ")
         #start_coords, end_coords = self.xraycent_area_item.get_start_end_coords() # pixels
+
 
 
         start_dx_pix = self.shape_coords[0] - cent_x_pix
@@ -565,7 +737,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.close_report_display()
 
     # MAIN CENTRING routine
-    def do_xcentring(self):
+    def  do_xcentring(self):
         try:
             log.debug('PX1XrayCentring - running xcentring')
 
@@ -699,6 +871,8 @@ class PX1XrayCentring(AbstractXrayCentring):
                     log.debug("report display launched. process id is %s" % self.proc_display.pid)
 
         self.finish_centring()
+        #time.sleep(7)
+        self.flag_is_centring = False
 
     def zero_sgonaxis(self):
         log.debug("ZEROing sgonaxis axis")
@@ -895,6 +1069,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.y_start, self.z_start = self.calc_y_z(first_y, self.ps_z_saved, omega_pos=self.omega_saved)
         self.y_end, self.z_end = self.calc_y_z(last_y, self.ps_z_saved, omega_pos=self.omega_saved)
 
+
         return
 
 
@@ -970,6 +1145,10 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         # start the mesh
         self.collect_dev.prepareCollect()
+
+        #import pdb
+        #pdb.set_trace()
+
         self.collect_dev.start()
 
         # wait collect to finish
@@ -1063,6 +1242,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
     def is_running(self):
         state = str(self.collect_state_chan.get_value())
+        print(f"Method is running State : {state},Collect state chan :{self.collect_state_chan} ")
         if state in ["MOVING", "RUNNING"]:
              return True
         else:
@@ -1299,6 +1479,8 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.emit('xcentringInfo', 'done', 'Centring finished')
         else:
             self.emit('xcentringInfo', 'finished', 'Centring finished')
+        #This is a good plce to add a while not ready --> Sleap 2 or wait_ready
+        self.wait_envready()
 
     def command_failure(self):
         return False
@@ -1464,16 +1646,27 @@ class PX1XrayCentring(AbstractXrayCentring):
         return self.is_sampleview_phase()
 
     def wait_envready(self,timeout=20):
+        start_time = datetime.now()
         while True:
+
             env_state = self.px1env_hwo.get_state()
+            print("+" * 50 )
+
+            print(type(env_state), env_state)
             if env_state != "RUNNING":
+                print(f"wile loope broke on state : {env_state}")
                 break
+
+            t0 = (datetime.now() - start_time).seconds
+
             if time.time() - t0 > timeout:
                 log.debug("PX1XrayCentring: timeout sending supervisor to sample view phase")
                 break
-                return False
             gevent.sleep(0.5)
+        print("+" * 50 )
         return True
+
+
 
     def is_collect_phase(self):
         return self.px1env_hwo.is_phase_collect()

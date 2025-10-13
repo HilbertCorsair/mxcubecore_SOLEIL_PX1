@@ -5,7 +5,8 @@ import time
 import os
 import sys
 import simplejpeg
-
+import cv2
+import datetime
 from redis_camera import camera
 from imageio import imwrite
 
@@ -140,9 +141,9 @@ class PX1MiniDiff(GenericDiffractometer):
             log.debug("img saved as %s in MurkoImageTesting" %imgName)
         except Exception as e:
             logging.getLogger("user_level_log").info("%s" %e)
-        return img
+        return img, imgName
 
-    def estimate_click_murko(self, frame, autoGrid=False):
+    def estimate_click_murko(self, frame, autoGrid=False, imgName=None):
         """Gets relative coordinates from murko
 
         Calls the murko server running on localhost:89011 to retrieve estimated
@@ -203,8 +204,29 @@ class PX1MiniDiff(GenericDiffractometer):
                 )
             else:
                 log.debug("loop not found")
-            h, w = descriptions[0]["most_likely_click"]
-            log.debug("Most likely click to be at [%.3f, %.3f]" % (h, w))
+                # add value here for in case loop not found, do we fake a 0.5, 0.5 or most likely click or skip (can we skip?)
+            _h, _w = descriptions[0]["most_likely_click"]
+            log.debug("Most likely click to be at [%.3f, %.3f]" % (_h, _w))
+
+            if imgName:
+                og_image = cv2.imread(imgName)
+
+                P = 1.1
+                og_h, og_w, _ = og_image.shape
+                y1, x1 = int((r - (h / 2) * P) * og_h), int((c - (w / 2) * P) * og_w)
+                y2, x2 = int((r + (h / 2) * P) * og_h), int((c + (w / 2) * P) * og_w)
+                posi = (int(c*og_w),int(r*og_h))
+                posiClick = (int(_w*og_w),int(_h*og_h))
+                image_with_bbox = og_image.copy()
+                cv2.rectangle(image_with_bbox, (x1, y1), (x2, y2), (255, 0, 0), 2) # Blue bbox
+                cv2.circle(image_with_bbox, posi, 5, (0, 0, 255), -1) # Red center of bbox
+                cv2.circle(image_with_bbox, posiClick, 5, (0, 255, 255), -1) # Yellow most_likely_click
+                cv2.circle(image_with_bbox, (x1, y2), 5, (0, 255, 0), -1) # Green BottomLeft angle
+
+                tmpName = imgName[:-4] + "_analysis.jpg"
+
+                cv2.imwrite(tmpName, image_with_bbox)
+
         else:
             logging.getLogger("user_level_log").debug("nothing found on image, click on center")
             h = 0.5
@@ -223,7 +245,7 @@ class PX1MiniDiff(GenericDiffractometer):
             # instead of returning drawing directly with graphics manager
             return w, h, r, c
 
-        return w, h
+        return w, h, _h, _w
 
     def px1_center_murko(self, X, Y, phi_positions, phi, n_points, PHI_ANGLE_START, phi_incr):
         """ Method to center the sample using the Neural Network murko
@@ -249,10 +271,11 @@ class PX1MiniDiff(GenericDiffractometer):
 
         """
         for i in range(n_points):
-            img = self.takePictureMurko()
-            x_click, y_click = self.estimate_click_murko(img)
-            x_coord = x_click * int(os.getenv("MURKO_SIZEX"))
-            y_coord = y_click * int(os.getenv("MURKO_SIZEY"))
+            img, imgName = self.takePictureMurko()
+            _, _, y_click, x_click = self.estimate_click_murko(img, imgName=imgName)
+            og_w, og_h = int(os.getenv("MURKO_SIZEX")), int(os.getenv("MURKO_SIZEY"))
+            x_coord = x_click * og_w
+            y_coord = y_click * og_h
             log.debug("Center found at [%s;%s]", x_coord, y_coord)
             X.append(x_coord)
             Y.append(y_coord)
@@ -491,6 +514,8 @@ class PX1MiniDiff(GenericDiffractometer):
         X, Y = [], []
         phi_positions = []
 
+        time.sleep(2)
+
         try:
 
             # TAKE USER INPUT
@@ -718,7 +743,7 @@ class PX1MiniDiff(GenericDiffractometer):
         """
         """
         self.emit_progress_message("Automatic centring...")
-        logging.getLogger("HWR").debug("   starting automatic centring. phiy is %s" % str(self.centring_phiy))
+        logging.getLogger("HWR").debug("Starting automatic centring. phiy is %s" % str(self.centring_phiy))
 
         centring_points = self.px1conf_ho.get_centring_points()
         centring_phi_incr = self.px1conf_ho.get_centring_phi_increment()

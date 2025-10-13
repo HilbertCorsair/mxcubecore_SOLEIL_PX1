@@ -808,8 +808,8 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         # Zeep SOAP request fails with pointer erro
         # also happens for prpoposal id 20100023 
 
-        import pdb 
-        pdb.set_trace()
+        #import pdb 
+        #pdb.set_trace()
 
         if self.adapter._tools_ws:
             try:

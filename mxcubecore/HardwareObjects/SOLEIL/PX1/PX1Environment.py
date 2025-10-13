@@ -34,8 +34,8 @@ class EnvironmentPhase:
         return EnvironmentPhase.phase_desc.get(phase_name)
 
 class EnvironmentState:
-    UNKNOWN, ON, RUNNING, ALARM, FAULT = (0, 1, 10, 13, 14)
-    state_desc = {ON: "ON", RUNNING: "RUNNING", ALARM: "ALARM", FAULT: "FAULT"}
+    UNKNOWN, ON, RUNNING, ALARM, FAULT, DISABLE, MOVING = (0, 1, 10, 13, 14, 15, 16)
+    state_desc = {ON: "ON", RUNNING: "RUNNING", ALARM: "ALARM", FAULT: "FAULT", DISABLE:"DISABLE", MOVING: "MOVING"}
 
     @staticmethod
     def to_string(state):

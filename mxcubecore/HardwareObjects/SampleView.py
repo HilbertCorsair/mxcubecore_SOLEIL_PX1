@@ -83,10 +83,17 @@ class SampleView(AbstractSampleView):
 
 
     def _update_shape_positions(self, *args, **kwargs):
-        for shape in self.get_shapes():
-            shape.update_position(HWR.beamline.diffractometer.motor_positions_to_screen)
 
-        self.emit("shapesChanged")
+
+        try :  
+            for shape in self.get_shapes():
+                shape.update_position(HWR.beamline.diffractometer.motor_positions_to_screen)
+
+            self.emit("shapesChanged")
+        except :
+            print ('c'*50, 'ERROR')
+            #import pdb ; pdb.set.trace()
+        
         '''def _update_shape_positions(self, *args, **kwargs):
             shapes_updated = False
 
@@ -503,6 +510,7 @@ class Shape(object):
         )
         self.label = ""
         self.screen_coord = screen_coord
+        self.mpos_list = mpos_list
         self.selected = False
         self.refs = []
         self.shapes_hw_object = None
@@ -687,9 +695,14 @@ class Grid(Shape):
         self.beam_width = 0
         self.beam_height = 0
         self.hide_threshold = 5
+        self.update_pixel_per_mm()
         print(f"INIt Grig shape: \n{self.label}\n{self.select}\n{self.pixels_per_mm}")
-
         self.set_id(Grid.SHAPE_COUNT)
+
+        
+    def update_pixel_per_mm(self):
+        self.pixels_per_mm = HWR.beamline.diffractometer.get_pixels_per_mm()
+        
 
     def update_position(self, transform):
         phi_pos = HWR.beamline.diffractometer.omega.get_value() % 360

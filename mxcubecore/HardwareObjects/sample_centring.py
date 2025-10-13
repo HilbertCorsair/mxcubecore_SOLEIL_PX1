@@ -275,7 +275,7 @@ def move_motors(motor_positions_dict):
         from PyTango import DeviceProxy as dp
         sgonaxis_dev = dp('i10-c-cx1/ex/sgonaxis')
 
-    def wait_ready(timeout=None):
+    def wait_ready(motor_positions_dict, timeout=None):
         with gevent.Timeout(timeout):
             while not ready(*motor_positions_dict.keys()):
                 gevent.sleep(0.03)
