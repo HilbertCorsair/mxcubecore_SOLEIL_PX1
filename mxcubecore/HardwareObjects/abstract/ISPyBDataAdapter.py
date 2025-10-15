@@ -474,6 +474,8 @@ class ISPyBDataAdapter():
     def _update_data_collection(self, mx_collection):
         mx_collection["collection_id"] = None
         if "collection_id" in mx_collection:
+            #import pdb
+            #pdb.set_trace()
             try:
                 # Update the data collection group
                 self.store_data_collection_group(mx_collection)
@@ -733,7 +735,6 @@ class ISPyBDataAdapter():
         data_collection = ISPyBValueFactory().from_data_collect_parameters(
             self._collection, mx_collection
         )
-
         detector_id = 0
         if bl_config:
             lims_beamline_setup = ISPyBValueFactory.from_bl_config(
@@ -752,9 +753,6 @@ class ISPyBDataAdapter():
             if detector:
                 detector_id = detector.detectorId
                 data_collection.detectorId = detector_id
-
-        #import pdb
-        #pdb.set_trace()
 
         collection_id = self._collection.service.storeOrUpdateDataCollection(
             data_collection

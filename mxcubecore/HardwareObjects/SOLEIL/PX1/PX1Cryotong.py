@@ -402,6 +402,7 @@ class PX1Cryotong(Cats90):
                 raise Exception(msg)
             else:
                 logging.getLogger("HWR").warning("  ==========CATS=== chained load sample, sending to cats:  %s" % argin)
+                self.environment.wait_ready()
                 self._execute_server_task(self._cmdChainedLoad, argin)
         else:
             print(f'NO LOADED SAMPLE -- {self.has_loaded_sample()}')
@@ -632,6 +633,7 @@ class PX1Cryotong(Cats90):
 
     def env_send_transfer(self):
         print("\nEnv_send_transfer ... (px1cryotong)")
+
         if self.environment.ready_for_transfer():
             return True
         logging.getLogger("user_level_log").warning(

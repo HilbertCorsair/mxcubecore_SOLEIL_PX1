@@ -176,6 +176,8 @@ class AbstractCollect(HardwareObject, object):
         self.data_collect_task = gevent.spawn(self.do_collect, owner)
         self.ready_event.wait()
         self.ready_event.clear()
+        print('E' *50)
+        print(f'Returning data collection task : {type(self.data_collect_task)}')
         return self.data_collect_task
 
     def do_collect(self, owner):
@@ -231,7 +233,7 @@ class AbstractCollect(HardwareObject, object):
             if all(
                 item is None for item in self.current_dc_parameters["motors"].values()
             ):
-                # No centring point defined
+                # No centrincg point defined
                 # create point based on the current position
                 current_diffractometer_position = (
                     HWR.beamline.diffractometer.get_positions()
@@ -630,6 +632,7 @@ class AbstractCollect(HardwareObject, object):
                     self.current_dc_parameters, self.bl_config
                 )
                 print(f" ==============Abstract collect store data collectio in lims {self.current_dc_parameters['synchrotronMode']}")
+
                 self.current_dc_parameters["collection_id"] = collection_id
                 self.collection_id = collection_id
                 if detector_id:

@@ -254,7 +254,6 @@ class PX1Collect(AbstractCollect):
         collection_type = self.current_dc_parameters['experiment_type']
         logging.getLogger("HWR").info("PX1Collect: Running PX1 data collection hook. Type is %s" % collection_type )
         self.emit("collectStarted", (None, 1))
-
         user_info = self.session_hwobj.get_user_info()
 
         self.current_dc_parameters['user_info'] = user_info
@@ -273,19 +272,26 @@ class PX1Collect(AbstractCollect):
             return
 
         try:
+            print("=" *60)
+            print("ENTRY")
             if collection_type != 'Characterization':  # standard
+                print('C1')
                 print("Colection type : STANDARD")
                 if self.diffractometer_hwobj.in_chip_mode():
                      print("Diffractometer in CHIP mode")
+                     print('C2')
                      if not self.chip_range_allowed():
+                         print('C3')
                          print("OH, NO!, range not allowed: ")
                          self.collection_failed("Collection range too large for chips")
                          self.stop_collect()
                          return
 
                 prepare_ok = self.prepare_standard_collection()
+                print('C4')
 
                 if collection_type == "OSC":
+                    print('C5')
                     self.set_helical(False)
 
                 elif collection_type == "Helical":
@@ -293,27 +299,36 @@ class PX1Collect(AbstractCollect):
                     self.set_helical(True)
 
             else:
+                print('C6')
                 if self.diffractometer_hwobj.in_chip_mode():
                    self.collection_failed("Characterization not available in chip mode")
                    self.stop_collect()
+                   print('C7')
                    return
+                print('C8')
 
                 self.set_helical(False)
                 prepare_ok = self.prepare_characterization()
+            print('C9')
 
             self._collecting = True
 
             osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
+            print('C10')
 
 
             logging.getLogger("HWR").info("  / position requested for chi is: %s " % osc_seq['kappaStart'])
             logging.getLogger("HWR").info("  / position requested for phi is: %s " % osc_seq['phiStart'])
 
             if "kappaStart" in osc_seq:
+                print('C11')
                 self.move_kappa(osc_seq["kappaStart"])
 
             if "phiStart" in osc_seq:
+                print('C12')
                 self.move_phi(osc_seq["phiStart"])
+            print('C13')
+            print('=' * 60)
         except:
             log = logging.getLogger("user_level_log")
             log.warning("Error while preparing data collection. ABORTED. Check app log")
@@ -337,12 +352,17 @@ class PX1Collect(AbstractCollect):
         try:
             log = logging.getLogger("HWR")
             print(f"************PX1Collect---------Data collection hook collection type = {collection_type}")
+
+            print ("P1")
             if collection_type != 'Characterization':  # standard or helical
+                print ("P2")
                 self.start_standard_collection()
                 log.debug("Waiting for collect to finish. max time waiting: %s" % max_wait_time)
                 if not self.wait_collect_ready(timeout=max_wait_time):
+                    print ("P3")
                     log.debug("Timeout waiting for end of Collection")
                     raise BaseException("Timeout waiting for collection end")
+                print ("P4")
 
                 log.debug("Collect is now finished")
 
@@ -351,6 +371,7 @@ class PX1Collect(AbstractCollect):
                 #self.generate_thumbnails()
             else:
                 # CHARACTERIZATION
+                print ("P5")
                 self.start_characterization()
                 if not self.wait_collect_ready(timeout=max_wait_time):
                     log.debug("Timeout waiting for end of Collection")
@@ -359,9 +380,11 @@ class PX1Collect(AbstractCollect):
                 thumblist = self.thumbnails_characterization()
                 print("Trigger autoprocessing depuis PX1Collect Data collection Hook Charaterization")
                 self.trigger_auto_processing("characterization",self.current_dc_parameters,-1)
+            print ("P6")
 
             # includes
             if collection_type == 'Characterization':
+                print ("P7")
                 template = self.current_dc_parameters['fileinfo']['template']
                 directory = self.current_dc_parameters['fileinfo']['directory']
                 number_of_images = self.current_dc_parameters['oscillation_sequence'][0]['number_of_images']
@@ -369,9 +392,13 @@ class PX1Collect(AbstractCollect):
                 user_log.info("Waiting for last image in disk...")
                 log.info("Waiting for last image in disk...")
                 log.debug("   directory: %s" % directory)
+            print ("P8")
             self.data_collection_end()
+            print ("P9")
             self.generate_thumbnails(thumblist)
+            print ("P10")
             self.collection_finished()
+            print ("P11")
         except:
             log.warning("Error during data collection. ABORTED. Check app log")
             self.collect_failed('collect exception')
@@ -423,13 +450,16 @@ class PX1Collect(AbstractCollect):
             self.emit("collectImageTaken", int(self.latest_trignum))
 
     def prepare_standard_collection(self):
+        print ('z' * 50)
         #PL 11/11/18
         _templ = self.current_dc_parameters['fileinfo']['template']
         if "%" in _templ:
+             print("A1")
              self.current_dc_parameters['fileinfo']['template'] = _templ.split("%")[0][:-1]
         osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
         fileinfo = self.current_dc_parameters['fileinfo']
         basedir = fileinfo['directory']
+        print("A2")
 
         logging.getLogger("HWR").info("PX1Collect: fileinfo is %s " % str(fileinfo))
 
@@ -446,6 +476,7 @@ class PX1Collect(AbstractCollect):
         fileinfo['imageSuffix'] = self.detector_hwobj.get_file_suffix()
 
         # move omega to start angle
+        print("A3")
         start_angle = osc_seq['start']
 
         nb_images = osc_seq['number_of_images']
@@ -461,7 +492,7 @@ class PX1Collect(AbstractCollect):
         self.collect_device.mesh = False
 
         collection_type = self.current_dc_parameters['experiment_type']
-        # self.collect_device.helicalScan = False
+        self.collect_device.helicalScan = False
 
         self.collect_device.exposurePeriod = exp_time
         self.collect_device.nimages = nb_images
@@ -484,10 +515,17 @@ class PX1Collect(AbstractCollect):
 #        self.collect_device.roiMode = 'disabled'
 #
         gevent.sleep(0.1)
+        print("A.a4")
         self.detector_hwobj.wait_energy_calibration()
+        print("A.b.4")
         self.prepare_headers()
+        print("A4")
         self.collect_device.PrepareCollect()
+        print("A5")
         ret = self.wait_collect_standby()
+
+        print("A6")
+
         if ret is False:
             logging.getLogger("user_level_log").info("Collect server prepare error. Aborted")
             return False
@@ -495,7 +533,10 @@ class PX1Collect(AbstractCollect):
 
     def start_standard_collection(self):
         self.emit("collectStarted", (self.owner, 1))
-        self.detector_hwobj.start_collection()
+        print("P1.1")
+
+        #self.detector_hwobj.start_collection()
+
         self.collect_device.Start()
 
     def start_helical_collection(self):
@@ -975,8 +1016,6 @@ class PX1Collect(AbstractCollect):
         """
         Descript. :
         """
-        #import pdb
-        #pdb.set_trace()
 
         # If the condition is not met the methode returns None ---> error (non itterable)
 

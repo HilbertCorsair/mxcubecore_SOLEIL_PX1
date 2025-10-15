@@ -474,6 +474,7 @@ class AbstractOnlineProcessing(HardwareObject):
             HWR.beamline.collect.update_lims_with_workflow(
                 workflow_id, self.params_dict["snapshot_path"]
             )
+            print(f'\nAbstract online processing Check ! ... ... ...\n')
 
             HWR.beamline.lims.store_workflow_step(self.params_dict)
             if len(best_positions) > 0:

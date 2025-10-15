@@ -982,8 +982,6 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
 
 
         for sample_info in samples_info_list:
-
-
             sample_info["limsID"] = sample_info["sampleId"]
             sample_info["defaultPrefix"] = self.get_default_prefix(sample_info)
             #print(f"==========================mxcubeweb core component lims.py PREFIX synch_with_lims {sample_info['defaultPrefix']} ")
@@ -1021,7 +1019,6 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
                         cell,
                         puck,
                     )
-
             try:
                 #print("SL6")
                 lims_location = sample_info[

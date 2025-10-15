@@ -120,14 +120,16 @@ class PX1Environment(HardwareObject):
         return state not in [EnvironmentState.ON]
 
     def wait_ready(self, timeout=None):
+        print('Waiting in PX1ENV . ................')
         self._wait_state(["ON"], timeout)
 
     def _wait_state(self, states, timeout=None):
         if self.device is None:
             return
 
+
         with gevent.Timeout(timeout, Exception("Timeout waiting for device ready")):
-            while self.state_chan.get_value() not in states:
+            while self.state_chan.get_value().name not in states:
                 gevent.sleep(0.05)
 
     def is_phase_transfer(self):

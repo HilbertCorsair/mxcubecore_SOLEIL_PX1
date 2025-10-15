@@ -176,6 +176,7 @@ class ISPyBValueFactory:
             try:
                 group.dataCollectionGroupId = mx_collect_dict["group_id"]
             except Exception:
+                print("Exception!!! in IspYBValueFactory 179 ----> cought by try")
                 pass
 
             return group
