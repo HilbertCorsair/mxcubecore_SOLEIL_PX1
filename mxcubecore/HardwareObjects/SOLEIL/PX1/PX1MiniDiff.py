@@ -123,13 +123,11 @@ class PX1MiniDiff(GenericDiffractometer):
         )
         return CURRENT_CENTRING
 
-    def takePictureMurko(self):
+    def takePictureAnalysis(self, folder='MurkoImagingTest'):
         """
         would be great to integrate InFine the different lighting conditions with the ringlight
-        maybe need the following line for imports:
-        /home/experiences/proxima1/com-proxima1/arthur_mxcube/MurkoImagingTest
         """
-        pathing = "/home/experiences/proxima1/com-proxima1/arthur_mxcube/MurkoImagingTest"
+        pathing = "/home/experiences/proxima1/com-proxima1/arthur_mxcube/" + folder
         os.makedirs(pathing, exist_ok=True)
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         img = None
@@ -138,7 +136,7 @@ class PX1MiniDiff(GenericDiffractometer):
             redisCamera = camera()
             img = redisCamera.get_image()
             imwrite(imgName, img)
-            log.debug("img saved as %s in MurkoImageTesting" %imgName)
+            log.debug("img saved as %s in %s" %imgName, folder)
         except Exception as e:
             logging.getLogger("user_level_log").info("%s" %e)
         return img, imgName
@@ -271,7 +269,7 @@ class PX1MiniDiff(GenericDiffractometer):
 
         """
         for i in range(n_points):
-            img, imgName = self.takePictureMurko()
+            img, imgName = self.takePictureAnalysis()
             _, _, y_click, x_click = self.estimate_click_murko(img, imgName=imgName)
             og_w, og_h = int(os.getenv("MURKO_SIZEX")), int(os.getenv("MURKO_SIZEY"))
             x_coord = x_click * og_w
