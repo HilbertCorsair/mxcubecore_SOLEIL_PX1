@@ -206,25 +206,24 @@ class PX1MiniDiff(GenericDiffractometer):
             _h, _w = descriptions[0]["most_likely_click"]
             log.debug("Most likely click to be at [%.3f, %.3f]" % (_h, _w))
 
+            """
             if imgName:
                 og_image = cv2.imread(imgName)
-
-                P = 1.1
-                og_h, og_w, _ = og_image.shape
-                y1, x1 = int((r - (h / 2) * P) * og_h), int((c - (w / 2) * P) * og_w)
-                y2, x2 = int((r + (h / 2) * P) * og_h), int((c + (w / 2) * P) * og_w)
-                posi = (int(c*og_w),int(r*og_h))
-                posiClick = (int(_w*og_w),int(_h*og_h))
                 image_with_bbox = og_image.copy()
-                cv2.rectangle(image_with_bbox, (x1, y1), (x2, y2), (255, 0, 0), 2) # Blue bbox
-                cv2.circle(image_with_bbox, posi, 5, (0, 0, 255), -1) # Red center of bbox
+                P = 1
+                og_h, og_w, _ = og_image.shape
+                posiClick = (int(_w*og_w),int(_h*og_h))
                 cv2.circle(image_with_bbox, posiClick, 5, (0, 255, 255), -1) # Yellow most_likely_click
-                cv2.circle(image_with_bbox, (x1, y2), 5, (0, 255, 0), -1) # Green BottomLeft angle
-
+                if loop_present:
+                    y1, x1 = int((r - (h / 2) * P) * og_h), int((c - (w / 2) * P) * og_w)
+                    y2, x2 = int((r + (h / 2) * P) * og_h), int((c + (w / 2) * P) * og_w)
+                    posi = (int(c*og_w),int(r*og_h))
+                    cv2.rectangle(image_with_bbox, (x1, y1), (x2, y2), (255, 0, 0), 2) # Blue bbox
+                    cv2.circle(image_with_bbox, posi, 5, (0, 0, 255), -1) # Red center of bbox
+                    cv2.circle(image_with_bbox, (x1, y2), 5, (0, 255, 0), -1) # Green BottomLeft angle
                 tmpName = imgName[:-4] + "_analysis.jpg"
-
                 cv2.imwrite(tmpName, image_with_bbox)
-
+            """
         else:
             logging.getLogger("user_level_log").debug("nothing found on image, click on center")
             h = 0.5

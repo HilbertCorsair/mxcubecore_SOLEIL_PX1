@@ -473,7 +473,7 @@ class PX1Collect(AbstractCollect):
 
         imgname = file_template #% osc_seq['start_image_number']
 
-        fileinfo['imageSuffix'] = self.detector_hwobj.get_file_suffix()
+        fileinfo['imageSuffix'] = 'h5' # ---- TO FIX --- > #self.detector_hwobj.get_file_suffix()
 
         # move omega to start angle
         print("A3")
@@ -742,7 +742,7 @@ class PX1Collect(AbstractCollect):
 
         basedir = fileinfo['directory']
 
-        fileinfo['imageSuffix'] = self.detector_hwobj.get_file_suffix()
+        fileinfo['imageSuffix'] = 'h5' # ---- TO FIX --- > #self.detector_hwobj.get_file_suffix()
 # LEO : modification of start angle as it stands because of bug in Collect device
         start_angle = osc_seq['start']
         start_angle = 0
