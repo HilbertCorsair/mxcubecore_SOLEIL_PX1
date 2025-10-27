@@ -125,6 +125,8 @@ class ISPyBValueFactory:
 
             try:
                 group.blSampleId = mx_collect_dict["sample_reference"]["blSampleId"]
+                print("=" * 50)
+                print(group.blSampleId)
             except KeyError:
                 pass
 
@@ -299,7 +301,7 @@ class ISPyBValueFactory:
             pass
 
         try:
-            data_collection.imageSuffix = mx_collect_dict["fileinfo"]["suffix"]
+            data_collection.imageSuffix =  'h5'  # hardcoded ! check: mx_collect_dict["fileinfo"]["suffix"]
         except KeyError as diag:
             pass
         try:

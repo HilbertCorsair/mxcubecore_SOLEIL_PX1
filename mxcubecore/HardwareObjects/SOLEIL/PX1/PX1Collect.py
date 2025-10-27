@@ -264,6 +264,8 @@ class PX1Collect(AbstractCollect):
 
         ready = self.prepare_devices_for_collection()
 
+        time.sleep(10)
+
         if not ready:
             print("NO ! I'm Not ready yet !")
             self.collection_failed("Cannot prepare collection")
@@ -272,26 +274,19 @@ class PX1Collect(AbstractCollect):
             return
 
         try:
-            print("=" *60)
-            print("ENTRY")
             if collection_type != 'Characterization':  # standard
-                print('C1')
                 print("Colection type : STANDARD")
                 if self.diffractometer_hwobj.in_chip_mode():
                      print("Diffractometer in CHIP mode")
-                     print('C2')
                      if not self.chip_range_allowed():
-                         print('C3')
                          print("OH, NO!, range not allowed: ")
                          self.collection_failed("Collection range too large for chips")
                          self.stop_collect()
                          return
 
                 prepare_ok = self.prepare_standard_collection()
-                print('C4')
 
                 if collection_type == "OSC":
-                    print('C5')
                     self.set_helical(False)
 
                 elif collection_type == "Helical":
@@ -299,36 +294,27 @@ class PX1Collect(AbstractCollect):
                     self.set_helical(True)
 
             else:
-                print('C6')
                 if self.diffractometer_hwobj.in_chip_mode():
                    self.collection_failed("Characterization not available in chip mode")
                    self.stop_collect()
-                   print('C7')
                    return
-                print('C8')
 
                 self.set_helical(False)
                 prepare_ok = self.prepare_characterization()
-            print('C9')
 
             self._collecting = True
 
             osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
-            print('C10')
 
 
             logging.getLogger("HWR").info("  / position requested for chi is: %s " % osc_seq['kappaStart'])
             logging.getLogger("HWR").info("  / position requested for phi is: %s " % osc_seq['phiStart'])
 
             if "kappaStart" in osc_seq:
-                print('C11')
                 self.move_kappa(osc_seq["kappaStart"])
 
             if "phiStart" in osc_seq:
-                print('C12')
                 self.move_phi(osc_seq["phiStart"])
-            print('C13')
-            print('=' * 60)
         except:
             log = logging.getLogger("user_level_log")
             log.warning("Error while preparing data collection. ABORTED. Check app log")
@@ -351,18 +337,12 @@ class PX1Collect(AbstractCollect):
 
         try:
             log = logging.getLogger("HWR")
-            print(f"************PX1Collect---------Data collection hook collection type = {collection_type}")
-
-            print ("P1")
             if collection_type != 'Characterization':  # standard or helical
-                print ("P2")
                 self.start_standard_collection()
                 log.debug("Waiting for collect to finish. max time waiting: %s" % max_wait_time)
                 if not self.wait_collect_ready(timeout=max_wait_time):
-                    print ("P3")
                     log.debug("Timeout waiting for end of Collection")
                     raise BaseException("Timeout waiting for collection end")
-                print ("P4")
 
                 log.debug("Collect is now finished")
 
@@ -371,20 +351,16 @@ class PX1Collect(AbstractCollect):
                 #self.generate_thumbnails()
             else:
                 # CHARACTERIZATION
-                print ("P5")
                 self.start_characterization()
                 if not self.wait_collect_ready(timeout=max_wait_time):
                     log.debug("Timeout waiting for end of Collection")
                     raise BaseException("Timeout waiting for collection end")
                 #
                 thumblist = self.thumbnails_characterization()
-                print("Trigger autoprocessing depuis PX1Collect Data collection Hook Charaterization")
                 self.trigger_auto_processing("characterization",self.current_dc_parameters,-1)
-            print ("P6")
 
             # includes
             if collection_type == 'Characterization':
-                print ("P7")
                 template = self.current_dc_parameters['fileinfo']['template']
                 directory = self.current_dc_parameters['fileinfo']['directory']
                 number_of_images = self.current_dc_parameters['oscillation_sequence'][0]['number_of_images']
@@ -392,13 +368,11 @@ class PX1Collect(AbstractCollect):
                 user_log.info("Waiting for last image in disk...")
                 log.info("Waiting for last image in disk...")
                 log.debug("   directory: %s" % directory)
-            print ("P8")
             self.data_collection_end()
-            print ("P9")
+
+            HWR.beamline.lims.prepare_collect_for_lims(self.current_dc_parameters)
             self.generate_thumbnails(thumblist)
-            print ("P10")
             self.collection_finished()
-            print ("P11")
         except:
             log.warning("Error during data collection. ABORTED. Check app log")
             self.collect_failed('collect exception')
@@ -450,22 +424,17 @@ class PX1Collect(AbstractCollect):
             self.emit("collectImageTaken", int(self.latest_trignum))
 
     def prepare_standard_collection(self):
-        print ('z' * 50)
-        #PL 11/11/18
         _templ = self.current_dc_parameters['fileinfo']['template']
         if "%" in _templ:
-             print("A1")
              self.current_dc_parameters['fileinfo']['template'] = _templ.split("%")[0][:-1]
         osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
         fileinfo = self.current_dc_parameters['fileinfo']
         basedir = fileinfo['directory']
-        print("A2")
-
         logging.getLogger("HWR").info("PX1Collect: fileinfo is %s " % str(fileinfo))
-
         file_template = fileinfo['template']
 
         if self.diffractometer_hwobj.in_chip_mode():
+
             row, col = self.chip_manager_hwobj.get_current_location()
             file_template = 'chip_%s_%s_' % (row,col) + file_template
 
@@ -476,7 +445,6 @@ class PX1Collect(AbstractCollect):
         fileinfo['imageSuffix'] = 'h5' # ---- TO FIX --- > #self.detector_hwobj.get_file_suffix()
 
         # move omega to start angle
-        print("A3")
         start_angle = osc_seq['start']
 
         nb_images = osc_seq['number_of_images']
@@ -515,16 +483,10 @@ class PX1Collect(AbstractCollect):
 #        self.collect_device.roiMode = 'disabled'
 #
         gevent.sleep(0.1)
-        print("A.a4")
         self.detector_hwobj.wait_energy_calibration()
-        print("A.b.4")
         self.prepare_headers()
-        print("A4")
         self.collect_device.PrepareCollect()
-        print("A5")
         ret = self.wait_collect_standby()
-
-        print("A6")
 
         if ret is False:
             logging.getLogger("user_level_log").info("Collect server prepare error. Aborted")
@@ -533,7 +495,6 @@ class PX1Collect(AbstractCollect):
 
     def start_standard_collection(self):
         self.emit("collectStarted", (self.owner, 1))
-        print("P1.1")
 
         #self.detector_hwobj.start_collection()
 
@@ -563,7 +524,6 @@ class PX1Collect(AbstractCollect):
 
     def thumbnails_standard(self):
         imgs_per_thumb = 10
-        print("*******************PX1Collect  def thumbnails_standard****")
         osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
 
         nb_images = osc_seq['number_of_images']
@@ -637,6 +597,7 @@ class PX1Collect(AbstractCollect):
             # Hack to bypass store_image_in_lims
             #try:
             image_id, img_info = self.store_image_in_lims(imgno)
+            HWR.beamline.lims.prepare_image_for_lims(img_info)
             """except:
                 info = {'image_id': "_007",
                     'image_no': 5,
@@ -656,7 +617,6 @@ class PX1Collect(AbstractCollect):
                     'thumb_ispyb': img_info['jpegThumbnailFileFullPath'],
                     'jpeg_ispyb': img_info['jpegFileFullPath'],
                     }
-            print(f" PX1Collect-----------------------do store image in lims info dont image_id: {info}")
             return info
 
     def store_first_last_in_lims(self):
@@ -1032,10 +992,9 @@ class PX1Collect(AbstractCollect):
                           'machineMessage': self.get_machine_message(),
                           'temperature': self.get_cryo_temperature()}
             archive_directory = self.current_dc_parameters['fileinfo']['archive_directory']
-            print(f"-----------store_image_in_lims {lims_image}")
             if archive_directory:
                 jpeg_filename = "%s.jpeg" % os.path.splitext(filename)[0]
-                thumb_filename = "%s.thumb.jpeg" % os.path.splitext(filename)[0]
+                thumb_filename = "%s.thumb.jpeg" % os.path.splitext(filename)[0] # a verifier
                 jpeg_file_template = os.path.join(archive_directory, jpeg_filename)
                 jpeg_thumbnail_file_template = os.path.join(archive_directory, thumb_filename)
                 jpeg_full_path = jpeg_file_template #% frame_number
@@ -1047,8 +1006,6 @@ class PX1Collect(AbstractCollect):
                 lims_image['motorPositionId'] = motor_position_id
 
             image_id = HWR.beamline.lims.adapter.store_image(lims_image)
-            print(f" PX1COlect------------------------store image in lims image_id:{image_id}")
-
             # saving changed the FullPath to the ispyb path (ruche). keep original
             lims_image['jpegFileOrigPath'] = jpeg_full_path
             lims_image['jpegThumbnailFileOrigPath'] = jpeg_thumbnail_full_path
@@ -1267,6 +1224,7 @@ class PX1Collect(AbstractCollect):
 
         # check fast shutter closed. others opened
         shutok = self.check_shutters()
+        print (f"Checking shutters : --> {shutok}\nAdvised to ignore shutters: --> {self.get_property('ignore_shutters')}")
 
         if self.get_property("ignore_shutters") is True:
             shutok = True
@@ -1508,7 +1466,6 @@ class PX1Collect(AbstractCollect):
 
     def do_set_resolution(self):
         value = self.resolution_target
-        print(f"I------------do_set_resolution {value}")
         distance = self.resolution_hwobj.resolution_to_distance(value)
         self.resolution_hwobj.move_distance(distance)
 
@@ -1637,9 +1594,7 @@ class PX1Collect(AbstractCollect):
         """
         Descript. :
         """
-        print("++++++++++++ GET Machine FILL MODE 1++++++++++++++++++++")
         if self.machine_info_hwobj:
-            print("++++++++++++ GET Machine FILL MODE 2++++++++++++++++++++")
             return self.machine_info_hwobj.filling_mode.get_value()
         else:
             return ''

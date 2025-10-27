@@ -128,7 +128,8 @@ class AbstractCollect(HardwareObject, object):
             minimum_exposure_time=HWR.beamline.detector.get_property(
                 "minimum_exposure_time"
             ),
-            detector_fileext=HWR.beamline.detector.get_property("fileSuffix"),
+            # TODO check the value of detector_fileext !S
+            detector_fileext= 'h5',# hardcoded ! check : HWR.beamline.detector.get_property("fileSuffix"),
             detector_type=HWR.beamline.detector.get_property("type"),
             detector_manufacturer=HWR.beamline.detector.get_property("manufacturer"),
             detector_model=HWR.beamline.detector.get_property("model"),
@@ -672,6 +673,9 @@ class AbstractCollect(HardwareObject, object):
             hor_gap, vert_gap = self.get_slit_gaps()
             params["slitGapHorizontal"] = hor_gap
             params["slitGapVertical"] = vert_gap
+            #added :
+            self.current_dc_parameters["imageSuffix"] = "h5"# self.get_image_suffix()
+
             """try:
                 HWR.beamline.lims.update_data_collection(params)
                 logging.getLogger("HWR").info("+++++ In update_data_collection: %s" % params["collection_id"])
@@ -772,6 +776,8 @@ class AbstractCollect(HardwareObject, object):
         sample_info = self.current_dc_parameters.get("sample_reference")
         try:
             sample_id = int(sample_info["blSampleId"])
+            logging.getLogger("HWR").info(sample_id)
+            print(" - AbstractCollect - get_sample_info()")
         except BaseException:
             sample_id = None
 

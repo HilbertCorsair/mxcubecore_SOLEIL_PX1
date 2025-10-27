@@ -104,8 +104,7 @@ class SOLEILSession(Session):
         projuser = self.get_proposal_number()
         ispyb_base = self["file_info"].get_property('ispyb_base_directory') % {'projuser': projuser}
         base_dir = self["file_info"].get_property('base_directory')
-
-        arch_parts = path[len(base_dir)+1:].split(os.path.sep)
+        arch_parts = path[len(base_dir):].split(os.path.sep)
         ispyb_arch_path = os.path.sep.join([arch_parts[0]] + arch_parts[2:])
         return os.path.join(ispyb_base, ispyb_arch_path)
 

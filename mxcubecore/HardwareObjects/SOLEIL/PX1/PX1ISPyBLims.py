@@ -1040,7 +1040,43 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
 
         return self.sample_list_get()
 
-    """
+
+    def path_to_ispyb(self, path):
+        return HWR.beamline.session.path_to_ispyb( path )
+
+
+    def prepare_collect_for_lims(self, mx_collect_dict):
+        # Attention! directory passed by reference. modified in place
+
+        for i in range(4):
+            try:
+                prop = f'xtalSnapshotFullPath{i+1}'
+                orig_prop = f'xtalSnapshotOrigPath{i+1}'
+                logging.getLogger("HWR").debug(f" checking for snapshot {prop}")
+                path = mx_collect_dict[prop]
+                ispyb_path = self.path_to_ispyb(path)
+                logging.debug(f"SOLEIL ISPyBClient - {prop} is {ispyb_path}")
+                mx_collect_dict[orig_prop] = path
+                mx_collect_dict[prop] = ispyb_path
+
+
+            except KeyError:
+                pass
+            except:
+                import traceback
+                logging.getLogger("HWR").debug(f" prepare_collect_for_lims. {traceback.format_exc()}")
+
+
+    def prepare_image_for_lims(self, image_dict):
+        for prop in [ 'jpegThumbnailFileFullPath', 'jpegFileFullPath']:
+            try:
+                path = image_dict[prop]
+                ispyb_path = HWR.beamline.session.path_to_ispyb( path )
+                image_dict[prop] = ispyb_path
+            except:
+                pass
+
+"""
     def get_full_user_name(self) -> str:
         if not self.adapter:
             self.adapter = self._create_data_adapter()

@@ -313,6 +313,8 @@ class DataCollectionQueueEntry(BaseQueueEntry):
     def collect_osc_started(
         self, owner, blsampleid, barcode, location, collect_dict, osc_id
     ):
+        logging.getLogger("HWR").info(blsampleid)
+        print(" - DataCollectionQueueEntry - collect_osc_started")
         self.get_view().setText(1, "Preparing")
 
     def collect_finished(self, owner, state, message, *args):

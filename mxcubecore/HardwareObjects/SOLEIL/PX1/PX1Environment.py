@@ -148,7 +148,11 @@ class PX1Environment(HardwareObject):
         return self.device.readyForCentring if self.device else None
 
     def ready_for_collect(self):
-        return self.device.readyForCollect if self.device else None
+        if self.device:
+            ok =  self.device.readyForCollect
+        else:
+            return False
+        return ok
 
     def ready_for_default_position(self):
         return self.device.readyForDefaultPosition if self.device else None
@@ -212,7 +216,10 @@ class PX1Environment(HardwareObject):
                     self._collect()
                     time.sleep(0.1)
                 except :
+                    print("EXEPTION GTCP 5")
                     pass
+            else:
+                self.get_command_object("GoToCollectPhase")()
 
 
     def goto_loading_phase(self):

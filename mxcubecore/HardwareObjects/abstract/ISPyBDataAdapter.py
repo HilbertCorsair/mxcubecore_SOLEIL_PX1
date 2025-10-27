@@ -484,6 +484,7 @@ class ISPyBDataAdapter():
                 )
                 mx_collection["collection_id"] = self._collection.service.storeOrUpdateDataCollection(data_collection)
                 print(f"####################-------------ISPyB data adapter--------------update data collection {mx_collection} ")
+
             except Fault as e:
                 logging.getLogger("ispyb_client").exception(e)
             except URLError as e:
@@ -569,6 +570,8 @@ class ISPyBDataAdapter():
             robot_action_vo.sampleBarcode = robot_action_dict.get("sampleBarcode")
             robot_action_vo.sessionId = robot_action_dict.get("sessionId")
             robot_action_vo.blSampleId = robot_action_dict.get("sampleId")
+            logging.getLogger("HWR").info(robot_action_vo.blSampleId)
+            print(" - ISPyBDataAdapter - store_robot_action")
             robot_action_vo.startTime = datetime.strptime(
                 robot_action_dict.get("startTime"), "%Y-%m-%d %H:%M:%S"
             )

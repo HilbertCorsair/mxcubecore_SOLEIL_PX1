@@ -123,7 +123,7 @@ class PX1MiniDiff(GenericDiffractometer):
         )
         return CURRENT_CENTRING
 
-    def takePictureAnalysis(self, folder='MurkoImagingTest'):
+    def takePictureAnalysis(self, folder='MurkoImagingTest', path=None):
         """
         would be great to integrate InFine the different lighting conditions with the ringlight
         """
@@ -135,8 +135,22 @@ class PX1MiniDiff(GenericDiffractometer):
         try:
             redisCamera = camera()
             img = redisCamera.get_image()
+            if path != None:
+                imgName = path
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                print(imgName)
             imwrite(imgName, img)
-            log.debug("img saved as %s in %s" %imgName, folder)
+            if path != None:
+                og_image = cv2.imread(imgName)
+                height, width = og_image.shape[:2]
+                center_x, center_y = width // 2, height // 2
+                size = 25
+                color = (0, 0, 255)
+                thickness = 2
+                cv2.line(og_image, (center_x - size, center_y), (center_x + size, center_y), color, thickness)
+                cv2.line(og_image, (center_x, center_y - size), (center_x, center_y + size), color, thickness)
+                cv2.imwrite(imgName, og_image)
+            log.debug("img saved as %s" %imgName)
         except Exception as e:
             logging.getLogger("user_level_log").info("%s" %e)
         return img, imgName
@@ -206,28 +220,27 @@ class PX1MiniDiff(GenericDiffractometer):
             _h, _w = descriptions[0]["most_likely_click"]
             log.debug("Most likely click to be at [%.3f, %.3f]" % (_h, _w))
 
-            """
-            if imgName:
+            if imgName and loop_present:
                 og_image = cv2.imread(imgName)
                 image_with_bbox = og_image.copy()
                 P = 1
                 og_h, og_w, _ = og_image.shape
                 posiClick = (int(_w*og_w),int(_h*og_h))
                 cv2.circle(image_with_bbox, posiClick, 5, (0, 255, 255), -1) # Yellow most_likely_click
-                if loop_present:
-                    y1, x1 = int((r - (h / 2) * P) * og_h), int((c - (w / 2) * P) * og_w)
-                    y2, x2 = int((r + (h / 2) * P) * og_h), int((c + (w / 2) * P) * og_w)
-                    posi = (int(c*og_w),int(r*og_h))
-                    cv2.rectangle(image_with_bbox, (x1, y1), (x2, y2), (255, 0, 0), 2) # Blue bbox
-                    cv2.circle(image_with_bbox, posi, 5, (0, 0, 255), -1) # Red center of bbox
-                    cv2.circle(image_with_bbox, (x1, y2), 5, (0, 255, 0), -1) # Green BottomLeft angle
+                y1, x1 = int((r - (h / 2) * P) * og_h), int((c - (w / 2) * P) * og_w)
+                y2, x2 = int((r + (h / 2) * P) * og_h), int((c + (w / 2) * P) * og_w)
+                posi = (int(c*og_w),int(r*og_h))
+                cv2.rectangle(image_with_bbox, (x1, y1), (x2, y2), (255, 0, 0), 2) # Blue bbox
+                cv2.circle(image_with_bbox, posi, 5, (0, 0, 255), -1) # Red center of bbox
+                cv2.circle(image_with_bbox, (x1, y2), 5, (0, 255, 0), -1) # Green BottomLeft angle
                 tmpName = imgName[:-4] + "_analysis.jpg"
                 cv2.imwrite(tmpName, image_with_bbox)
-            """
         else:
             logging.getLogger("user_level_log").debug("nothing found on image, click on center")
             h = 0.5
             w = 0.5
+            _h = 0.5
+            _w = 0.5
 
         """
         name_pattern = f"{os.getuid()}_{time.asctime().replace(' ', '_')}.jpg"
