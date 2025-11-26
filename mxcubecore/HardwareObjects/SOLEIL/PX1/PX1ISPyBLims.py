@@ -1048,6 +1048,8 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
     def prepare_collect_for_lims(self, mx_collect_dict):
         # Attention! directory passed by reference. modified in place
 
+        self.adapter._update_data_collection(mx_collect_dict)
+
         for i in range(4):
             try:
                 prop = f'xtalSnapshotFullPath{i+1}'

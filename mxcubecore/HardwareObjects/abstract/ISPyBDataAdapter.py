@@ -474,8 +474,6 @@ class ISPyBDataAdapter():
     def _update_data_collection(self, mx_collection):
         mx_collection["collection_id"] = None
         if "collection_id" in mx_collection:
-            #import pdb
-            #pdb.set_trace()
             try:
                 # Update the data collection group
                 self.store_data_collection_group(mx_collection)
@@ -483,8 +481,6 @@ class ISPyBDataAdapter():
                     self._collection, mx_collection
                 )
                 mx_collection["collection_id"] = self._collection.service.storeOrUpdateDataCollection(data_collection)
-                print(f"####################-------------ISPyB data adapter--------------update data collection {mx_collection} ")
-
             except Fault as e:
                 logging.getLogger("ispyb_client").exception(e)
             except URLError as e:
@@ -502,8 +498,6 @@ class ISPyBDataAdapter():
         if self._collection:
             logging.getLogger("HWR").debug("Storing image in lims")
             if "dataCollectionId" in image_dict:
-                #image_dict["dataCollectionId"] = ["collection_id"]
-                print(f"$$$$$$$$$$$$$$$$$$$$$$$$$$-------------ISPyB data adapter--------------store image image dict {image_dict} ")
                 try:
                     image_id = self._collection.service.storeOrUpdateImage(image_dict)
                     logging.getLogger("HWR").debug(
@@ -571,7 +565,6 @@ class ISPyBDataAdapter():
             robot_action_vo.sessionId = robot_action_dict.get("sessionId")
             robot_action_vo.blSampleId = robot_action_dict.get("sampleId")
             logging.getLogger("HWR").info(robot_action_vo.blSampleId)
-            print(" - ISPyBDataAdapter - store_robot_action")
             robot_action_vo.startTime = datetime.strptime(
                 robot_action_dict.get("startTime"), "%Y-%m-%d %H:%M:%S"
             )

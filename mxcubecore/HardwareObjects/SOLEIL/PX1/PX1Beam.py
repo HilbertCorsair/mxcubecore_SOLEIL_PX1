@@ -30,9 +30,9 @@ __license__ = "LGPLv3+"
 import logging
 
 from mxcubecore import HardwareRepository as HWR
-from mxcubecore.HardwareObjects.abstract.AbstractBeam import AbstractBeam 
+from mxcubecore.HardwareObjects.abstract.AbstractBeam import AbstractBeam
 
-from mxcubecore.HardwareObjects.abstract.AbstractBeam import BeamShape 
+from mxcubecore.HardwareObjects.abstract.AbstractBeam import BeamShape
 
 class PX1Beam(AbstractBeam):
     """Beam ESRF implementation"""
@@ -58,8 +58,8 @@ class PX1Beam(AbstractBeam):
                 self._slits.update({_key: _bliss_obj.getattribute(_val)})
         """
 
-
         self._definer =  self.get_object_by_role("beam_definer")
+
         self._beam_info = self.get_object_by_role("beam_info")
         if self._definer:
             _definer_type.append("definer")
@@ -109,7 +109,7 @@ class PX1Beam(AbstractBeam):
         """Get the size and the label of the aperture in place.
         Returns:
             (list, str): Size [mm] [width, height], label.
-        
+
         _size = self.aperture.get_value().value[1]
         try:
             _label = self.aperture.get_value().name
@@ -194,7 +194,7 @@ class PX1Beam(AbstractBeam):
         """
         sizes = eval(self.get_property("aperture"))
         return {"values": sizes}
-        
+
 
     def get_defined_beam_size(self):
         """Get the predefined beam labels and size.
@@ -289,7 +289,7 @@ class PX1Beam(AbstractBeam):
         Raises:
             RuntimeError: Beam definer not configured
                           Size out of the limits.
-        
+
         if self._definer_type in (self.slits, "slits"):
             self._set_slits_size(size)
         """

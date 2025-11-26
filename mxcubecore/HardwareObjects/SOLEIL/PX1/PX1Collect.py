@@ -267,7 +267,6 @@ class PX1Collect(AbstractCollect):
         time.sleep(10)
 
         if not ready:
-            print("NO ! I'm Not ready yet !")
             self.collection_failed("Cannot prepare collection")
             self.stop_collect()
 
@@ -328,9 +327,6 @@ class PX1Collect(AbstractCollect):
         self.latest_trignum = 0
         self.emit("progressInit", ("Data Collection", 100))
         osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
-        nb_images = osc_seq['number_of_images']
-        exp_time = osc_seq['exposure_time']
-
         max_wait_time = self.total_exposure_time + 60
         if max_wait_time < 180:
             max_wait_time = 180
@@ -361,9 +357,7 @@ class PX1Collect(AbstractCollect):
 
             # includes
             if collection_type == 'Characterization':
-                template = self.current_dc_parameters['fileinfo']['template']
                 directory = self.current_dc_parameters['fileinfo']['directory']
-                number_of_images = self.current_dc_parameters['oscillation_sequence'][0]['number_of_images']
 
                 user_log.info("Waiting for last image in disk...")
                 log.info("Waiting for last image in disk...")

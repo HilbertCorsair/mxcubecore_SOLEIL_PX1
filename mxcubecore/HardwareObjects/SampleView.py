@@ -85,7 +85,7 @@ class SampleView(AbstractSampleView):
     def _update_shape_positions(self, *args, **kwargs):
 
 
-        try :  
+        try :
             for shape in self.get_shapes():
                 shape.update_position(HWR.beamline.diffractometer.motor_positions_to_screen)
 
@@ -93,7 +93,7 @@ class SampleView(AbstractSampleView):
         except :
             print ('c'*50, 'ERROR')
             #import pdb ; pdb.set.trace()
-        
+
         '''def _update_shape_positions(self, *args, **kwargs):
             shapes_updated = False
 
@@ -566,21 +566,6 @@ class Shape(object):
             if hasattr(self, key):
                 setattr(self, key, value)
 
-    """def as_dict(self):
-        cpos_list = []
-        import pdb
-        pdb.set_trace()
-        for cpos in self.cp_list:
-            cpos_list.append( cpos.as_dict() )
-        d = copy.deepcopy(vars(self))
-        # Do not serialize Shapes HW Object
-        d.pop("shapes_hw_object")
-        # replace cpos_list with a list of motor positions
-        d.pop("cp_list")
-        d["motor_positions"] = str(cpos_list)
-        return d"""
-
-
     def as_dict(self):
         """
         Convert the object to a dictionary representation,
@@ -699,10 +684,10 @@ class Grid(Shape):
         print(f"INIt Grig shape: \n{self.label}\n{self.select}\n{self.pixels_per_mm}")
         self.set_id(Grid.SHAPE_COUNT)
 
-        
+
     def update_pixel_per_mm(self):
         self.pixels_per_mm = HWR.beamline.diffractometer.get_pixels_per_mm()
-        
+
 
     def update_position(self, transform):
         phi_pos = HWR.beamline.diffractometer.omega.get_value() % 360

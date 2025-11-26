@@ -556,11 +556,6 @@ class PX1Cryotong(Cats90):
         return True
 
 
-    """"def get_sample_list(self):
-        import pdb
-        pdb.set_trace()
-        self._init_sc_contents()"""
-
     def _init_sc_contents(self):
         """
         Initializes the sample changer content with default values.
@@ -648,7 +643,8 @@ class PX1Cryotong(Cats90):
                 logging.getLogger("HWR").warning(
                     "CRYOTONG: timeout waiting for transfer phase"
                 )
-                break
+                return False
+
             logging.getLogger("HWR").warning(
                 "CRYOTONG: waiting for transfer phase to be set"
             )

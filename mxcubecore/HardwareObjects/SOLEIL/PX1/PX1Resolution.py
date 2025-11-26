@@ -77,7 +77,7 @@ class PX1Resolution(AbstractResolution):
             value = self.state_chan.get_value()
             HO_state = self.motstate_to_state(str(value))
             return HO_state
-        
+
 
     def calculate_resolution(self, radius=None, distance=None, wavelength=None):
         return self.get_value()
@@ -112,11 +112,8 @@ class PX1Resolution(AbstractResolution):
 
 
     def recalculate_resolution(self):
-        print("PRINT 3 recalculate resolution")
         distance = self.distance_chan.get_value()
-        print (f"New distance value from res. distance_chan: {distance}")
         resolution = self.resolution_chan.get_value()
-        print (f"New res value from res. distance_chan: {resolution}")
 
 
         if resolution is None or distance is None:
@@ -129,7 +126,7 @@ class PX1Resolution(AbstractResolution):
             ) > 0.001:
                 self._nominal_value = resolution
                 self.emit("resolutionChanged", (resolution,))
-        except : 
+        except :
             print("Loop 1")
         try:
 
@@ -138,7 +135,7 @@ class PX1Resolution(AbstractResolution):
             ) > 0.001:
                 self.current_distance = distance
                 self.emit("distanceChanged", (distance,))
-        except : 
+        except :
             print("Loop 2")
 
 
