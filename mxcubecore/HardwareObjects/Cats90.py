@@ -1260,7 +1260,7 @@ class Cats90(SampleChanger):
         """
         self.cats_loaded_lid = self._chnLidLoadedSample.get_value()
         self.cats_loaded_num = self._chnNumLoadedSample.get_value()
-        self.cats_datamatrix = str(self._chnSampleBarcode.get_value())
+        #self.cats_datamatrix = str(self._chnSampleBarcode.get_value())
         print("Call 6 Do upd loaded smp")
         self._update_loaded_sample()
 

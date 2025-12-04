@@ -32,6 +32,7 @@ from mxcubecore.HardwareObjects.SampleView import Shape, Line, Point, Grid
 from CreateDirClient import CreateDirectoryClient
 
 log = logging.getLogger('HWR')
+gevent.monkey.patch_all()
 
 @unique
 class PX1PandaCollectStates(Enum):
@@ -220,7 +221,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.gevent_event.clear()
             while not self.gevent_event.is_set():
                 self.gevent_event.wait()
-                time.sleep(0.1)
+                gevent.sleep(0.1)
         return self.params_dict"""
 
     def get_values_map(self):
@@ -234,9 +235,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         print("GETTING workflows in PX1XRAY ....")
         workflow_list = list()
         no_wf = len(self["workflow"])
-
-        #import pdb
-        #pdb.set_trace()
 
         for wf_i in range(no_wf):
             wf = self["workflow"][wf_i]
@@ -344,18 +342,21 @@ class PX1XrayCentring(AbstractXrayCentring):
             sampleViewer._camera.restart_streaming(size=(sampleViewer._camera.get_width(), sampleViewer._camera.get_height()))
             """
 
+            zoom_position = minidiff.zoom.get_value()
+
             sample = samples[position]
+            if zoom_position != "zoom1":
+                minidiff.zoom._set_value(minidiff.zoom.VALUES['zoom1'])
+                gevent.sleep(10)
 
-            minidiff.zoom._set_value(minidiff.zoom.VALUES['zoom1'])
-            time.sleep(10)
             minidiff.start_centring_method(minidiff.CENTRING_METHOD_AUTO)
-            time.sleep(10)
+            gevent.sleep(10)
             minidiff.zoom._set_value(minidiff.zoom.VALUES['zoom2'])
-            time.sleep(10)
+            gevent.sleep(6)
             minidiff.start_centring_method(minidiff.CENTRING_METHOD_AUTO)
-            time.sleep(15)
+            gevent.sleep(15)
 
-            x1, y1, x2, y2 = self.generateGridFromAnalysis(minidiff, RATIO=1, forceSquare=True)
+            x1, y1, x2, y2 = self.generateGridFromAnalysis(minidiff, RATIO=1, forceSquare=False)
 
             zoom_position = minidiff.zoom.get_value()
             print(f"xray centering zoom value {zoom_position}")
@@ -367,6 +368,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             y2n = y1 + number_lines*beam_size_y
 
             #Creating virtual grid
+
             mpos_left_top = minidiff.get_centred_point_from_coord(x1,y1)
             mpos_right_bottom = minidiff.get_centred_point_from_coord(x2n,y2n)
             mpos_list = [mpos_left_top, mpos_right_bottom]
@@ -423,14 +425,14 @@ class PX1XrayCentring(AbstractXrayCentring):
 
             HWR.beamline.collect.current_dc_parameters = param_list[0]
             HWR.beamline.collect.do_collect("mxcube")
-            time.sleep(20)
+            gevent.sleep(20)
 
             self.graphics_manager_hwo.clear_all()
             self.graphics_manager_hwo.shapes = [] #delete_shape(grid_id)
 
             if counter == len(positions):
                 break
-            HWR.beamline.sample_changer._do_load(sample=samples[positions[counter]], wash=False)
+            HWR.beamline.sample_changer._do_load(sample=samples[positions[counter]], wash=False, souflette_time = False)
             counter += 1
 
     def generateGridFromAnalysis(self, minidiff, RATIO=1, forceSquare=False):
@@ -861,18 +863,18 @@ class PX1XrayCentring(AbstractXrayCentring):
                         log.debug("report display launched. process id is %s" % self.proc_display.pid)
 
         self.finish_centring()
-        time.sleep(7)
+        gevent.sleep(7)
         self.flag_is_centring = False
 
     def zero_sgonaxis(self):
         log.debug("ZEROing sgonaxis axis")
         self.log_msg("ZEROing sgonaxis axis")
         self.sgonaxis_dev.x = 0.0
-        time.sleep(2)
+        gevent.sleep(2)
         self.sgonaxis_dev.y = 0.0
-        time.sleep(2)
+        gevent.sleep(2)
         self.sgonaxis_dev.z = 0.0
-        time.sleep(2)
+        gevent.sleep(2)
         log.debug("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % \
             (self.sgonaxis_dev.x, self.sgonaxis_dev.y, self.sgonaxis_dev.z))
         self.log_msg("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % \
@@ -1108,7 +1110,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         if not self.is_collect_phase():
             self.go_to_collect()
-            time.sleep(2) # allow time to refresh display after
+            gevent.sleep(2) # allow time to refresh display after
 
         # program mesh
         self.log_msg("MESH - Programming collect device:")
@@ -1228,7 +1230,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             if elapsed > timeout:
                  break
             # log.debug('COLLECT IS RUNNING')
-            time.sleep(0.5)
+            gevent.sleep(0.5)
 
     def is_running(self):
         state = str(self.collect_state_chan.get_value())
@@ -1588,10 +1590,10 @@ class PX1XrayCentring(AbstractXrayCentring):
         """
         if not self.is_sampleview_phase():
             self.go_to_sampleview()
-            time.sleep(2) # allow time to refresh display after
+            gevent.sleep(2) # allow time to refresh display after
 
         self.lightarm_hwo.adjustLightLevel()
-        time.sleep(2) # allow time to refresh display after
+        gevent.sleep(2) # allow time to refresh display after
 
         snapshot_name = '%s_snapshot_0.png' % self.get_prefix()
         snapshot_filename = os.path.join(output_directory, snapshot_name)
@@ -1693,7 +1695,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         #dials_cmd = "/data2/bioxsoft/bin/dials.find_spots"
         #dials_cmd = "/data2/bioxsoft/progs/PHENIX/phenix-1.18.2-3874/build/bin/dials.find_spots"
         dials_cmd = "/usr/local/dials-v3-23-0/build/bin/dials.find_spots"
-        dials_options = 'shoebox=False per_image_statistics=True spotfinder.filter.ice_rings.filter=True nproc=244 spotfinder.filter.d_min=4'
+        #dials_options = 'shoebox=False per_image_statistics=True spotfinder.filter.ice_rings.filter=True nproc=244 spotfinder.filter.d_min=4'
+        dials_options = 'shoebox=False per_image_statistics=True spotfinder.filter.ice_rings.filter=True nproc=244 '
 
         master_file = os.path.join(self.get_base_directory(), "%s_master.h5" % self.get_prefix())
 

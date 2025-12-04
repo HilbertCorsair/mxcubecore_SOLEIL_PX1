@@ -1,8 +1,8 @@
 import logging
 import time
 from mxcubecore.BaseHardwareObjects import HardwareObject
-# from mxcubecore.HardwareObjects.abstract.AbstractMotor import AbstractMotor
-#from gevent import Timeout
+#from mxcubecore.HardwareObjects.abstract.AbstractMotor import AbstractMotor
+from gevent import Timeout
 import gevent
 
 class Smargon(HardwareObject):
@@ -296,7 +296,7 @@ class Smargon(HardwareObject):
         logging.getLogger("HWR").debug( "Smargon. Setting freeze to: %s" % onoff)
         self._freeze_chan.set_value(onoff)
 
-    def wait_notready(self, timeout=5):
+    def wait_notready(self, timeout=15):
         t0 = time.time()
 
         while self.is_ready():

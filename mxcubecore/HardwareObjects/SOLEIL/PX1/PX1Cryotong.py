@@ -14,7 +14,7 @@ from Cats90 import (
 )
 
 from SOLEIL.PX1.PX1Environment import EnvironmentPhase
-
+gevent.monkey.patch_all()
 
 class PX1Cryotong(Cats90):
 
@@ -430,7 +430,9 @@ class PX1Cryotong(Cats90):
                 break
         return count_down
 
-    def _do_load(self, sample=None, wash=None):
+    def _do_load(self, sample=None, wash=None, souflette_time = True):
+
+
         ret = self.wait_countdown(22)
 
         if ret != 0:
@@ -478,7 +480,8 @@ class PX1Cryotong(Cats90):
         self._update_loaded_list()
 
         print("Waiting 45 sec befor final update of loaded sample")
-        time.sleep(45)
+        if souflette_time:
+            gevent.sleep(45)
 
 
         self._do_update_loaded_sample()
