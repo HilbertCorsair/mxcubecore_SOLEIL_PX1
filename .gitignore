@@ -33,7 +33,7 @@ nosetests.xml
 coverage.xml
 *,cover
 *.log
-
+.git_ops/
 .DS_Store
 .vscode/
 .python-version
