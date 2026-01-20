@@ -54,7 +54,7 @@ class PX1BeamDefiner(AbstractNState):
         super().__init__(*args)
         self.beam_config = {}
         self.config = []
-
+        self.test_mode = False
     def init(self):
         super().init()
         self._default_name = self.get_property("default_size_name")
@@ -77,9 +77,18 @@ class PX1BeamDefiner(AbstractNState):
 
         for beam_cfg in cfg:
             name = beam_cfg.get_property("name")
-            bx = round (self.beamx_chan.get_value(), 4)
-            by = round (self.beamy_chan.get_value(), 4)
-            beam_size = (bx, by) 
+
+            try :
+
+                bx = round (self.beamx_chan.get_value(), 4)
+                by = round (self.beamy_chan.get_value(), 4)
+            except:
+                print("WARNING : Error in getting beamsize values !!!\nSWITCHING to test mode")
+                bx = 35
+                by = 35
+                self.test_mode = True
+
+            beam_size = (bx, by)
             if isinstance(beam_size, str):
                 beam_size = literal_eval(beam_size)
             self.beam_config.update({name: beam_size})

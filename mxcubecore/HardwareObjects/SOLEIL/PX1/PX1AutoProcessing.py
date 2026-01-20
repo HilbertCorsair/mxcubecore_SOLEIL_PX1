@@ -31,7 +31,7 @@ class ProcessingOption(object):
         return self.option_type
 
     def get_value(self):
-        if self.option_type is 'boolean':
+        if isinstance (option_type, 'boolean'):
             return (self.value is None) and False or self.value
         else:  # str
             return (self.value is None) and '' or self.value

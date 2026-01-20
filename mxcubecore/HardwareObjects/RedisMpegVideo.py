@@ -52,6 +52,7 @@ class RedisMpegVideo(HardwareObject):
         self._port = str(self.get_property("port"))
         self._format = self.get_property("format")
         self.tangoname = self.get_property("tangoname")
+        #self.crt = self.get_property("certifs")
         try:
             self._video_mode = self.get_property("video_mode", "RGB24")
             self.device = DeviceProxy(self.tangoname)
@@ -125,11 +126,14 @@ class RedisMpegVideo(HardwareObject):
         return video_sizes
 
     def start_video_stream_process(self, p):
-        print(f"STARTING ! Video stream on port: {self.port} in format: {self.format}")
+        print(f"STARTING ! Video stream on {self.host} port: {self.port} in format: {self.format}")
 
         if (
             not self._video_stream_process
             or self._video_stream_process.poll() is not None ):
+
+
+            print (f"VS PARAMS : uri {self.uri}\nhs {self.host}\n port {self.port} ")
 
             self._video_stream_process = subprocess.Popen(
                 [
@@ -140,6 +144,8 @@ class RedisMpegVideo(HardwareObject):
                     self.host,
                     "-p",
                     self.port,
+                    #"-crt",
+                    #self.crt,
                     "-q",
                     str(self._quality),
                     "-s",
@@ -150,7 +156,6 @@ class RedisMpegVideo(HardwareObject):
                     self.stream_hash,
                     "-irc",
                     "mxcubeweb"
-                    # "-d",
                 ],
                 close_fds=True,
             )
@@ -160,6 +165,7 @@ class RedisMpegVideo(HardwareObject):
     def poll_image(self): #, device, video_mode, FORMATS):
         if self._redis:
             try:
+                print("Polling immage from colect2 ---------   -------- ------- ")
                 r = redis.Redis(host="195.221.8.84", port=6379, decode_responses=False)
                 print(r.info()['redis_version'])
                 latest_frame = r.lrange("mxcubeweb", 0, 0)
@@ -236,7 +242,8 @@ class RedisMpegVideo(HardwareObject):
 
             self._video_stream_process = None
 
-    def start_streaming(self, _format=None, size=(0, 0), port=None):
+    def start_streaming(self, _format=None, size=(0, 0), port = None):
+
         _s = size
 
         if _format:

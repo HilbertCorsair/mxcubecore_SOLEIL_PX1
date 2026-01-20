@@ -28,8 +28,7 @@ from mxcubecore.HardwareObjects.abstract.AbstractXrayCentring import AbstractXra
 from mxcubecore.BaseHardwareObjects import HardwareObject
 from PyTango import DeviceProxy
 from mxcubecore.HardwareObjects.SampleView import Shape, Line, Point, Grid
-
-from CreateDirClient import CreateDirectoryClient
+from mxcubecore.HardwareObjects.CreateDirClient import CreateDirectoryClient
 
 log = logging.getLogger('HWR')
 gevent.monkey.patch_all()
@@ -539,8 +538,6 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         print(f'Preparing paramList for sample id : {sampleID} --- --- --- ')
 
-        #import pdb; pdb.set_trace()
-
         containerSampleChangerLocation, sampleLocation = (position // 16) + 1, (position % 16) + 1
 
         blSampleID = position + 6 # THIS IS HARD CODED AND WILL NEED TO BE FIXED WHEN POSSIBLE
@@ -559,6 +556,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         motors = self.createMotorDict()
         stringTimestamp = str(datetime.now())
         masterPath = "/data4/proxima1-soleil/"+ "2025_Run4/" + stringTimestamp[:10] + "/" + proposal + '/'
+
+        # ISPyB or param_list -- a implementer
         resolution = param_list['resolution']['upper']
 
         param_list["detector_distance"] = HWR.beamline.resolution.resolution_to_distance(resolution, 0.979)
@@ -1241,7 +1240,7 @@ class PX1XrayCentring(AbstractXrayCentring):
              logging.getLogger("HWR").debug("COLLECT IS NOT RUNNING. IT IS %s" % state)
              return False
 
-    def do_mesh_analysis(self):
+    def do_mesh_analysis(self, method = "dozor"):
         log.debug('PX1XrayCentring - triggering do_mesh_analysis. %s', self.testmode and "SIMULATED" or "")
 
         self.emit('xcentringInfo', 'running', 'Analyzing mesh data')
@@ -1252,7 +1251,16 @@ class PX1XrayCentring(AbstractXrayCentring):
         else:
             dials_output_dir = self.get_process_directory()
             dials_log_filename = os.path.join(dials_output_dir, 'dials.find_spots.log')
-            self.run_dials(dials_log_filename)
+
+            import pdb
+            pdb.set_trace()
+
+
+            # Impremet dozor analysis here
+            if not method == "dozor":
+                self.run_dials(dials_log_filename)
+            else:
+                self.run_dozor(dials_log_filename)
 
         dials_output_dir = self.get_process_directory()
         log.debug("PX1XrayCentring - proces directory is %s" % dials_output_dir)
@@ -1262,6 +1270,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         spots = self.dials_get_spots_array(dials_log_filename, self.mesh_img_per_line, self.mesh_nb_lines)
 
         log.debug('PX1XrayCentring - getting reshaped array of spots : \n%s' % spots)
+
 
         self.log_msg('spots are: %s' % str(spots))
 
@@ -1687,6 +1696,36 @@ class PX1XrayCentring(AbstractXrayCentring):
     #
     # Dials results
     #
+    def run_dozor (self, dozor_log_file):
+        log.debug('PX1XrayCentring - triggering run_dozor function')
+        dials_output_dir = self.get_process_directory()
+        dozor_cmd = "/home/experiences/proxima1/com-proxima1/progs/dozor_offline.sh"
+        master_file = os.path.join(self.get_base_directory(), "%s_master.h5" % self.get_prefix())
+        username = self.session_hwo.get_ssh_name()
+        log.debug('PX1XrayCentring - username is:%s.' % username)
+        if not username:
+            username = "com-proxima1"
+
+        dozor_cmd = 'cd %s ; %s %s %s' % (dials_output_dir, dozor_cmd,"-m", master_file)
+        log.debug('PX1XrayCentring - sending subprocess command for dozor processing')
+        log.debug('      command is: \n%s' % dozor_cmd)
+        subprocess.call(dozor_cmd, shell=True)
+
+        # wait for result file to appear on disk
+        t0 = time.time()
+
+        while not os.path.exists(dozor_log_file):
+            # check for NFS cache refresh
+            os.system('touch %s' % dials_output_dir)
+            gevent.sleep(0.25)
+            elapsed = time.time() - t0
+            if elapsed > 50.0:
+                self.emit('xcentringInfo', 'error', 'timeout (%3.2f secs) waiting for analysis results. aborting' % elapsed)
+                raise Exception("PX1XrayCentring - timeout waiting for dozor log file (%s)" % elapsed)
+            return
+
+
+
 
     def run_dials(self, dials_log_filename):
         log.debug('PX1XrayCentring - triggering run_dials function')
@@ -1741,6 +1780,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 #
         log.debug('PX1XrayCentring - triggering dials_get_spots function')
         buff = open(filename).read()
+
         cursor = 0
 
         # search for first line starting with |
@@ -1771,6 +1811,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         #   old format "------------[..]"
         #   new format "     +--------+----[..]"
         mat=re.search("^\s*\+*\-{7}", buff[cursor:], re.DOTALL | re.MULTILINE)
+
         cursor = cursor + mat.start()
 
         block_ends = cursor
@@ -1785,8 +1826,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         #arr = np.fromstring(buff, sep='\n')
         # in helical mode for test.
         #   return an array with 12 images = self.helical_nimages
-        if self.testmode and helical:  # this is a TEST ONLY feature. remove it when done
-            arr = arr[:self.helical_nimgs]
+        #if self.testmode and helical:  # this is a TEST ONLY feature. remove it when done
+        #    arr = arr[:self.helical_nimgs]
 
         return arr
 
@@ -1798,11 +1839,13 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         spots = self.dials_get_spots(filename, columns=(1,))
 
-        if self.testmode: # get only as many as we need
+        """if self.testmode: # get only as many as we need
             spots = spots[:nbimages*nblines]
-            spots = 10*spots # to have enough number of spots
+            spots = 10*spots # to have enough number of spots"""
 
         log.debug('              spots : \n%s' % spots)
+        print(type(spots))
+        print(spots.shape)
 
         return spots.reshape((nblines, nbimages))
 
@@ -2007,7 +2050,6 @@ class PX1XrayCentring(AbstractXrayCentring):
                 color = my_cmap(spot_no)
                 p = Rectangle(xy,color=color,alpha=0.2,width=w, height=h)
                 ax.add_patch(p)
-
                 if show_values:
                    tx = xc - self.mesh_x_step - w/3.0
                    ty = yc + self.mesh_y_halfstep
@@ -2044,10 +2086,18 @@ class PX1XrayCentring(AbstractXrayCentring):
 
 def test_hwo(hwo):
     #self.start_xcentring()
-    if hwo.testmode:
+    """if hwo.testmode:
        print( "this is a test" )
     else:
-       print( "this is real")
+       print( "this is real")"""
+if __name__ == "__main__":
+    Test = PX1XrayCentring("TestXrayC")
+    Test.testmode = False
+    #result = Test.dials_get_spots_array("/home/experiences/proxima1/com-proxima1/progs/dozor/dozor.log/test.log", 13,5 )
+    Test.set_base_directories()
+    Test.do_mesh_analysis()
 
+    #print(f"Final result = \n{result}\n of shape {result.shape}")
+    print()
     #hwo.prepare()
     #hwo.do_mesh_analysis()
