@@ -42,7 +42,6 @@ class PX1BeamInfo(BeamInfo):
             self.connect(
                 self.zoomMotor, "predefinedPositionChanged", self.zoomPositionChanged
             )
-            print("zoomPositionChanged CALLED ")
             self.zoomPositionChanged()
         else:
             logging.getLogger().info("Zoom motor not defined")
@@ -67,10 +66,6 @@ class PX1BeamInfo(BeamInfo):
     def zoomPositionChanged(self, name=None, offset=None):
         if not self.current_zoom:
             self.current_zoom = self.zoomMotor.get_value()
-
-            print("zoomPositionChanged ==================== ")
-
-
         zoom_props = self.zoomMotor.positions[self.current_zoom]["calibrationData"]
 
         if "beamPositionX" in zoom_props:
@@ -92,7 +87,6 @@ class PX1BeamInfo(BeamInfo):
         return self.beam_position"""
 
     def positionUpdated(self):
-        print("Zoom CHANGED ============================ ")
         self.emit("beamPosChanged", (self.beam_position,))
 
 

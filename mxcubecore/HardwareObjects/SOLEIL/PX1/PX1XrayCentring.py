@@ -680,19 +680,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         else:
             self.mesh_y_interval_size = 0
         self.set_base_directories()
-        """try:
-            import pdb
-            pdb.set_trace()
-
-            self.centring_task = gevent.spawn(self.do_xcentring)
-            self.centring_task.link(self.xcentring_done)
-            self.centring_task.link_exception(self.xcentring_exception)
-        except BaseException as e:
-            import traceback
-            log.debug("PX1XrayCentring - exception in set_grid_and continue")
-            log.debug(traceback.format_exc())
-            self.xcentring_exception(str(e))"""
-
 
     def stop_xcentring(self):
         log.debug('PX1XrayCentring - stopping xcentring')
@@ -1136,12 +1123,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         # start the mesh
         self.collect_dev.prepareCollect()
-
-        #import pdb
-        #pdb.set_trace()
-
         self.collect_dev.start()
-
         # wait collect to finish
         self.wait_collect_ready()
 
@@ -1246,15 +1228,18 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.emit('xcentringInfo', 'running', 'Analyzing mesh data')
 
         if self.testmode:
+
+
+            # !!! log file name needs to be formalized
+
             dials_output_dir = os.path.dirname(__file__)
-            dials_log_filename = os.path.join(dials_output_dir, 'dials.find_spots.log')
+            dials_log_filename = os.path.join(dials_output_dir, 'log_report.txt')
         else:
             dials_output_dir = self.get_process_directory()
-            dials_log_filename = os.path.join(dials_output_dir, 'dials.find_spots.log')
 
-            import pdb
-            pdb.set_trace()
 
+            dials_log_filename = os.path.join(dials_output_dir,"log_report.txt") #'dials.find_spots.log')
+            print(f"\n STARTING DOZOR : file : {dials_log_filename}\n ")
 
             # Impremet dozor analysis here
             if not method == "dozor":

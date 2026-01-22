@@ -1021,6 +1021,9 @@ class PX1Collect(AbstractCollect):
         return 1
 
     def check_directory(self, basedir):
+
+
+        print("\n+++++ Checking DIR +++++++\n")
         if not os.path.exists(basedir):
             logging.getLogger("HWR").info(" Creating directory - %s" % basedir)
             try:
@@ -1041,6 +1044,8 @@ class PX1Collect(AbstractCollect):
         3. Sets appropriate permissions
         4. Creates a goimg file in the processing directory
         """
+
+        print("\n<=/=/=/=/=/=/|_Ptrparing DIRs_|=\=\=\=\=\=\=\=>\n")
         try:
             fileinfo = self.current_dc_parameters['fileinfo']
             basedir = fileinfo['directory']

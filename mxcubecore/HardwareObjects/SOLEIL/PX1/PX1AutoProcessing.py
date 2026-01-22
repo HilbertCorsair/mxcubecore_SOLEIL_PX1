@@ -16,14 +16,6 @@ class ProcessingOption(object):
         self.option_type = option_type
         self.value = None
 
-        #if self.option_type is 'boolean':
-        #    if default_value.lower() in ['true','yes']:
-        #        self.default_value = True
-        #    else:
-        #        self.default_value = False
-        #else:
-        #    self.default_value = default_value
-
     def get_name(self):
         return self.name
 
@@ -31,7 +23,7 @@ class ProcessingOption(object):
         return self.option_type
 
     def get_value(self):
-        if isinstance (option_type, 'boolean'):
+        if isinstance (self.option_type, bool):
             return (self.value is None) and False or self.value
         else:  # str
             return (self.value is None) and '' or self.value

@@ -155,9 +155,6 @@ class LdapAuthenticator(AbstractAuthenticator):
         """
         handle = self._ldapConnection.simple_bind(username, password)
         print("Handling")
-        import pdb
-        pdb.set_trace()
-
 
         try:
             self._ldapConnection.result(handle)
