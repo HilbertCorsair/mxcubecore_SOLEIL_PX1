@@ -202,7 +202,11 @@ class Session(HardwareObject):
         :returns: The base path for images.
         :rtype: str
         """
-        return os.path.join(self.get_base_data_directory(), self.raw_data_folder_name)
+        #import pdb
+        #pdb.set_trace()
+
+        return self.get_base_data_directory()
+        #return os.path.join(self.get_base_data_directory(), self.raw_data_folder_name)
 
     def get_base_process_directory(self):
         """
@@ -223,8 +227,6 @@ class Session(HardwareObject):
         :returns: The full path to images.
         """
         directory = self.get_base_image_directory()
-        
-
         if sub_dir:
             sub_dir = sub_dir.replace(" ", "").replace(":", "-")
             directory = os.path.join(directory, sub_dir) + os.path.sep
@@ -240,7 +242,9 @@ class Session(HardwareObject):
 
         :returns: The full path to processed data.
         """
-        directory = self.get_base_process_directory()
+        directory = self.get_base_image_directory()
+
+        directory = directory.replace('RAW_DATA', 'PROCESSED_DATA') if 'RAW_DATA' in directory else os.path.join(directory, 'PROCESSED_DATA')
 
         if sub_dir:
             sub_dir = sub_dir.replace(" ", "").replace(":", "-")

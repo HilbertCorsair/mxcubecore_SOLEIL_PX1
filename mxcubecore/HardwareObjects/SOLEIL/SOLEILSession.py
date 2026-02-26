@@ -37,25 +37,14 @@ class SOLEILSession(Session):
                 archive_base_directory, archive_folder
             )
 
-    def get_full_path (self):
-        full_path = self.get_base_data_directory()
-        process_path = self.get_processed_directory()
-
-        return full_path, process_path
 
     def px1_authorisation (self, login_id, password):
-
-
         px1_check = is_proposal_enabled(login_id)
-        print(f"PX1Check {px1_check}")
         ldap_access, _ = self.ldap_ho.login(login_id, password)
 
         return (px1_check, ldap_access)
 
-
     def get_username(self) -> str:
-        print("*******")
-
         return self.username
 
     def get_projuser(self) -> str:

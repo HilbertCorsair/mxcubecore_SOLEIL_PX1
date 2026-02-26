@@ -154,16 +154,11 @@ class LdapAuthenticator(AbstractAuthenticator):
         logging.getLogger("HWR").debug("LdapAuthenticator: binding to %s" % bind_str)
         """
         handle = self._ldapConnection.simple_bind(username, password)
-        print("Handling")
-
         try:
             self._ldapConnection.result(handle)
         except ldap.INVALID_CREDENTIALS:
-            # try second time with different bind_str
-            #bind_str = "uid=%s, ou=people,%s" % (username, self.domstr)
             handle = self._ldapConnection.simple_bind(username, password)
             try:
-
                 self._ldapConnection.result(handle)
             except Exception:
                 return self._cleanup(msg="invalid password for %s" % username)

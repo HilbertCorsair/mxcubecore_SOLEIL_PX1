@@ -105,20 +105,15 @@ class ISPyBDataAdapter():
        self._collection = None
        self._tools_ws = None
        self._autoproc_ws = None
-       print("Init data adapter")
-
 
     def configure_urls(self):
 
         if self.ws_root:
-            print ("C1 ")
-
             global _WSDL_ROOT
             global _WS_BL_SAMPLE_URL
             global _WS_SHIPPING_URL
             global _WS_COLLECTION_URL
             global _WS_AUTOPROC_URL
-
             _WSDL_ROOT = self.ws_root.strip()
             _WS_BL_SAMPLE_URL = _WSDL_ROOT + 'ToolsForBLSampleWebService?wsdl'
             _WS_SHIPPING_URL = _WSDL_ROOT + 'ToolsForShippingWebService?wsdl'
@@ -137,7 +132,6 @@ class ISPyBDataAdapter():
         transport = Transport(session=session, timeout=5)
 
         try:
-            print(f"Connecting to {url}")
             client = Client(url, transport=transport)
             return client
         except Exception as e:
@@ -151,24 +145,13 @@ class ISPyBDataAdapter():
         self.configure_urls()
         """Initialize all web service connections"""
         try:
-            print("P0")
             self._shipping = self._create_client(_WS_SHIPPING_URL, "shipping")
-
-            print("P1")
             self._collection = self._create_client(_WS_COLLECTION_URL, "collection")
-
-            print("P2")
             self._tools_ws = self._create_client(_WS_BL_SAMPLE_URL, "tools")
-
-            print("P3")
             self._autoproc_ws = self._create_client(_WS_AUTOPROC_URL, "autoproc")
-
-            print("P4")
-
             # Check if any service failed to initialize
             if not all([self._shipping, self._collection, self._tools_ws, self._autoproc_ws]):
                 raise URLError("One or more services failed to initialize")
-
             return True
 
         except URLError:
@@ -179,55 +162,6 @@ class ISPyBDataAdapter():
                 f"Unexpected error during service initialization: {str(e)}"
             )
             return False
-
-        """
-        self.ws_root = ws_root
-        self.ws_username = ws_username
-        self.ws_password = ws_password
-        #self.proxy = proxy  # type: ignore
-        self.beamline_name = beamline_name
-
-        # the duration of the session in days for the ones that are created by MXCuBE
-        self.new_sesssion_duration_days = 2
-
-        self.logger = logging.getLogger("ispyb_adapter")
-
-        self._shipping = self.__create_client(
-            self.ws_root + "ToolsForShippingWebService?wsdl"
-        )
-        self._collection = self.__create_client(
-            self.ws_root + "ToolsForCollectionWebService?wsdl"
-        )
-        self._tools_ws = self.__create_client(
-            self.ws_root + "ToolsForBLSampleWebService?wsdl"
-        )
-        print("Initated")
-
-    def __create_client(self, url: str):
-
-        #Given a url it will create
-
-        if self.ws_root.strip().startswith("https://"):
-            from suds.transport.https import HttpAuthenticated
-        else:
-            from suds.transport.http import HttpAuthenticated
-
-        client = Client(
-            url,
-            timeout=3,
-            transport=HttpAuthenticated(
-                username=self.ws_username,  # type: ignore
-                password=self.ws_password,
-                #proxy=self.proxy,
-            ),
-            cache=None,
-            #proxy=self.proxy,
-        )
-        client.set_options(cache=None, location=url)
-        return client
-
-    def isEnabled(self) -> object:
-        return self._shipping  # type: ignore"""
 
     def create_session(self, proposal_id: str, beamline_name: str) -> Session:
         try:
@@ -362,7 +296,6 @@ class ISPyBDataAdapter():
             response = self._shipping.service.findProposalByLoginAndBeamline(
                 username, beamline_name
             )
-            print(response)
             if response is None:
                 return []
 
@@ -410,7 +343,6 @@ class ISPyBDataAdapter():
             sessions = self.find_sessions_by_proposal_and_beamLine(
                 code, number, beamline_name
             )
-            print("PASSED!")
             return LimsSessionManager(sessions=sessions)
 
         except Fault as e:
@@ -540,9 +472,8 @@ class ISPyBDataAdapter():
                 logging.getLogger("ispyb_client").exception(e)
         else:
             logging.getLogger("ispyb_client").exception(
-                "Error in get_samples: could not connect to server"
+                "Error in : could not connect to server"
             )
-        print(f"SAMPLES ARE READY {response_samples}")
 
         return response_samples
 
@@ -693,7 +624,6 @@ class ISPyBDataAdapter():
                 if session is not None:
 
                     try:
-                        print(f'Storing beamline setup in ISPYBdataAdapter: bl_config {bl_config}')
                         blSetupId = self._collection.service.storeOrUpdateBeamLineSetup(
                             bl_config
                         )

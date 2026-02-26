@@ -259,7 +259,6 @@ class PX1Collect(AbstractCollect):
         self.current_dc_parameters['user_info'] = user_info
 
         if self.check_aborted():
-            print("Nothing Happens !")
             return
 
         ready = self.prepare_devices_for_collection()
@@ -274,11 +273,8 @@ class PX1Collect(AbstractCollect):
 
         try:
             if collection_type != 'Characterization':  # standard
-                print("Colection type : STANDARD")
                 if self.diffractometer_hwobj.in_chip_mode():
-                     print("Diffractometer in CHIP mode")
                      if not self.chip_range_allowed():
-                         print("OH, NO!, range not allowed: ")
                          self.collection_failed("Collection range too large for chips")
                          self.stop_collect()
                          return
@@ -289,7 +285,6 @@ class PX1Collect(AbstractCollect):
                     self.set_helical(False)
 
                 elif collection_type == "Helical":
-                    print("Recived helical collect: setting helical to True")
                     self.set_helical(True)
 
             else:
@@ -367,6 +362,7 @@ class PX1Collect(AbstractCollect):
             HWR.beamline.lims.prepare_collect_for_lims(self.current_dc_parameters)
             self.generate_thumbnails(thumblist)
             self.collection_finished()
+
         except:
             log.warning("Error during data collection. ABORTED. Check app log")
             self.collect_failed('collect exception')
@@ -423,6 +419,8 @@ class PX1Collect(AbstractCollect):
              self.current_dc_parameters['fileinfo']['template'] = _templ.split("%")[0][:-1]
         osc_seq = self.current_dc_parameters['oscillation_sequence'][0]
         fileinfo = self.current_dc_parameters['fileinfo']
+
+
         basedir = fileinfo['directory']
         logging.getLogger("HWR").info("PX1Collect: fileinfo is %s " % str(fileinfo))
         file_template = fileinfo['template']
@@ -578,13 +576,12 @@ class PX1Collect(AbstractCollect):
 
     def do_store_image_in_lims(self, thumb_info):
         if not thumb_info:
-            print("NO THUMB_INFO")
             pass
         else:
             try:
                 imgno, nb_images = thumb_info
             except:
-                print("EXCEPTION in PX1Collect l 582")
+                log.exception("ERROR in PX1Collect.do_store_image_in_lims() --> l 582")
             log.info("Storing image %s in lims\n", imgno)
 
 
@@ -1023,13 +1020,12 @@ class PX1Collect(AbstractCollect):
     def check_directory(self, basedir):
 
 
-        print("\n+++++ Checking DIR +++++++\n")
         if not os.path.exists(basedir):
             logging.getLogger("HWR").info(" Creating directory - %s" % basedir)
             try:
                 os.makedirs(basedir)
             except OSError as e:
-               print (e)
+                logging.getLogger("HWR").error(e)
         else:
             logging.getLogger("HWR").info(" Directory - %s - already exists" % basedir)
 
@@ -1044,8 +1040,6 @@ class PX1Collect(AbstractCollect):
         3. Sets appropriate permissions
         4. Creates a goimg file in the processing directory
         """
-
-        print("\n<=/=/=/=/=/=/|_Ptrparing DIRs_|=\=\=\=\=\=\=\=>\n")
         try:
             fileinfo = self.current_dc_parameters['fileinfo']
             basedir = fileinfo['directory']
@@ -1223,8 +1217,6 @@ class PX1Collect(AbstractCollect):
 
         # check fast shutter closed. others opened
         shutok = self.check_shutters()
-        print (f"Checking shutters : --> {shutok}\nAdvised to ignore shutters: --> {self.get_property('ignore_shutters')}")
-
         if self.get_property("ignore_shutters") is True:
             shutok = True
 
@@ -1257,7 +1249,6 @@ class PX1Collect(AbstractCollect):
 
     def diffractometer_prepare_collection(self):
         self.diffractometer_hwobj.wait_device_ready(timeout=10)
-
         # go to collect phase
         if not self.is_collect_phase():
             logging.getLogger("HWR").info(" Moving diffractometer to collect phase " )
@@ -1682,43 +1673,3 @@ class PX1Collect(AbstractCollect):
 class U20(object):
     def __init__(self):
         self.type = 'u20'
-'''
-def test_hwo(hwo):
-
-    Descript. : PX1Collect.py HardwareObject, test module
-
-    print '\n======================== TESTS ========================'
-    print 'These are tests of the HardwareObject PX1Collect'
-    print '\n[IMPORTANT] to note: the following functions are turned'
-    print '  off by default'
-    print ' - ???'
-    print '=======================================================\n'
-
-    print '-------------------------------------------------------'
-    print 'Defining some generic variables for all the tests'
-
-    print '-------------------------------------------------------'
-
-    print '\n-------------------------------------------------------'
-    print 'Checking for the connection to Eiger.'
-    print '-------------------------------------------------------'
-
-#    print "Energy: ",hwo.get_energy()
-#    print "Transm: ",hwo.get_transmission()
-#    print "Resol: ",hwo.get_resolution()
-#    print "PX1Environemnt (collect phase): ", hwo.is_collect_phase()
-#    print "Shutters (ready for collect): ",hwo.check_shutters()
-#    print "Flux: ",hwo.get_measured_intensity()
-#    print "is collect? ", hwo.is_collect_phase()
-#    print "is samplevisu? ", hwo.is_sampleview_phase()
-#    print "goint to sample visu"
-#    # hwo.go_to_sampleview()
-#    # print "goint to collect"
-#    # hwo.go_to_collect()
-#    print "is collect? ", hwo.is_collect_phase()
-#    print "is samplevisu? ", hwo.is_sampleview_phase()
-
-if __name__ == '__main__':
-    test_hwo('test')
-
- '''

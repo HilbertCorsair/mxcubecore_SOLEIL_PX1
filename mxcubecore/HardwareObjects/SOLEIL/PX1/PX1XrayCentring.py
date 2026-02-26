@@ -125,18 +125,14 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.proc_display = None
         self.only_helical = False
         self.shape = None
+        self.found_spots = False
 
     def init(self):
-        print("Init X ray centring")
         self.centring_task = None
-
         self.flag_is_centring = False
-
         self.collect_dev = DeviceProxy(self.get_property('tangoname'))
         self.collect_dev.set_timeout_millis(20000)
         self.collect_state_chan = self.get_channel_object("state")
-
-
         self.sgonaxis_dev = DeviceProxy(self.get_property('sgonaxis'))
         try:
             self.omega_relative = float( self.get_property('omega_increment') )
@@ -146,6 +142,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.testmode = self.get_property('testmode')
         self.processing_method = self.get_property('processing')
         self.processing = self.processing_classes.get(self.processing_method, None)
+        self.minidiff = HWR.beamline.diffractometer
 
         create_dir_address = self.get_property('mxcube_createdir_server')
         self.createdir_client = CreateDirectoryClient(create_dir_address)
@@ -181,14 +178,12 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.smargon_hwo = self.get_object_by_role('smargon')
         self.beaminfo_hwo = self.get_object_by_role('beaminfo')
         self.gevent_event = gevent.event.Event()
-
-        print(f" Init PX1XRayCentring from : {self.name()}")
+        self.auto_collect_counter = 0
 
     def define_state(self):
         motstate = self.get_channel_object("state").get_value() #self.collect_state_chan.get_value()
         ho_state = self.motstate_to_state(motstate)
         self.state = "ON" if ho_state.name == "READY" else self.state
-        print(self.state )
 
     def motstate_to_state(self, motstate):
         motstate = str(motstate)
@@ -231,19 +226,14 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.gevent_event.set()
 
     def get_available_workflows(self):
-        print("GETTING workflows in PX1XRAY ....")
         workflow_list = list()
         no_wf = len(self["workflow"])
 
         for wf_i in range(no_wf):
             wf = self["workflow"][wf_i]
-
-            print(f"Iter {wf_i}")
             dict_workflow = dict()
             dict_workflow["name"] = str(wf.title)
             dict_workflow["path"] = str(wf.path)
-            print(f" === {wf.title}")
-            print(f" === {wf.path}")
             try:
                 req = [r.strip() for r in wf.get_property("requires").split(",")]
                 dict_workflow["requires"] = req
@@ -315,23 +305,29 @@ class PX1XrayCentring(AbstractXrayCentring):
         => RedisMpegVideo has a restart_streaming(size) method, maybe we can use it when we loose camera
             sample_view._camera.restart_streaming(size=(sample_view._camera.get_width(), sample_view._camera.get_height()))
         => We can bring the light with lightarm_hwo._adjust_light_level() which puts the light based on current zoom level
-            check PX1MiniDiff.py:632
+            check PX1self.minidiff.py:632
 
         """
 
         log.debug("Debut de la method unattended_collect")
 
-        minidiff = HWR.beamline.diffractometer
+        #self.minidiff = HWR.beamline.diffractometer
 
+        # hacking teh sample list by hardcoded slicing
         samples = HWR.beamline.sample_changer.get_sample_list()[:48]
-        counter = 1
+        self.auto_collect_counter = 1
         with open('/home/experiences/proxima1/com-proxima1/arthur_mxcube/WebApp/config/paramRange.xml') as fd:
             doc = xmltodict.parse(fd.read())
         dataPositions = self.convert_xml_dict(doc)
         dataPositions = dataPositions['root']
         positions = self.convert_dict_range(dataPositions)
 
+
         log.debug("All positions that will be visited : %s\n", str(positions))
+
+        start_time = time.perf_counter()
+        previous_time = start_time
+        all_timestamps = []
 
         for position in positions:
 
@@ -340,36 +336,33 @@ class PX1XrayCentring(AbstractXrayCentring):
             sampleViewer = HWR.beamline.sample_view
             sampleViewer._camera.restart_streaming(size=(sampleViewer._camera.get_width(), sampleViewer._camera.get_height()))
             """
-
-            zoom_position = minidiff.zoom.get_value()
+            zoom_position = self.minidiff.zoom.get_value()
 
             sample = samples[position]
             if zoom_position != "zoom1":
-                minidiff.zoom._set_value(minidiff.zoom.VALUES['zoom1'])
+                self.minidiff.zoom._set_value(self.minidiff.zoom.VALUES['zoom1'])
                 gevent.sleep(10)
 
-            minidiff.start_centring_method(minidiff.CENTRING_METHOD_AUTO)
+            self.minidiff.start_centring_method(self.minidiff.CENTRING_METHOD_AUTO)
             gevent.sleep(10)
-            minidiff.zoom._set_value(minidiff.zoom.VALUES['zoom2'])
+            self.minidiff.zoom._set_value(self.minidiff.zoom.VALUES['zoom2'])
             gevent.sleep(6)
-            minidiff.start_centring_method(minidiff.CENTRING_METHOD_AUTO)
+            self.minidiff.start_centring_method(self.minidiff.CENTRING_METHOD_AUTO)
             gevent.sleep(15)
 
-            x1, y1, x2, y2 = self.generateGridFromAnalysis(minidiff, RATIO=1, forceSquare=False)
-
-            zoom_position = minidiff.zoom.get_value()
-            print(f"xray centering zoom value {zoom_position}")
-            beam_size_x = HWR.beamline.beam.get_beam_size()[0] * minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmY']
+            x1, y1, x2, y2 = self.generateGridFromAnalysis(self.minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False)
+            zoom_position = self.minidiff.zoom.get_value()
+            beam_size_x = HWR.beamline.beam.get_beam_size()[0] * self.minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmY']
             number_colums = math.ceil((x2-x1)/beam_size_x)
             x2n = x1 + number_colums*beam_size_x
-            beam_size_y = HWR.beamline.beam.get_beam_size()[1] * minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmZ']
+            beam_size_y = HWR.beamline.beam.get_beam_size()[1] * self.minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmZ']
             number_lines = math.ceil((y2-y1)/beam_size_y)
             y2n = y1 + number_lines*beam_size_y
 
             #Creating virtual grid
 
-            mpos_left_top = minidiff.get_centred_point_from_coord(x1,y1)
-            mpos_right_bottom = minidiff.get_centred_point_from_coord(x2n,y2n)
+            mpos_left_top = self.minidiff.get_centred_point_from_coord(x1,y1)
+            mpos_right_bottom = self.minidiff.get_centred_point_from_coord(x2n,y2n)
             mpos_list = [mpos_left_top, mpos_right_bottom]
             center_x = x1 + 1/2* (x2n -x1)
             center_y = y1 +1/2 *(y2n - y1)
@@ -389,70 +382,93 @@ class PX1XrayCentring(AbstractXrayCentring):
             grid1.num_cols = number_colums
             grid1.num_rows = number_lines
             grid1.selected = False
-
             self.graphics_manager_hwo.add_shape(grid1)
-
-
             self.flag_is_centring = True
+
+
             self.do_xcentring(showReport=False) # This should avoid PopUp window of report
             while (self.flag_is_centring):
                 time.sleep(1)
 
+            if self.found_spots:
+                # Generate a param_list to give to the collect
+                # A verifier qu le ID des samples change pour chaque itration.
+                param_list = self.prepareParamList( sample.get_id(), position)
 
-            # Generate a param_list to give to the collect
-            # A verifier qu le ID des samples change pour chaque itration.
-            param_list = self.prepareParamList( sample.get_id(), position)
+                self.go_to_sampleview()
+                time.sleep(3)
+                imgPath1 = param_list[0]["fileinfo"]["archive_directory"] + '/' + param_list[0]["fileinfo"]["prefix"] + '_1_1.snapshot.jpeg'
+                self.minidiff.takePictureAnalysis(path=imgPath1)
+                time.sleep(2)
+                imgPath2 = param_list[0]["fileinfo"]["archive_directory"] + '/' + param_list[0]["fileinfo"]["prefix"] + '_1_2.snapshot.jpeg'
+                self.omega_mot.set_value(self.omega_mot.get_value() + 90)
+                time.sleep(3)
+                self.minidiff.takePictureAnalysis(path=imgPath2)
+                time.sleep(2)
 
-            self.go_to_sampleview()
-            time.sleep(3)
-            imgPath1 = param_list[0]["fileinfo"]["archive_directory"] + '/' + param_list[0]["fileinfo"]["prefix"] + '_1_1.snapshot.jpeg'
-            minidiff.takePictureAnalysis(path=imgPath1)
-            time.sleep(2)
-            imgPath2 = param_list[0]["fileinfo"]["archive_directory"] + '/' + param_list[0]["fileinfo"]["prefix"] + '_1_2.snapshot.jpeg'
-            self.omega_mot.set_value(self.omega_mot.get_value() + 90)
-            time.sleep(3)
-            minidiff.takePictureAnalysis(path=imgPath2)
-            time.sleep(2)
+                # A verifier l'etat du PX1Cryotong
+                # HWR.beamline.sample_changer._wait_device_ready()
+                time.sleep(5)
+
+                HWR.beamline.collect.current_dc_parameters = param_list[0]
+                HWR.beamline.collect.do_collect("mxcube")
+                gevent.sleep(20)
+
+                # delete shapes and reset all counters
+                self.graphics_manager_hwo.clear_all()
+
+                self.graphics_manager_hwo._shapes = {} #delete_shape(grid_id)
+                self.found_spots = False
+
+                if self.auto_collect_counter == len(positions):
+                    HWR.beamline.sample_changer._do_unload(sample, wash=False)
+
+                    break
+                HWR.beamline.sample_changer._do_load(sample=samples[positions[self.auto_collect_counter]], wash=False, souflette_time = False)
+                self.auto_collect_counter += 1
+
+            else:
+                if self.auto_collect_counter == len(positions):
+                    HWR.beamline.sample_changer._do_unload(sample, wash=False)
+                    break
+                self.graphics_manager_hwo.clear_all()
+                self.graphics_manager_hwo._shapes = {}
+                HWR.beamline.sample_changer._do_load(sample=samples[positions[self.auto_collect_counter]], wash=False, souflette_time = False)
+                self.auto_collect_counter += 1
+
+            end_time = time.perf_counter()
+            time_for_sample = end_time - previous_time
+            previous_time = end_time
+            all_timestamps.append(time_for_sample)
 
 
-            # A verifier l'etat du PX1Cryotong
-            # HWR.beamline.sample_changer._wait_device_ready()
 
-            print('\n\nsleep before changing collect\n\n')
-            time.sleep(5)
+        end_time = time.perf_counter()
+        time_for_sample = end_time - previous_time
+        previous_time = end_time
+        all_timestamps.append(time_for_sample)
 
+        log.debug("\nUnattended Collection finished\n\n")
+        log.debug("Time per sample %s", str(all_timestamps))
+        log.debug("Total time for collect was : %.4f seconds", (end_time - start_time))
 
-            HWR.beamline.collect.current_dc_parameters = param_list[0]
-            HWR.beamline.collect.do_collect("mxcube")
-            gevent.sleep(20)
-
-            self.graphics_manager_hwo.clear_all()
-            self.graphics_manager_hwo.shapes = [] #delete_shape(grid_id)
-
-            if counter == len(positions):
-                break
-            HWR.beamline.sample_changer._do_load(sample=samples[positions[counter]], wash=False, souflette_time = False)
-            counter += 1
-
-    def generateGridFromAnalysis(self, minidiff, RATIO=1, forceSquare=False):
+    def generateGridFromAnalysis(self, minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False):
 
         # Automatic grid coordinates generation from murko analysis
         snapshot, imgName = minidiff.takePictureAnalysis()
-        w, h, r, c = minidiff.estimate_click_murko(snapshot, autoGrid=True, imgName=imgName)
+        w, h, r, c = minidiff.estimate_click_murko(snapshot, forceSquaredGrid=False, imgName=imgName, useInsideLoop=False)
         og_h, og_w = int(os.getenv("MURKO_SIZEY")), int(os.getenv("MURKO_SIZEX"))
 
         zoom_position = minidiff.zoom.get_value()
-        print(f"--------------xray centering generateGrid analysis{zoom_position}")
         zoom_Y, zoom_Z = minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmY'], minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmZ']
-
-        currentArea = w * h
 
         maxWidth = (0.4 * zoom_Y) / og_w
         maxHeight = (0.4 * zoom_Z) / og_h
-        maxArea = (maxWidth * maxHeight)
 
-        if (currentArea > maxArea or currentArea < maxArea * 0.5 or forceSquare):
-            _, _, r, c = minidiff.estimate_click_murko(snapshot, autoGrid=False, imgName=imgName)
+        if (forceSquaredGrid):
+            _, _, r, c = minidiff.estimate_click_murko(snapshot, forceSquaredGrid=False, imgName=imgName, useInsideLoop=False)
+            if (r == 0.5 and c == 0.5):
+                logging.getLogger("HWR").debug('There will be an issue in murko here !!!!!!!!!!!!!!!!!!!!!!!!!!!!')
             w = maxWidth
             h = maxHeight
 
@@ -535,13 +551,9 @@ class PX1XrayCentring(AbstractXrayCentring):
             retrieved_data = xmltodict.parse(fd.read())
 
         param_list = self.convert_xml_dict(retrieved_data)['root']
-
-        print(f'Preparing paramList for sample id : {sampleID} --- --- --- ')
-
         containerSampleChangerLocation, sampleLocation = (position // 16) + 1, (position % 16) + 1
-
         blSampleID = position + 6 # THIS IS HARD CODED AND WILL NEED TO BE FIXED WHEN POSSIBLE
-        SamplesInContainer = [d for d in HWR.beamline.lims.get_samples("") if d['containerSampleChangerLocation'] == str(containerSampleChangerLocation)]
+        SamplesInContainer = [d for d in HWR.beamline.lims.get_samples() if d['containerSampleChangerLocation'] == str(containerSampleChangerLocation)]
         SampleAtLocation = [d for d in SamplesInContainer if d['sampleLocation'] == str(sampleLocation)]
         currentSample = SampleAtLocation[0]
         proteinAcronym = currentSample['proteinAcronym']
@@ -555,11 +567,12 @@ class PX1XrayCentring(AbstractXrayCentring):
         template = samplePrefix + "_" + str(runNumber) + "_%004\d.h5"
         motors = self.createMotorDict()
         stringTimestamp = str(datetime.now())
-        masterPath = "/data4/proxima1-soleil/"+ "2025_Run4/" + stringTimestamp[:10] + "/" + proposal + '/'
-
-        # ISPyB or param_list -- a implementer
-        resolution = param_list['resolution']['upper']
-
+        # TO DO put this in an config file
+        masterPath = "/data4/proxima1-soleil/"+ "2026_Run1/" + stringTimestamp[:10] + "/" + proposal + '/'
+        #protocole =  HWR.beamline.lims.session_manager.active_session.number
+        # ISPyB or param_list -- a implementer HWR.beamline.lims
+        smp_list = HWR.beamline.lims.get_samples()
+        resolution =  smp_list[position]["diffractionPlan"]["requiredResolution"]
         param_list["detector_distance"] = HWR.beamline.resolution.resolution_to_distance(resolution, 0.979)
         param_list["fileinfo"]["prefix"] = samplePrefix
         param_list["fileinfo"]["directory"] = masterPath + "RAW_DATA/" + proteinAcronym + "/" + samplePrefix
@@ -576,9 +589,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         param_list["EDNA_files_dir"] = masterPath + "PROCESSED_DATA"
         param_list['motors'] = motors
         param_list['blSampleId'] = blSampleID
-
-        print('PL' * 50)
-        print(param_list)
 
         return [param_list]
 
@@ -612,31 +622,18 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         extent_dx_pix = self.shape.width
         extent_dy_pix =  self.shape.height
-
         cent_x_pix = self.shape_coords[0] + extent_dx_pix/2
         cent_y_pix = self.shape_coords[1] + extent_dy_pix/2
-        print(f"X start {self.shape_coords[0]}, Y start {self.shape_coords[1]}, X end {self.shape_coords[0]+ self.shape.width},Y  end {self.shape_coords[1]+ self.shape.height} ")
-        #start_coords, end_coords = self.xraycent_area_item.get_start_end_coords() # pixels
-
-
-
         start_dx_pix = self.shape_coords[0] - cent_x_pix
         start_dy_pix = self.shape_coords[1] - cent_y_pix
-
         end_dx_pix = self.shape_coords[0] + self.shape.width - cent_x_pix
         end_dy_pix = self.shape_coords[1] + self.shape.height - cent_y_pix
-
         start_dx_mm = -start_dx_pix / float(self.shape.pixels_per_mm[0])
         start_dy_mm = start_dy_pix / float(self.shape.pixels_per_mm[1])  # axe y opposite from grid to motor
-
         end_dx_mm = -end_dx_pix / float(self.shape.pixels_per_mm[0])
         end_dy_mm = end_dy_pix / float(self.shape.pixels_per_mm[1])
-        print(f"DX start {start_dx_pix}, DX end {end_dx_pix}")
-
-
         extent_dx_mm = extent_dx_pix / float(self.shape.pixels_per_mm[0])
         extent_dy_mm = extent_dy_pix / float(self.shape.pixels_per_mm[1])
-
         return start_dx_mm, start_dy_mm, end_dx_mm, end_dy_mm, extent_dx_mm, extent_dy_mm
 
     def set_grid_and_continue(self):
@@ -732,7 +729,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             # run the sequence
             self.emit('xcentringInfo', 'running', 'Preparing')
             #setting transmission to 20%
-            HWR.beamline.transmission.set_value(10)
+            HWR.beamline.transmission.set_value(15)
 
             self.prepare()
             self.prepare_report()
@@ -755,24 +752,31 @@ class PX1XrayCentring(AbstractXrayCentring):
 
             if not self.only_helical:
                 self.emit('xcentringInfo', 'running', 'Running mesh scan')
-                print("-------------------------------- Starting RUn MESH")
-
                 self.run_mesh()
-
                 self.zero_sgonaxis()
-
                 x, y, spots  = self.do_mesh_analysis()
-
                 axsnap = self.ax_snap[0]
                 axheat = self.ax_heat[0]
-
                 self.mesh_heatmap_report(axsnap, axheat, spots)
 
-
                 if None in [x,y]:
+                    with open('/home/experiences/proxima1/com-proxima1/arthur_mxcube/WebApp/config/paramRange.xml') as fd:
+                        doc = xmltodict.parse(fd.read())
+                    dataPositions = self.convert_xml_dict(doc)
+                    dataPositions = dataPositions['root']
+                    positions = self.convert_dict_range(dataPositions)
+                    samples = HWR.beamline.sample_changer.get_sample_list()[:48]
                     self.emit('xcentringInfo', 'running', 'No result from mesh analysis')
-                    raise Exception('No result from mesh analyis')
+                    self.finish_centring()
+                    self.flag_is_centring = False
+                    return
+                    HWR.beamline.sample_changer._do_load(sample=samples[positions[self.auto_collect_counter]], wash=False, souflette_time = False)
 
+                    # Continue with unatended data collection
+                    #raise Exception('No result from mesh analyis')
+
+
+                self.found_spots = True
                 log.debug('PX1XrayCentring  obtaining mesh results x / y = %s / %s' %(x, y))
                 self.emit('xcentringInfo', 'running', '  / best position found at x=%s/y=%s' %(x,y))
                 self.emit('xcentringInfo', 'running', 'Moving to best position. x=%s/y=%s' %(x,y))
@@ -791,7 +795,6 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.Y.append(0.0)  # distance from center. but we are at center
 
             # run a series of helical scans
-
             self.current_x = self.phiy_mot.get_position()
             self.current_y = self.current_sampy = self.sampy_mot.get_position()
             self.current_z = self.current_sampx = self.sampx_mot.get_position()
@@ -810,7 +813,7 @@ class PX1XrayCentring(AbstractXrayCentring):
                 omega = self.omega_saved + self.omega_relative * (i+1)
 
                 self.run_helical(omega, i+1)
-                best_y, spots = self.do_helical_analysis(i)
+                best_y, spots = self.do_helical_analysis(i,)
 
                 self.PHI.append(omega)
                 self.Y.append(best_y)
@@ -832,7 +835,6 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.move_motors(cpos)
             self.emit('xcentringInfo', 'running', 'Registering centered position')
             self.register_center_position(cpos)
-            self.print_current_positions(title="FINAL")
         except BaseException as e:
             import traceback
             self.errmsg = str(e)
@@ -907,8 +909,6 @@ class PX1XrayCentring(AbstractXrayCentring):
                        'kappa':  kappa_pos,
                        'kappa_phi':  kappaphi_pos}
 
-        self.print_center_positions(centred_pos)
-
         return centred_pos
 
     def print_current_positions(self, title="CURRENT"):
@@ -942,7 +942,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.set_base_directories()
 
         self.shape = self.graphics_manager_hwo.shapes
-        self.shape_name = [name for name in self.shape.keys() if name.startswith("G")][0]
+        self.shape_name = [name for name in self.shape.keys() if name.startswith("G")][0] # replace with [-1]
         self.shape_coords = self.shape[self.shape_name].screen_coord
 
         self.shape = self.shape[self.shape_name]
@@ -991,8 +991,6 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         self.print_current_positions(title="INITIAL")
         self.fill_position_grid()
-
-        #self.print_mesh()
 
     def save_current_pos(self):
         self.omega_saved = self.omega_mot.get_position()
@@ -1067,34 +1065,9 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         self.xe_grid, self.ye_grid = np.meshgrid(self.x_extended_pos, self.y_extended_pos)
 
-    '''def print_mesh(self):
-        self.log_msg("MESH coordinates are (in mm):")
-        self.log_msg("  Video Size (mm) : %3.3f x %3.3f" % self.scene_size)
-        self.log_msg("  Grid parameters : %s lines x %s imgs per line" % (self.mesh_nb_lines,self.mesh_img_per_line))
-        self.log_msg("")
-        self.log_msg("  X:")
-        self.log_msg("    Screen distance to center. Start: %3.4f, End: %3.4f (extent: %3.4f)" % (self.mesh_dx_start, self.mesh_dx_end, self.mesh_x_extent))
-        self.log_msg("       current xOffset (phiy).        %3.4f" % (self.phiy_saved))
-        self.log_msg("       target  xOffset.        Start: %3.4f, End: %3.4f ( width: %3.4f)" % (self.mesh_x_start, self.mesh_x_end, self.mesh_x_end - self.mesh_x_start))
-        self.log_msg("")
-        self.log_msg("  X positions for images are:")
-        self.log_msg("       %s" % str(self.x_positions))
-        self.log_msg("  Y:")
-        self.log_msg("    Screen distance to center. Start: %3.4f, End: %3.4f (extent: %3.4f)" % (self.mesh_dy_start, self.mesh_dy_end, self.mesh_y_extent))
-        self.log_msg("     target screen vert_pos.   Start: %3.4f, End: %3.4f (height: %3.4f)" % (self.mesh_y_start, self.mesh_y_end, self.mesh_height))
-        self.log_msg("       current yOffset (sampy).       %3.4f" % (self.sampy_saved))
-        self.log_msg("       target  yOffset.        Start: %3.4f, End: %3.4f (  diff: %3.4f)" % (self.y_start, self.y_end, self.y_end - self.y_start))
-        self.log_msg("       current zOffset (sampx).       %3.4f" % (self.sampx_saved))
-        self.log_msg("       target  zOffset.        Start: %3.4f, End: %3.4f (  diff: %3.4f)" % (self.z_start, self.z_end, self.z_end - self.z_start))
-        self.log_msg("")
-        self.log_msg("  Y positions for images are:")
-        self.log_msg("       %s" % str(self.y_positions))'''
-
     def run_mesh(self):
         self.emit('xcentringInfo', 'running', 'running mesh')
-        print ("Setting Colect phase")
-
-        if not self.is_collect_phase():
+        while not self.is_collect_phase(): # put while here to avoid stuck because time out
             self.go_to_collect()
             gevent.sleep(2) # allow time to refresh display after
 
@@ -1132,7 +1105,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         log.debug(" Running helical %s at omega: %s\n", scan_no, omega)
 
         self.set_prefix("xraycent_helical%02d" % scan_no)
-
         py_pos, pz_pos = self.calc_pseudo(self.current_y, self.current_z, omega )
 
         self.helical_y0 = py_pos
@@ -1170,7 +1142,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.log_msg("       target  zOffset.        Start: %3.4f, End: %3.4f (  diff: %3.4f)" % (z_start, z_end, z_end - z_start))
         self.log_msg("")
         self.log_msg("  Y deltas for images are:")
-        self.log_msg("       %s" % str(self.helical_y_deltas))
+        self.log_msg("%s" % str(self.helical_y_deltas))
 
 
         # just for report
@@ -1215,7 +1187,6 @@ class PX1XrayCentring(AbstractXrayCentring):
 
     def is_running(self):
         state = str(self.collect_state_chan.get_value())
-        print(f"Method is running State : {state},Collect state chan :{self.collect_state_chan} ")
         if state in ["MOVING", "RUNNING"]:
              return True
         else:
@@ -1234,13 +1205,12 @@ class PX1XrayCentring(AbstractXrayCentring):
 
             dials_output_dir = os.path.dirname(__file__)
             dials_log_filename = os.path.join(dials_output_dir, 'log_report.txt')
+
         else:
             dials_output_dir = self.get_process_directory()
 
 
-            dials_log_filename = os.path.join(dials_output_dir,"log_report.txt") #'dials.find_spots.log')
-            print(f"\n STARTING DOZOR : file : {dials_log_filename}\n ")
-
+            dials_log_filename = "/home/experiences/proxima1/com-proxima1/progs/dozor/dozor.log/dozor_summary.log" #os.path.join(dials_output_dir, "dozor_summary.log")# 'log_report.txt')#"dials.find_spots.log") #'log_report.txt')
             # Impremet dozor analysis here
             if not method == "dozor":
                 self.run_dials(dials_log_filename)
@@ -1251,7 +1221,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         log.debug("PX1XrayCentring - proces directory is %s" % dials_output_dir)
         meshlog_filename = "%s_mesh" % os.path.basename(dials_log_filename)
         copyfile(dials_log_filename, os.path.join(dials_output_dir, meshlog_filename))
-
         spots = self.dials_get_spots_array(dials_log_filename, self.mesh_img_per_line, self.mesh_nb_lines)
 
         log.debug('PX1XrayCentring - getting reshaped array of spots : \n%s' % spots)
@@ -1299,28 +1268,34 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         log.debug('showing heat map')
         log.debug('saving image')
-
         return self.x_best, self.y_best, spots
 
-    def do_helical_analysis(self, i):
+    def do_helical_analysis(self, i, method = "dozor"):
         log.debug('triggering helical data analysis. %s', self.testmode and "SIMULATED" or "")
         self.emit('xcentringInfo', 'running', 'Analyzing helical data')
 
         # run the analysis
         if self.testmode:
             dials_output_dir = os.path.dirname(__file__)
-            dials_log_filename = os.path.join(dials_output_dir, 'dials.find_spots.log')
+            dials_log_filename = os.path.join(dials_output_dir, 'dozor_summary.log')# 'log_report.txt')# 'dials.find_spots.log')
         else:
             dials_output_dir = self.get_process_directory()
-            dials_log_filename = os.path.join(dials_output_dir, 'dials.find_spots.log')
-            self.run_dials(dials_log_filename)
+            if method == "dozor":
+                dials_log_filename = "/home/experiences/proxima1/com-proxima1/progs/dozor/dozor.log/dozor_summary.log"
+            else:
+                dials_log_filename = os.path.join(dials_output_dir, 'dials.find_spots.log')
+
+            self.run_dozor(dials_log_filename) if method == "dozor" else self.run_dials(dials_log_filename)
 
         dials_output_dir = self.get_process_directory()
         helical_log_filename = "%s_helical_%s" % (os.path.basename(dials_log_filename), i)
         copyfile(dials_log_filename, os.path.join(dials_output_dir, helical_log_filename))
 
         # now this is a line. just get the list with spot numbers
-        spots = self.dials_get_spots(dials_log_filename, helical=True)
+        if method == "dozor":
+            spots = self.dials_get_spots(helical=True)
+        else:
+            spots = self.dials_get_spots(dials_log_filename, helical=True)
 
         if self.testmode:
             spots = 10*spots
@@ -1539,7 +1514,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         dtime_str = '{0.year}{0.month:02d}{0.day:02d}_{0.hour:02d}{0.minute:02d}'.format(dtime)
         dirname = '%s_%s' % (self.get_prefix(), dtime_str)
 
-        base_directory = self.session_hwo.get_image_directory()
+        base_directory = self.session_hwo.get_image_directory("")
         output_directory = self.session_hwo.get_archive_directory()
 
         if not self.groupname:
@@ -1635,12 +1610,8 @@ class PX1XrayCentring(AbstractXrayCentring):
     def wait_envready(self,timeout=20):
         start_time = datetime.now()
         while True:
-
             env_state = self.px1env_hwo.get_state()
-            print("+" * 50 )
-            print(type(env_state), env_state)
             if env_state not in  ["RUNNING", "MOVING"]:
-                print(f"wile loope broke on state : {env_state}")
                 break
 
             t0 = (datetime.now() - start_time).seconds
@@ -1649,7 +1620,6 @@ class PX1XrayCentring(AbstractXrayCentring):
                 log.debug("PX1XrayCentring: timeout sending supervisor to sample view phase")
                 break
             gevent.sleep(0.5)
-        print("+" * 50 )
         return True
 
 
@@ -1665,7 +1635,6 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         t0 = time.time()
         while True:
-            print("In limbo ::: ")
             env_state = self.px1env_hwo.get_state()
             if env_state != "RUNNING" and self.is_collect_phase():
                 break
@@ -1682,6 +1651,7 @@ class PX1XrayCentring(AbstractXrayCentring):
     # Dials results
     #
     def run_dozor (self, dozor_log_file):
+        #self.graphics_manager_hwo.stop_stream()
         log.debug('PX1XrayCentring - triggering run_dozor function')
         dials_output_dir = self.get_process_directory()
         dozor_cmd = "/home/experiences/proxima1/com-proxima1/progs/dozor_offline.sh"
@@ -1707,9 +1677,9 @@ class PX1XrayCentring(AbstractXrayCentring):
             if elapsed > 50.0:
                 self.emit('xcentringInfo', 'error', 'timeout (%3.2f secs) waiting for analysis results. aborting' % elapsed)
                 raise Exception("PX1XrayCentring - timeout waiting for dozor log file (%s)" % elapsed)
+            #self.graphics_manager_hwo.start_stream()
             return
-
-
+        #self.graphics_manager_hwo.start_stream()
 
 
     def run_dials(self, dials_log_filename):
@@ -1744,12 +1714,13 @@ class PX1XrayCentring(AbstractXrayCentring):
             os.system('touch %s' % dials_output_dir)
             gevent.sleep(0.25)
             elapsed = time.time() - t0
-            if elapsed > 50.0:
+            if elapsed > 120.0:
                 self.emit('xcentringInfo', 'error', 'timeout (%3.2f secs) waiting for analysis results. aborting' % elapsed)
                 raise Exception("PX1XrayCentring - timeout waiting for dials log file (%s)" % elapsed)
                 return
 
-    def dials_get_spots(self, filename, columns=(1,), helical=False):
+    # Doesn't have much to do with dials
+    def dials_get_spots(self, filename="/home/experiences/proxima1/com-proxima1/progs/dozor/dozor.log/dozor_summary.log", columns=(1,), helical=False):
 # two dials formats are supported
 #      OLD
 #----------------------------------------------------
@@ -1763,7 +1734,9 @@ class PX1XrayCentring(AbstractXrayCentring):
 #        |---------+----------+-----------------+-------------------|
 #        |       1 |        0 |               0 |                 0 |
 #
+
         log.debug('PX1XrayCentring - triggering dials_get_spots function')
+        log.debug('\nHere is the filename : %s\n\n', filename)
         buff = open(filename).read()
 
         cursor = 0
@@ -1771,7 +1744,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         # search for first line starting with |
         #   old format:   "|   image |   #spots |    [...] "
         #   new format:   "         |   image |   #spots |    [...]"
-        mat=re.search("^[\ \t]*\|",buff[cursor:], re.DOTALL | re.MULTILINE)
+
+        mat=re.search("^[ \t]*\|",buff[cursor:], re.DOTALL | re.MULTILINE)
         cursor += mat.end()
 
         # search for second line starting with |
@@ -1785,7 +1759,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         #    then search for a third | line
         #    new format:   "         |   image |   #spots |    [...]"
             log.debug("loading dials file with new format")
-            print("new dials format")
             mat=re.search("^[\ \t]*\|",buff[cursor:], re.DOTALL | re.MULTILINE)
             cursor += mat.end()
         else:
@@ -1805,14 +1778,13 @@ class PX1XrayCentring(AbstractXrayCentring):
         buff = buff.replace('|','')
 
         arr = np.loadtxt(io.BytesIO(buff.encode()), usecols=columns)
-        print(f"<<<<<<<<<  DIALS ARRAY {arr.shape}")
-
         # Refactored to remove StringIO
         #arr = np.fromstring(buff, sep='\n')
         # in helical mode for test.
         #   return an array with 12 images = self.helical_nimages
         #if self.testmode and helical:  # this is a TEST ONLY feature. remove it when done
         #    arr = arr[:self.helical_nimgs]
+
 
         return arr
 
@@ -1829,8 +1801,6 @@ class PX1XrayCentring(AbstractXrayCentring):
             spots = 10*spots # to have enough number of spots"""
 
         log.debug('              spots : \n%s' % spots)
-        print(type(spots))
-        print(spots.shape)
 
         return spots.reshape((nblines, nbimages))
 
@@ -2068,21 +2038,3 @@ class PX1XrayCentring(AbstractXrayCentring):
             fd.write("%s - %s\n" % (str(dtime), msg))
 
     ##  dials end
-
-def test_hwo(hwo):
-    #self.start_xcentring()
-    """if hwo.testmode:
-       print( "this is a test" )
-    else:
-       print( "this is real")"""
-if __name__ == "__main__":
-    Test = PX1XrayCentring("TestXrayC")
-    Test.testmode = False
-    #result = Test.dials_get_spots_array("/home/experiences/proxima1/com-proxima1/progs/dozor/dozor.log/test.log", 13,5 )
-    Test.set_base_directories()
-    Test.do_mesh_analysis()
-
-    #print(f"Final result = \n{result}\n of shape {result.shape}")
-    print()
-    #hwo.prepare()
-    #hwo.do_mesh_analysis()

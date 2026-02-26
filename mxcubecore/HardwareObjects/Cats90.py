@@ -498,7 +498,7 @@ class Cats90(SampleChanger):
         self._chnAllLidsClosed.connect_signal("update", self.cats_lids_closed_changed)
         #self._chnLidLoadedSample.connect_signal("update", self.cats_loaded_lid_changed)
         self._chnNumLoadedSample.connect_signal("update", self.cats_loaded_num_changed)
-        self._chnSampleBarcode.connect_signal("update", self.cats_barcode_changed)
+        #self._chnSampleBarcode.connect_signal("update", self.cats_barcode_changed)
         self._is_device_ready()
 
         # connect presence channels

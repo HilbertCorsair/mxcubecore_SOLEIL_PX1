@@ -1,8 +1,6 @@
-#import json
 import logging
 import re
 import math
-#from json.decoder import JSONDecodeError
 from typing import (
     Dict,
     List,
@@ -10,19 +8,12 @@ from typing import (
 )
 import time
 from datetime import datetime , timedelta
-#from zeep import Client
-#from zeep.transports import Transport
+
 from zeep.helpers import serialize_object
 from zeep.exceptions import Fault
-
-#from requests import Session
-#from requests.auth import HTTPBasicAuth
 import logging
 from urllib.error import URLError
 from pprint import pformat
-#from urllib.parse import urljoin
-#import requests
-
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.HardwareObjects.abstract.ISPyBDataAdapter import ISPyBDataAdapter
 from mxcubecore.HardwareObjects.ProposalTypeISPyBLims import ProposalTypeISPyBLims
@@ -135,8 +126,6 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
 
     @trace
     def get_proposal(self, proposal_number, proposal_code = "mx"):
-        #print (f"FETCHING proposal: code {proposal_code}, no {proposal_number}")
-
         """
         Returns the tuple (Proposal, Person, Laboratory, Session, Status).
         Containing the data from the coresponding tables in the database
@@ -277,9 +266,6 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
 
     @trace
     def get_proposal_by_username(self, username):
-
-        print(f"FEATCHING proposal by userName: {username}")
-
         proposal_code   = ""
         proposal_number = 0
 
@@ -363,7 +349,6 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
         return s
 
     def get_todays_session(self, prop):
-        print( "getting todays session")
 
         try:
             sessions=prop['Session']
@@ -412,7 +397,6 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
 
 
         if todays_session:
-            print("FOUND A SESSION FOR TODAY : NEW SESSION FLAG FALSE")
             new_session_flag= False
             session_id=todays_session['sessionId']
             logging.getLogger('HWR').debug('getting local contact for %s' % session_id)
@@ -666,20 +650,6 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
         if self._collection:
 
             try:
-                # The old API used date formated strings and the new
-                # one uses DateTime objects.
-
-                """OrderedDict([('beamLineSetupVO', None), ('beamlineName', 'PROXIMA1'), ('beamlineOperator', None), ('comments', 'Session created by the BCM'),
-                  ('dataCollectionGroupVOs', []), ('databackupEurope', None), ('databackupFrance', None), ('dewarTransport', None),
-                    ('endDate', '2025-07-10 07:59:59'), ('energyScanVOs', []), ('expSessionPk', None), ('externalId', None),
-                    ('lastUpdate', datetime.datetime(2025, 7, 10, 7, 59, 59, tzinfo=<FixedOffset '+02:00'>)), ('nbReimbDewars', None),
-                    ('nbShifts', 3), ('operatorSiteNumber', None), ('projectCode', None), ('proposalVO', None), ('protectedData', None),
-                    ('scheduled', 0), ('sessionId', 46580), ('sessionTitle', None), ('startDate', '2025-07-09 00:00:00'),
-                    ('structureDeterminations', None), ('timeStamp', datetime.datetime(2025, 7, 9, 10, 42, tzinfo=<FixedOffset '+02:00'>)),
-                    ('usedFlag', None), ('visit_number', None), ('xfeSpectrumVOs', []), ('beamLineSetupId', None), ('proposalId', 4),
-                    ('proposalName', 'mx20100023')]"""
-
-
                 try:
                     session_dict["startDate"]  = datetime.\
                     strptime(session_dict["startDate"] , "%Y-%m-%d %H:%M:%S")
@@ -687,8 +657,6 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
                     strptime(session_dict["endDate"], "%Y-%m-%d %H:%M:%S")
                     session = self._collection.service.\
                     storeOrUpdateSession(session_dict)
-                    print(" §§§§ After service call §§§ ")
-
                     # changing back to string representation of the dates,
                     # since the session_dict is used after this method is called,
                     session_dict["startDate"]  = datetime.\
@@ -696,24 +664,10 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
                     session_dict["endDate"] = datetime.\
                     strftime(session_dict["endDate"], "%Y-%m-%d %H:%M:%S")
 
-
-
                 except:
-
-                    print ("$$$$$$  FROM COLLECT £££ ")
                     session_dict["__values__"]["startDate"] =  datetime. strptime( session_dict["__values__"]["startDate"] , "%Y-%m-%d %H:%M:%S")
                     session_dict["__values__"]["endDate"] =  datetime. strptime( session_dict["__values__"]["endDate"] , "%Y-%m-%d %H:%M:%S")
                     session = self._collection.service.storeOrUpdateSession(session_dict["__values__"])
-
-
-
-
-
-
-
-
-
-
 
 
             except Fault as e:
@@ -756,6 +710,7 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         self.adapter = None
         self.user_name = None
         self.session_manager = None
+        self.samples_info_list = []
 
     def init(self):
         self.beamline_name = "PROXIMA1"#self.get_property("beamline_name")
@@ -764,23 +719,18 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         self.ldapConnection = self.get_object_by_role("ldapServer")
 
     def _create_data_adapter(self) -> ISPyBDataAdapter:
-        print("Creating curstom data adapter")
-
         data_adapter  = CustomISPyBDataAdapter(self.ws_root.strip(),
                                                self.ws_username,
                                                self.ws_password,
                                                self.beamline_name,)
-
         if not data_adapter._shipping :
             data_adapter.initialize_services()
-
-        print(f"Created data_adapter of type {data_adapter}")
         return data_adapter
 
     def store_data_collection(self, mx_collection, bl_config=None):
         return self.adapter.store_data_collection(mx_collection, bl_config)
 
-    def get_samples(self, lims_name):
+    def get_samples(self): #, lims_name):
 
         response_samples = None
         proposal_id = self.session_manager.active_session.proposal_id
@@ -823,7 +773,6 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
 
         for i in bytes_entries :
             if isinstance(i[1], bytes):
-                print(f"CONVERTING dict entry {i[1]}")
                 del dct[i[1]]
                 dct[i[0]] = dct[i[2]]
 
@@ -862,45 +811,31 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         lims_session_object = lims_Session()
         lims_session_object.start_date = start_date_str
         lims_session_object.start_time = start_time_str
-
         lims_session_object.end_date = end_date_str
         lims_session_object.end_time = end_time_str
-
         lims_session_object.session_id = todays_session["session"]['sessionId']
         lims_session_object.beamline_name = self.beamline_name
-
         lims_session_object.proposal_id = todays_session["session"]["proposalId"]
         lims_session_object.proposal_name = f"mx{pid}"
         lims_session_object.title = self.check_to_string(todays_session["session"]["proposalTitle"])
-
-
         lims_session_object.code = self.check_to_string(todays_session["session"]["proposalCode"])
         lims_session_object.number = self.check_to_string(todays_session["session"]["proposalNumber"])
-
-
         lims_session_object.actual_start_date = ""
         lims_session_object.actual_start_time = ""
         lims_session_object.actual_end_date = ""
         lims_session_object.actual_end_time = ""
         lims_session_object.start_datetime = datetime.now()
         lims_session_object.end_datetime = datetime.now() + timedelta(days=1)
-
-
-
         lims_session_object.nb_shifts = "3"
         lims_session_object.scheduled  = "3"
-
         # status of the session depending on wether it has been rescheduled or moved
         lims_session_object.is_rescheduled = False
         lims_session_object.is_scheduled_time = True
         lims_session_object.is_scheduled_beamline = True
 
-
         LSM = LimsSessionManager()
         LSM.active_session = lims_session_object
         self.session_manager = LSM
-        print(f"trturning Lims Session Manager {LSM}\n\n\n this is tghe active sesstion---->{LSM.active_session}")
-
         return LSM #session #return super().login(loginID, psd)
 
 
@@ -940,8 +875,6 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         if session is None:
             raise Exception(f"no session with ID {session_id} found")
 
-
-
         #
         # user selected a session that does not exist yet,
         # ask ISPyB to create it
@@ -970,76 +903,7 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
             sample.crystals[0].protein_acronym = sample_data.get("proteinAcronym", "")
         else:
             sample = sample_data
-        #print(f"==========================mxcubeweb core component lims.py get defait prefix  {sample_data} ")
         return HWR.beamline.session.get_default_prefix(sample, generic_name)
-
-
-    def synch_with_lims(self, lims_name): #(self, proposal_id):
-        samples_info_list = self.get_samples(lims_name)
-
-        if not samples_info_list:
-            samples_info_list = []
-
-
-        for sample_info in samples_info_list:
-            sample_info["limsID"] = sample_info["sampleId"]
-            sample_info["defaultPrefix"] = self.get_default_prefix(sample_info)
-            #print(f"==========================mxcubeweb core component lims.py PREFIX synch_with_lims {sample_info['defaultPrefix']} ")
-            sample_info["defaultSubDir"] = self.get_default_subdir(sample_info)
-            #print(f"==========================mxcubeweb core component lims.py SUBDIR synch_with_lims {sample_info['defaultSubDir']} ")
-
-
-            VALID_SAMPLE_NAME_REGEXP = re.compile("^[a-zA-Z0-9:+_-]+$")
-            if not VALID_SAMPLE_NAME_REGEXP.match(sample_info["sampleName"]):
-                #print ("SL1")
-                raise AttributeError(
-                    "sample name for sample %s contains an incorrect character"
-                    % sample_info
-                )
-
-
-            try:
-                basket = int(sample_info["containerSampleChangerLocation"])
-                #print ("SL2")
-            except (TypeError, ValueError, KeyError):
-                #print("SL3")
-                continue
-            else:
-                #print("SL4")
-                if HWR.beamline.sample_changer.__class__.__TYPE__ in [
-                    "Flex Sample Changer",
-                    "FlexHCD",
-                    "RoboDiff",
-                    "Cryotong"
-                ]:
-                    #print("SL5")
-                    cell = int(math.ceil((basket) / 3.0))
-                    puck = basket - 3 * (cell - 1)
-                    sample_info["containerSampleChangerLocation"] = "%d:%d" % (
-                        cell,
-                        puck,
-                    )
-            try:
-                #print("SL6")
-                lims_location = sample_info[
-                    "containerSampleChangerLocation"
-                ] + ":%02d" % int(sample_info["sampleLocation"])
-            except Exception:
-                #print("SL7")
-                logging.getLogger("MX3.HWR").info(
-                    "[LIMS] Could not parse sample loaction from"
-                    " LIMS, (perhaps not set ?)"
-                )
-            else:
-                #print("SL8")
-                sample_info["lims_location"] = lims_location
-
-                self.sample_list_sync_sample(sample_info)
-
-        print(f"SL COUNTER = {self.sl_counter}")
-
-        return self.sample_list_get()
-
 
     def path_to_ispyb(self, path):
         return HWR.beamline.session.path_to_ispyb( path )
@@ -1077,36 +941,6 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
                 image_dict[prop] = ispyb_path
             except:
                 pass
-
-"""
-    def get_full_user_name(self) -> str:
-        if not self.adapter:
-            self.adapter = self._create_data_adapter()
-        person = self.adapter.get_person_by_username(self.user_name)
-
-        given_name = person["givenName"]
-        family_name = person["familyName"]
-
-        return f"{given_name} {family_name}
-class ISPyBClient2(HardwareObject):
-    def get_samples(self, proposal_id, session_id):
-        response_samples = None
-
-        if self._tools_ws:
-            try:
-                response_samples = self._tools_ws.service.\
-                      findSampleInfoLightForProposal(proposal_id,
-                                                     self.beamline_name)
-            except WebFault as e:
-                logging.getLogger("ispyb_client").exception(str(e))
-            except URLError:
-                logging.getLogger("ispyb_client").exception(_CONNECTION_ERROR_MSG)
-        else:
-            logging.getLogger("ispyb_client").\
-                exception("Error in get_samples: could not connect to server")
-
-        return response_samples  """
-
 
 
 

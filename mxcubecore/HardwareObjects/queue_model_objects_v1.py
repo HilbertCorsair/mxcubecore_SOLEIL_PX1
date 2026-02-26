@@ -271,7 +271,7 @@ class Sample(TaskNode):
         name = self.name
         acronym = self.crystals[0].protein_acronym
 
-        if self.name is not '' and acronym is not '':
+        if not (self.name == '' or acronym == ''):
             display_name = acronym + '-' + name
         else:
             display_name = self.get_name()

@@ -17,18 +17,15 @@ import logging
 import subprocess
 import uuid
 import psutil
-from typing import (
-    List,
-    Tuple,)
-import struct
 from  PyTango import DeviceProxy
 from PIL import Image
 import io
 import redis
 import numpy as np
-import cv2
-from datetime import datetime
 from mxcubecore.BaseHardwareObjects import HardwareObject
+import logging
+logger = logging.getLogger(__name__)
+
 
 class RedisMpegVideo(HardwareObject):
     def __init__(self, name):
@@ -125,15 +122,15 @@ class RedisMpegVideo(HardwareObject):
             video_sizes = []
         return video_sizes
 
-    def start_video_stream_process(self, p):
-        print(f"STARTING ! Video stream on {self.host} port: {self.port} in format: {self.format}")
+    def start_video_stream_process(self):
+        logger.info(f"STARTING ! Video stream on {self.host} port: {self.port} in format: {self.format}")
 
         if (
             not self._video_stream_process
             or self._video_stream_process.poll() is not None ):
 
 
-            print (f"VS PARAMS : uri {self.uri}\nhs {self.host}\n port {self.port} ")
+            logger.info(f"VS PARAMS : uri {self.uri}\nhs {self.host}\n port {self.port} ")
 
             self._video_stream_process = subprocess.Popen(
                 [
@@ -165,41 +162,36 @@ class RedisMpegVideo(HardwareObject):
     def poll_image(self): #, device, video_mode, FORMATS):
         if self._redis:
             try:
-                print("Polling immage from colect2 ---------   -------- ------- ")
                 r = redis.Redis(host="195.221.8.84", port=6379, decode_responses=False)
-                print(r.info()['redis_version'])
                 latest_frame = r.lrange("mxcubeweb", 0, 0)
                 if not latest_frame:
-                    print("NO FRAMES")
+                    logger.info("NO FRAMES")
                     return None
 
                 # Assuming the frame data is stored directly as bytes
                 frame_data = latest_frame[0]  # Just take the first element
 
-                print(f"Frame data type: {type(frame_data)}")
-
                 # Add validation for frame_data
                 if not frame_data:
-                    print("Empty frame data")
                     return None
 
                 try:
                     image = Image.open(io.BytesIO(frame_data))
                 except IOError as img_error:
-                    print(f"Error opening image data: {str(img_error)}")
+                    logger.exception(f"Error opening image data: {str(img_error)}")
                     return None
 
                 frame_rgb = np.array(image.convert('RGB'))
                 return frame_rgb
 
             except redis.ConnectionError as conn_err:
-                print(f"Redis connection error: {str(conn_err)}")
+                logger.exception(f"Redis connection error: {str(conn_err)}")
                 return None
             except redis.RedisError as redis_err:
-                print(f"Redis error: {str(redis_err)}")
+                logger.exception(f"Redis error: {str(redis_err)}")
                 return None
             except Exception as e:
-                print(f"Unexpected error: {str(e)}")
+                logger.exception(f"Unexpected error: {str(e)}")
                 return None
 
 
@@ -259,7 +251,7 @@ class RedisMpegVideo(HardwareObject):
 
         self.set_stream_size(_s[0], _s[1])
         try:
-            self.start_video_stream_process(str(self.port))
+            self.start_video_stream_process()
         except Exception as e:
             print(f"Cannot start video streaming process ! {e}")
 

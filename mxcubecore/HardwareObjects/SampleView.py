@@ -102,10 +102,20 @@ class SampleView(AbstractSampleView):
                 shape.update_position(HWR.beamline.diffractometer.motor_positions_to_screen)
 
             self.emit("shapesChanged")'''
+    def stop_stream(self):
+        self._camera.stop_streaming()
+
+    def start_stream(self):
+        self._camera.start_video_stream_process()
+        self.emit("shapesChanged")
 
     @property
     def shapes(self):
         return self._shapes
+
+    @shapes.setter
+    def shapes (self, value ):
+        self._shapes = value
 
     def start_centring(self, tree_click=True):
         """
@@ -344,6 +354,7 @@ class SampleView(AbstractSampleView):
         Grid.SHAPE_COUNT = 0
         Line.SHAPE_COUNT = 0
         Point.SHAPE_COUNT = 0
+        self.emit("shapesChanged")
 
     def get_shapes(self):
         """

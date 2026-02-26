@@ -138,7 +138,6 @@ class PX1MiniDiff(GenericDiffractometer):
             if path != None:
                 imgName = path
                 os.makedirs(os.path.dirname(path), exist_ok=True)
-                print(imgName)
             imwrite(imgName, img)
             if path != None:
                 og_image = cv2.imread(imgName)
@@ -155,7 +154,7 @@ class PX1MiniDiff(GenericDiffractometer):
             logging.getLogger("user_level_log").info("%s" %e)
         return img, imgName
 
-    def estimate_click_murko(self, frame, autoGrid=False, imgName=None):
+    def estimate_click_murko(self, frame, forceSquaredGrid=False, imgName=None, useInsideLoop=False):
         """Gets relative coordinates from murko
 
         Calls the murko server running on localhost:89011 to retrieve estimated
@@ -169,14 +168,12 @@ class PX1MiniDiff(GenericDiffractometer):
             If there is a crystal this would be the center of the crystal
             If not it would be the center of the loop seen in the frame
             If nothing is found would be (0.5, 0.5) being center of the frame
-
         """
 
         if (frame is None):
             frame = '/home/experiences/proxima1/com-proxima1/arthur_mxcube/img_test.jpg'
             frame = HWR.beamline.sample_view.camera.get_last_image()
             HWR.beamline.sample_view.save_snapshot("/home/experiences/proxima1/com-proxima1/arthur_mxcube/image_testing.jpg")
-
 
         """
         TODO
@@ -185,8 +182,6 @@ class PX1MiniDiff(GenericDiffractometer):
 
         request_args = {}
         request_args["to_predict"] = frame
-        image_jpeg = request_args["to_predict"]
-        #image_jpeg = simplejpeg.decode_jpeg(image_jpeg)
         request_args["description"] = [
             "foreground",
             "crystal",
@@ -200,62 +195,70 @@ class PX1MiniDiff(GenericDiffractometer):
         mhost = os.getenv("MURKO_HOST")
         mport = int(os.getenv("MURKO_PORT"))
         analysis = get_predictions(request_args, host=mhost, port = mport)
+        descriptions = analysis['descriptions'][0]
 
-        original_image_shape = analysis["original_image_shape"]
-        sizeOfImgY, sizeOfImgX = original_image_shape[:2]
-        descriptions = analysis['descriptions']
+        analysis_good = descriptions['present']
+        y_center_aoi, x_center_aoi = -1, -1
 
-        r, c = -1, -1
-
-        if descriptions[0]['present']:
-            loop_present, r, c, h, w = descriptions[0]["aoi_bbox"]
+        if analysis_good == 1:
+            loop_present, y_center_aoi, x_center_aoi, height_aoi, width_aoi = descriptions["aoi_bbox"]
             if loop_present:
                 log.debug(
                     "Loop found! Its bounding box parameters in fractional coordianates are: center (vertical %.3f, horizontal %.3f), height %.3f, width %.3f"
-                    % (r, c, h, w)
+                    % (y_center_aoi, x_center_aoi, height_aoi, width_aoi)
                 )
             else:
                 log.debug("loop not found")
-                # add value here for in case loop not found, do we fake a 0.5, 0.5 or most likely click or skip (can we skip?)
-            _h, _w = descriptions[0]["most_likely_click"]
-            log.debug("Most likely click to be at [%.3f, %.3f]" % (_h, _w))
+
+            y_center_click, x_center_click = descriptions["most_likely_click"]
+            log.debug("Most likely click to be at [%.3f, %.3f]" % (y_center_click, x_center_click))
 
             if imgName and loop_present:
-                og_image = cv2.imread(imgName)
-                image_with_bbox = og_image.copy()
-                P = 1
-                og_h, og_w, _ = og_image.shape
-                posiClick = (int(_w*og_w),int(_h*og_h))
-                cv2.circle(image_with_bbox, posiClick, 5, (0, 255, 255), -1) # Yellow most_likely_click
-                y1, x1 = int((r - (h / 2) * P) * og_h), int((c - (w / 2) * P) * og_w)
-                y2, x2 = int((r + (h / 2) * P) * og_h), int((c + (w / 2) * P) * og_w)
-                posi = (int(c*og_w),int(r*og_h))
-                cv2.rectangle(image_with_bbox, (x1, y1), (x2, y2), (255, 0, 0), 2) # Blue bbox
-                cv2.circle(image_with_bbox, posi, 5, (0, 0, 255), -1) # Red center of bbox
-                cv2.circle(image_with_bbox, (x1, y2), 5, (0, 255, 0), -1) # Green BottomLeft angle
+                # Preparing variables and image to save
+                original_image = cv2.imread(imgName)
+                original_height, original_width, _ = original_image.shape
+                image_drawing_predictions = original_image.copy()
+                sizePrediction = 320
+                P = 1 # percentage augmentation or reduction of the predicted grid
+
+                # Computations for inside loop prediction
+                if useInsideLoop:
+                    prediction_factor_height, prediction_factor_width = original_height / sizePrediction, original_width / sizePrediction
+                    loop_inside = descriptions["loop_inside"]
+                    y_center_loop, x_center_loop = loop_inside['r'] * prediction_factor_height, loop_inside['c'] * prediction_factor_width
+                    height_loop, width_loop = loop_inside['h'] * prediction_factor_height, loop_inside['w'] * prediction_factor_width
+                    loop_inside_not_found =  math.isnan(y_center_loop) or math.isnan(x_center_loop) or math.isnan(height_loop) or math.isnan(width_loop)
+                    if not loop_inside_not_found:
+                        y1_in, x1_in = int((y_center_loop - (height_loop / 2) * P)), int((x_center_loop - (width_loop / 2) * P))
+                        y2_in, x2_in = int((y_center_loop + (height_loop / 2) * P)), int((x_center_loop + (width_loop / 2) * P))
+
+                position_click = (int(x_center_click * original_width), int(y_center_click * original_height))
+                cv2.circle(image_drawing_predictions, position_click, 5, (0, 255, 255), -1) # Yellow most_likely_click
+
+                y1, x1 = int((y_center_aoi - (height_aoi / 2) * P) * original_height), int((x_center_aoi - (width_aoi / 2) * P) * original_width)
+                y2, x2 = int((y_center_aoi + (height_aoi / 2) * P) * original_height), int((x_center_aoi + (width_aoi / 2) * P) * original_width)
+
+                position_center_aoi = (int(x_center_aoi * original_width), int(y_center_aoi * original_height))
+                cv2.rectangle(image_drawing_predictions, (x1, y1), (x2, y2), (255, 0, 0), 2) # Blue bbox
+                if useInsideLoop and not loop_inside_not_found:
+                    cv2.rectangle(image_drawing_predictions, (x1_in, y1_in), (x2_in, y2_in), (255, 0, 255), 2) # Blue bbox
+                cv2.circle(image_drawing_predictions, position_center_aoi, 5, (0, 0, 255), -1) # Red center of bbox
+                cv2.circle(image_drawing_predictions, (x1, y2), 5, (0, 255, 0), -1) # Green BottomLeft angle
                 tmpName = imgName[:-4] + "_analysis.jpg"
-                cv2.imwrite(tmpName, image_with_bbox)
+                cv2.imwrite(tmpName, image_drawing_predictions)
+
         else:
             logging.getLogger("user_level_log").debug("nothing found on image, click on center")
-            h = 0.5
-            w = 0.5
-            _h = 0.5
-            _w = 0.5
+            return 0.5, 0.5, 0.5, 0.5
 
-        """
-        name_pattern = f"{os.getuid()}_{time.asctime().replace(' ', '_')}.jpg"
-        directory = f"{os.getenv('HOME')}/murko"
-        os.makedirs(directory, exist_ok=True)
-        template = os.path.join(directory, name_pattern)
-        plot_analysis([image_jpeg], analysis)
-        """
         log.debug("Murko finished computing position for image")
 
-        if autoGrid:
-            # instead of returning drawing directly with graphics manager
-            return w, h, r, c
-
-        return w, h, _h, _w
+        if forceSquaredGrid:
+            return width_aoi, height_aoi, y_center_aoi, x_center_aoi
+        elif useInsideLoop and not loop_inside_not_found:
+            return width_loop, height_loop, y_center_click, x_center_click
+        else:
+            return width_aoi, height_aoi, y_center_click, x_center_click
 
     def px1_center_murko(self, X, Y, phi_positions, phi, n_points, PHI_ANGLE_START, phi_incr):
         """ Method to center the sample using the Neural Network murko
@@ -283,9 +286,9 @@ class PX1MiniDiff(GenericDiffractometer):
         for i in range(n_points):
             img, imgName = self.takePictureAnalysis()
             _, _, y_click, x_click = self.estimate_click_murko(img, imgName=imgName)
-            og_w, og_h = int(os.getenv("MURKO_SIZEX")), int(os.getenv("MURKO_SIZEY"))
-            x_coord = x_click * og_w
-            y_coord = y_click * og_h
+            original_width, original_height = int(os.getenv("MURKO_SIZEX")), int(os.getenv("MURKO_SIZEY"))
+            x_coord = x_click * original_width
+            y_coord = y_click * original_height
             log.debug("Center found at [%s;%s]", x_coord, y_coord)
             X.append(x_coord)
             Y.append(y_coord)
@@ -598,7 +601,6 @@ class PX1MiniDiff(GenericDiffractometer):
         return self.chip_mode
 
     def set_phase(self, phase, timeout=None):
-        print (f"PHASE is {phase} ~~~~~~ ")
         """Sets ENVIRONMENT to selected phase
         """
         translation_to_env = {"TRANSFER" :0,
@@ -668,12 +670,7 @@ class PX1MiniDiff(GenericDiffractometer):
 
     def is_ready(self):
         val = str(self.smargon._state_chan.get_value())
-        print(f"Got the state value from SMARGON and it is : {val}")
-
         return val == "STANDBY"
-
-        #self.smargon_state = str(self.smargon_state_ch.getValue())
-        #return self.smargon_state == "STANDBY"
 
     def get_pixels_per_mm(self):
         position = self.zoom.get_value()
@@ -954,7 +951,6 @@ class PX1MiniDiff(GenericDiffractometer):
             #logging.getLogger("HWR").info("PX1MiniDiff.move_motors: OUT motor= %s" % motor)
             self.wait_device_ready(timeout)
             try:
-                print(motor)
                 motor.sync_move(position)
             except:
                 import traceback
@@ -1004,9 +1000,7 @@ class PX1MiniDiff(GenericDiffractometer):
         return x, y
 
     def get_centred_point_from_coord(self, x, y, return_by_names=None):
-        print("Start get center point from coords")
         if not self.beam_x or not self.beam_y:
-            print("updating zoom")
             self.update_zoom_calibration()
 
 
