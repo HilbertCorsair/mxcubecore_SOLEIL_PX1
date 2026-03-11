@@ -141,7 +141,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         self.testmode = self.get_property('testmode')
         self.processing_method = self.get_property('processing')
-        self.processing = self.processing_classes.get(self.processing_method, None)
+        #self.processing = self.processing_classes.get(self.processing_method, None)
         self.minidiff = HWR.beamline.diffractometer
 
         create_dir_address = self.get_property('mxcube_createdir_server')
@@ -815,6 +815,11 @@ class PX1XrayCentring(AbstractXrayCentring):
                 self.run_helical(omega, i+1)
                 best_y, spots = self.do_helical_analysis(i,)
 
+                if not best_y:
+                    self.emit('xcentringInfo', 'running', 'No spots in helical analysis')
+                    return
+                self.found_spots = True
+
                 self.PHI.append(omega)
                 self.Y.append(best_y)
 
@@ -827,6 +832,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
             if None in self.Y:
                 self.emit('xcentringInfo', 'running', 'No spots in helical analysis')
+                return
                 raise Exception('No spots in helical analyis')
 
             self.emit('xcentringInfo', 'running', 'Calculating centred position')
@@ -1193,35 +1199,29 @@ class PX1XrayCentring(AbstractXrayCentring):
              logging.getLogger("HWR").debug("COLLECT IS NOT RUNNING. IT IS %s" % state)
              return False
 
-    def do_mesh_analysis(self, method = "dozor"):
+    def do_mesh_analysis(self):
         log.debug('PX1XrayCentring - triggering do_mesh_analysis. %s', self.testmode and "SIMULATED" or "")
 
         self.emit('xcentringInfo', 'running', 'Analyzing mesh data')
 
         if self.testmode:
-
-
-            # !!! log file name needs to be formalized
-
-            dials_output_dir = os.path.dirname(__file__)
-            dials_log_filename = os.path.join(dials_output_dir, 'log_report.txt')
+            output_dir = os.path.dirname(__file__)
+            log_filename = os.path.join(output_dir, 'log_report.txt')
 
         else:
-            dials_output_dir = self.get_process_directory()
+            output_dir = self.get_process_directory()
+            log_filename = os.path.join(output_dir, f"{self.processing_method}.find_spots.log")
+            print(f"Processing method {self.processing_method}")
 
 
-            dials_log_filename = "/home/experiences/proxima1/com-proxima1/progs/dozor/dozor.log/dozor_summary.log" #os.path.join(dials_output_dir, "dozor_summary.log")# 'log_report.txt')#"dials.find_spots.log") #'log_report.txt')
-            # Impremet dozor analysis here
-            if not method == "dozor":
-                self.run_dials(dials_log_filename)
-            else:
-                self.run_dozor(dials_log_filename)
+            self.run_dozor(log_filename) if self.processing_method == "dozor" else self.run_dials(log_filename)
 
-        dials_output_dir = self.get_process_directory()
-        log.debug("PX1XrayCentring - proces directory is %s" % dials_output_dir)
-        meshlog_filename = "%s_mesh" % os.path.basename(dials_log_filename)
-        copyfile(dials_log_filename, os.path.join(dials_output_dir, meshlog_filename))
-        spots = self.dials_get_spots_array(dials_log_filename, self.mesh_img_per_line, self.mesh_nb_lines)
+
+        output_dir = self.get_process_directory()
+        log.debug("PX1XrayCentring - proces directory is %s" % output_dir)
+        meshlog_filename = "%s_mesh" % os.path.basename(log_filename)
+        copyfile(log_filename, os.path.join(output_dir, meshlog_filename))
+        spots = self.get_spots_array(log_filename, self.mesh_img_per_line, self.mesh_nb_lines)
 
         log.debug('PX1XrayCentring - getting reshaped array of spots : \n%s' % spots)
 
@@ -1270,32 +1270,27 @@ class PX1XrayCentring(AbstractXrayCentring):
         log.debug('saving image')
         return self.x_best, self.y_best, spots
 
-    def do_helical_analysis(self, i, method = "dozor"):
+    def do_helical_analysis(self, i):
         log.debug('triggering helical data analysis. %s', self.testmode and "SIMULATED" or "")
         self.emit('xcentringInfo', 'running', 'Analyzing helical data')
 
         # run the analysis
         if self.testmode:
-            dials_output_dir = os.path.dirname(__file__)
-            dials_log_filename = os.path.join(dials_output_dir, 'dozor_summary.log')# 'log_report.txt')# 'dials.find_spots.log')
+            output_dir = os.path.dirname(__file__)
+            log_filename = os.path.join(output_dir, 'dozor.find_spots.log')
         else:
-            dials_output_dir = self.get_process_directory()
-            if method == "dozor":
-                dials_log_filename = "/home/experiences/proxima1/com-proxima1/progs/dozor/dozor.log/dozor_summary.log"
-            else:
-                dials_log_filename = os.path.join(dials_output_dir, 'dials.find_spots.log')
+            output_dir = self.get_process_directory()
+            log_filename = os.path.join(output_dir, f"{self.processing_method}.find_spots.log")
 
-            self.run_dozor(dials_log_filename) if method == "dozor" else self.run_dials(dials_log_filename)
+        self.run_dozor(log_filename) if self.processing_method == "dozor" else self.run_dials(log_filename)
 
-        dials_output_dir = self.get_process_directory()
-        helical_log_filename = "%s_helical_%s" % (os.path.basename(dials_log_filename), i)
-        copyfile(dials_log_filename, os.path.join(dials_output_dir, helical_log_filename))
+        output_dir = self.get_process_directory()
+        helical_log_filename = "%s_helical_%s" % (os.path.basename(log_filename), i)
+        copyfile(log_filename, os.path.join(output_dir, helical_log_filename))
 
         # now this is a line. just get the list with spot numbers
-        if method == "dozor":
-            spots = self.dials_get_spots(helical=True)
-        else:
-            spots = self.dials_get_spots(dials_log_filename, helical=True)
+
+        spots = self.get_spots(log_filename, helical=True)
 
         if self.testmode:
             spots = 10*spots
@@ -1652,16 +1647,24 @@ class PX1XrayCentring(AbstractXrayCentring):
     #
     def run_dozor (self, dozor_log_file):
         #self.graphics_manager_hwo.stop_stream()
+        print(f"DOZOR called !!!!!!!!!!!!!!!!!!!!!! wit out dir : {self.get_process_directory()} ")
         log.debug('PX1XrayCentring - triggering run_dozor function')
-        dials_output_dir = self.get_process_directory()
-        dozor_cmd = "/home/experiences/proxima1/com-proxima1/progs/dozor_offline.sh"
+        output_dir = self.get_process_directory()
+        #dozor_cmd = "/home/experiences/proxima1/com-proxima1/progs/dozor_offline.sh"
         master_file = os.path.join(self.get_base_directory(), "%s_master.h5" % self.get_prefix())
         username = self.session_hwo.get_ssh_name()
         log.debug('PX1XrayCentring - username is:%s.' % username)
         if not username:
             username = "com-proxima1"
+        #os.mkdir(f"{output_dir}/dozor.log")
+        #dozor_cmd = 'cd %s ; %s %s %s' % (output_dir, dozor_cmd,"-m", master_file)
+        #dozor_cmd = f'python /home/experiences/proxima1/com-proxima1/progs/pydozor_libs/dozor_offline2.py  -c 5  -n 128'
 
-        dozor_cmd = 'cd %s ; %s %s %s' % (dials_output_dir, dozor_cmd,"-m", master_file)
+        dozor_cmd = ['export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/experiences/proxima1/com-proxima1/progs/dozor']
+        dozor_cmd.append('export PYTHONPATH=$PYTHONPATH:/home/experiences/proxima1/com-proxima1/progs/pydozor_libs')
+        dozor_cmd.append(f'python /home/experiences/proxima1/com-proxima1/progs/pydozor_libs/dozor_offline2.py -c 5  -n 128 -o {output_dir} -m {master_file}')
+        dozor_cmd = ";".join(dozor_cmd)
+
         log.debug('PX1XrayCentring - sending subprocess command for dozor processing')
         log.debug('      command is: \n%s' % dozor_cmd)
         subprocess.call(dozor_cmd, shell=True)
@@ -1671,7 +1674,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         while not os.path.exists(dozor_log_file):
             # check for NFS cache refresh
-            os.system('touch %s' % dials_output_dir)
+            os.system('touch %s' % output_dir)
             gevent.sleep(0.25)
             elapsed = time.time() - t0
             if elapsed > 50.0:
@@ -1682,14 +1685,11 @@ class PX1XrayCentring(AbstractXrayCentring):
         #self.graphics_manager_hwo.start_stream()
 
 
-    def run_dials(self, dials_log_filename):
+    def run_dials(self, log_filename):
         log.debug('PX1XrayCentring - triggering run_dials function')
-
-        dials_output_dir = self.get_process_directory()
-        #dials_cmd = "/data2/bioxsoft/bin/dials.find_spots"
-        #dials_cmd = "/data2/bioxsoft/progs/PHENIX/phenix-1.18.2-3874/build/bin/dials.find_spots"
+        print("DIALS called !!!!!!!!!!!!!!!!!!!!!! ")
+        output_dir = self.get_process_directory()
         dials_cmd = "/usr/local/dials-v3-23-0/build/bin/dials.find_spots"
-        #dials_options = 'shoebox=False per_image_statistics=True spotfinder.filter.ice_rings.filter=True nproc=244 spotfinder.filter.d_min=4'
         dials_options = 'shoebox=False per_image_statistics=True spotfinder.filter.ice_rings.filter=True nproc=244 '
 
         master_file = os.path.join(self.get_base_directory(), "%s_master.h5" % self.get_prefix())
@@ -1700,8 +1700,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         if not username:
             username = "com-proxima1"
         # FIN- PIERRE L. 2021-02-21
-        #dials_cmd = 'ssh %s@process2 "cd %s ; %s %s %s"' % (username, dials_output_dir, dials_cmd, dials_options, master_file)
-        dials_cmd = 'cd %s ; %s %s %s' % (dials_output_dir, dials_cmd, dials_options, master_file)
+        dials_cmd = 'cd %s ; %s %s %s' % (output_dir, dials_cmd, dials_options, master_file)
         log.debug('PX1XrayCentring - sending subprocess command for dials processing')
         log.debug('      command is: \n%s' % dials_cmd)
         subprocess.call(dials_cmd, shell=True)
@@ -1709,9 +1708,9 @@ class PX1XrayCentring(AbstractXrayCentring):
         # wait for result file to appear on disk
         t0 = time.time()
 
-        while not os.path.exists(dials_log_filename):
+        while not os.path.exists(log_filename):
             # check for NFS cache refresh
-            os.system('touch %s' % dials_output_dir)
+            os.system('touch %s' % output_dir)
             gevent.sleep(0.25)
             elapsed = time.time() - t0
             if elapsed > 120.0:
@@ -1720,7 +1719,7 @@ class PX1XrayCentring(AbstractXrayCentring):
                 return
 
     # Doesn't have much to do with dials
-    def dials_get_spots(self, filename="/home/experiences/proxima1/com-proxima1/progs/dozor/dozor.log/dozor_summary.log", columns=(1,), helical=False):
+    def get_spots(self, filename, columns=(1,), helical=False):
 # two dials formats are supported
 #      OLD
 #----------------------------------------------------
@@ -1735,7 +1734,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 #        |       1 |        0 |               0 |                 0 |
 #
 
-        log.debug('PX1XrayCentring - triggering dials_get_spots function')
+        log.debug('PX1XrayCentring - triggering get_spots function')
         log.debug('\nHere is the filename : %s\n\n', filename)
         buff = open(filename).read()
 
@@ -1758,11 +1757,11 @@ class PX1XrayCentring(AbstractXrayCentring):
         # if second | is followed by a - we are in new dials format.
         #    then search for a third | line
         #    new format:   "         |   image |   #spots |    [...]"
-            log.debug("loading dials file with new format")
+            log.debug(f"loading {self.processing_method} file with new format")
             mat=re.search("^[\ \t]*\|",buff[cursor:], re.DOTALL | re.MULTILINE)
             cursor += mat.end()
         else:
-            log.debug("loading dials file with old format")
+            log.debug(f"loading {self.processing_method} file with old format")
 
         block_starts = cursor
         # search for last line of table
@@ -1778,23 +1777,15 @@ class PX1XrayCentring(AbstractXrayCentring):
         buff = buff.replace('|','')
 
         arr = np.loadtxt(io.BytesIO(buff.encode()), usecols=columns)
-        # Refactored to remove StringIO
-        #arr = np.fromstring(buff, sep='\n')
-        # in helical mode for test.
-        #   return an array with 12 images = self.helical_nimages
-        #if self.testmode and helical:  # this is a TEST ONLY feature. remove it when done
-        #    arr = arr[:self.helical_nimgs]
-
-
         return arr
 
-    def dials_get_spots_array(self, filename, nbimages, nblines, columns=(1,)):
-        log.debug('PX1XrayCentring - triggering dials_get_spots_array function')
+    def get_spots_array(self, filename, nbimages, nblines, columns=(1,)):
+        log.debug('PX1XrayCentring - triggering get_spots_array function')
         log.debug('           filename : %s' % filename)
         log.debug('           nbimages : %s' % nbimages)
         log.debug('            nblines : %s' % nblines)
 
-        spots = self.dials_get_spots(filename, columns=(1,))
+        spots = self.get_spots(filename, columns=(1,))
 
         """if self.testmode: # get only as many as we need
             spots = spots[:nbimages*nblines]
