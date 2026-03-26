@@ -570,10 +570,15 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         param_list = self.convert_xml_dict(retrieved_data)['root']
         containerSampleChangerLocation, sampleLocation = (position // 16) + 1, (position % 16) + 1
+
         blSampleID = position + 6 # THIS IS HARD CODED AND WILL NEED TO BE FIXED WHEN POSSIBLE
+
         SamplesInContainer = [d for d in HWR.beamline.lims.get_samples() if d['containerSampleChangerLocation'] == str(containerSampleChangerLocation)]
         SampleAtLocation = [d for d in SamplesInContainer if d['sampleLocation'] == str(sampleLocation)]
         currentSample = SampleAtLocation[0]
+
+        blSampleID = currentSample['limsID'] # DO THIS INSTEAD
+
         proteinAcronym = currentSample['proteinAcronym']
         sampleName = currentSample['sampleName']
         samplePrefix = proteinAcronym + "-" + sampleName
@@ -590,6 +595,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         #protocole =  HWR.beamline.lims.session_manager.active_session.number
         # ISPyB or param_list -- a implementer HWR.beamline.lims
         smp_list = HWR.beamline.lims.get_samples()
+        # Need to find a better way to get this info
         resolution =  smp_list[position]["diffractionPlan"]["requiredResolution"]
         param_list["detector_distance"] = HWR.beamline.resolution.resolution_to_distance(resolution, 0.979)
         param_list["fileinfo"]["prefix"] = samplePrefix
