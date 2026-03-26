@@ -12,7 +12,7 @@ from Cats90 import (
     SampleChangerState,
     BASKET_UNIPUCK,
 )
-
+from mxcubecore import HardwareRepository as HWR
 from SOLEIL.PX1.PX1Environment import EnvironmentPhase
 gevent.monkey.patch_all()
 
@@ -317,6 +317,7 @@ class PX1Cryotong(Cats90):
             return
 
         self._cmdDrySoak()
+        self._dry_and_soak_needed(False)
 
     def _do_safe(self):
         """
@@ -413,6 +414,9 @@ class PX1Cryotong(Cats90):
             else:
                 logging.getLogger("HWR").warning("  ==========CATS=== load sample, sending to cats:  %s" % argin)
                 self._execute_server_task(self._cmdLoad, argin)
+
+        self.environment.wait_ready()
+        HWR.beamline.diffractometer.mount_finished()
         #self.videohub_ho.select_camera("OAV", process="mount")
 
     def wait_countdown(self, timeout=20):

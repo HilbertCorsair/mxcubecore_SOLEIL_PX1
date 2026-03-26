@@ -341,14 +341,18 @@ class PX1XrayCentring(AbstractXrayCentring):
             sample = samples[position]
             if zoom_position != "zoom1":
                 self.minidiff.zoom._set_value(self.minidiff.zoom.VALUES['zoom1'])
+                #self.wait_envready()
                 gevent.sleep(10)
 
             self.minidiff.start_centring_method(self.minidiff.CENTRING_METHOD_AUTO)
             gevent.sleep(10)
+            #self.wait_envready()
             self.minidiff.zoom._set_value(self.minidiff.zoom.VALUES['zoom2'])
             gevent.sleep(6)
+            #self.wait_envready()
             self.minidiff.start_centring_method(self.minidiff.CENTRING_METHOD_AUTO)
             gevent.sleep(15)
+            #self.wait_envready()
 
             x1, y1, x2, y2 = self.generateGridFromAnalysis(self.minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False)
             zoom_position = self.minidiff.zoom.get_value()
@@ -384,34 +388,48 @@ class PX1XrayCentring(AbstractXrayCentring):
             grid1.selected = False
             self.graphics_manager_hwo.add_shape(grid1)
             self.flag_is_centring = True
-
+            param_list = self.prepareParamList( sample.get_id(), position)
+            HWR.beamline.collect.current_dc_parameters = param_list[0]
 
             self.do_xcentring(showReport=False) # This should avoid PopUp window of report
-            while (self.flag_is_centring):
+            while self.flag_is_centring :
                 time.sleep(1)
+
+            param_list[0]['motors'] = self.createMotorDict()
+            HWR.beamline.collect.current_dc_parameters = param_list[0]
+
 
             if self.found_spots:
                 # Generate a param_list to give to the collect
                 # A verifier qu le ID des samples change pour chaque itration.
-                param_list = self.prepareParamList( sample.get_id(), position)
+                #self.wait_envready()
 
+                time.sleep(5)
                 self.go_to_sampleview()
+
+                #self.wait_envready()
                 time.sleep(3)
                 imgPath1 = param_list[0]["fileinfo"]["archive_directory"] + '/' + param_list[0]["fileinfo"]["prefix"] + '_1_1.snapshot.jpeg'
                 self.minidiff.takePictureAnalysis(path=imgPath1)
+                #self.wait_envready()
                 time.sleep(2)
                 imgPath2 = param_list[0]["fileinfo"]["archive_directory"] + '/' + param_list[0]["fileinfo"]["prefix"] + '_1_2.snapshot.jpeg'
                 self.omega_mot.set_value(self.omega_mot.get_value() + 90)
+                #self.wait_envready()
                 time.sleep(3)
                 self.minidiff.takePictureAnalysis(path=imgPath2)
+                #self.wait_envready()
                 time.sleep(2)
 
                 # A verifier l'etat du PX1Cryotong
                 # HWR.beamline.sample_changer._wait_device_ready()
-                time.sleep(5)
 
-                HWR.beamline.collect.current_dc_parameters = param_list[0]
+                #param_list = self.prepareParamList( sample.get_id(), position)
+                #HWR.beamline.collect.current_dc_parameters = param_list[0]
+                print ("Waitin is over  - DO collect!")
+
                 HWR.beamline.collect.do_collect("mxcube")
+                #self.wait_envready()
                 gevent.sleep(20)
 
                 # delete shapes and reset all counters
@@ -568,7 +586,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         motors = self.createMotorDict()
         stringTimestamp = str(datetime.now())
         # TO DO put this in an config file
-        masterPath = "/data4/proxima1-soleil/"+ "2026_Run1/" + stringTimestamp[:10] + "/" + proposal + '/'
+        masterPath = "/data4/proxima1-soleil/"+ "2026_Run2/" + stringTimestamp[:10] + "/" + proposal + '/'
         #protocole =  HWR.beamline.lims.session_manager.active_session.number
         # ISPyB or param_list -- a implementer HWR.beamline.lims
         smp_list = HWR.beamline.lims.get_samples()
@@ -700,6 +718,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.log_msg("xcentring FINISHED")
         self.graphics_manager_hwo.end_xcentring()
         self.finish_centring()
+        self.flag_is_centring = False
 
     def xcentring_exception(self,task):
         log.debug('PX1XrayCentring - xcentring exception')
@@ -729,7 +748,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             # run the sequence
             self.emit('xcentringInfo', 'running', 'Preparing')
             #setting transmission to 20%
-            HWR.beamline.transmission.set_value(15)
+            HWR.beamline.transmission.set_value(25)
 
             self.prepare()
             self.prepare_report()
@@ -739,12 +758,14 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.moved = True
 
             #self.collect_snapshots(output_directory)
-            #self.snapshots_to_report()
-
-            self.omega_mot.sync_move(self.omega_saved)
+            #self.minidiff.wait_ready()
             gevent.sleep(1)
+            self.omega_mot.sync_move(self.omega_saved)
+
+            gevent.sleep(3)
 
             if not self.wait_envready():
+                print("DO XCENTRING waiting env ready")
                 self.emit('xcentringInfo', 'running', 'Error waiting for environment. Cannot continue')
                 return
 
@@ -753,6 +774,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             if not self.only_helical:
                 self.emit('xcentringInfo', 'running', 'Running mesh scan')
                 self.run_mesh()
+                self.minidiff.wait_device_ready( timeout = 20 )
                 self.zero_sgonaxis()
                 x, y, spots  = self.do_mesh_analysis()
                 axsnap = self.ax_snap[0]
@@ -768,7 +790,6 @@ class PX1XrayCentring(AbstractXrayCentring):
                     samples = HWR.beamline.sample_changer.get_sample_list()[:48]
                     self.emit('xcentringInfo', 'running', 'No result from mesh analysis')
                     self.finish_centring()
-                    self.flag_is_centring = False
                     return
                     HWR.beamline.sample_changer._do_load(sample=samples[positions[self.auto_collect_counter]], wash=False, souflette_time = False)
 
@@ -832,6 +853,9 @@ class PX1XrayCentring(AbstractXrayCentring):
 
             if None in self.Y:
                 self.emit('xcentringInfo', 'running', 'No spots in helical analysis')
+                self.finish_centring()
+                self.flag_is_centring = False
+                self.found_spots = False
                 return
                 raise Exception('No spots in helical analyis')
 
@@ -841,12 +865,22 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.move_motors(cpos)
             self.emit('xcentringInfo', 'running', 'Registering centered position')
             self.register_center_position(cpos)
+            time.sleep(5)
+            print("C'est fini !!! ")
+
         except BaseException as e:
             import traceback
             self.errmsg = str(e)
             self.errmsg = traceback.format_exc()
             log.debug(self.errmsg)
-            raise(e)
+            #try again :
+            try :
+                log.warning("First attempt at do_xraycentring failed. Attempting a secound time .... ")
+                self.do_xcentring()
+            except:
+                raise(e)
+            # raising error only after a secound attempt at do_xcentring
+
         finally:
             if not self.only_helical:
                 if self.fig:
@@ -860,14 +894,19 @@ class PX1XrayCentring(AbstractXrayCentring):
         gevent.sleep(7)
         self.flag_is_centring = False
 
+
+
     def zero_sgonaxis(self):
         log.debug("ZEROing sgonaxis axis")
         self.log_msg("ZEROing sgonaxis axis")
         self.sgonaxis_dev.x = 0.0
+        #self.minidiff.wait_device_ready( timeout = 20 )
         gevent.sleep(2)
         self.sgonaxis_dev.y = 0.0
+        #self.minidiff.wait_device_ready( timeout = 20 )
         gevent.sleep(2)
         self.sgonaxis_dev.z = 0.0
+        self.minidiff.wait_device_ready( timeout = 20 )
         gevent.sleep(2)
         log.debug("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % \
             (self.sgonaxis_dev.x, self.sgonaxis_dev.y, self.sgonaxis_dev.z))
@@ -1187,7 +1226,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         while self.is_running():
             elapsed = time.time() - t0
             if elapsed > timeout:
-                 break
+                break
             # log.debug('COLLECT IS RUNNING')
             gevent.sleep(0.5)
 
@@ -1289,7 +1328,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         copyfile(log_filename, os.path.join(output_dir, helical_log_filename))
 
         # now this is a line. just get the list with spot numbers
-
         spots = self.get_spots(log_filename, helical=True)
 
         if self.testmode:
@@ -1507,8 +1545,11 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.set_prefix(self.default_prefix)
         dtime = datetime.now()
         dtime_str = '{0.year}{0.month:02d}{0.day:02d}_{0.hour:02d}{0.minute:02d}'.format(dtime)
-        dirname = '%s_%s' % (self.get_prefix(), dtime_str)
 
+        samplename = HWR.beamline.collect.current_dc_parameters["fileinfo"]["prefix"]
+        log.debug(f"SAMPLE name used in setting base directories {samplename}")
+        dirname = '%s_%s_%s' % (self.get_prefix(), samplename, dtime_str)
+        log.debug(f"base directories dirname is :  {dirname}")
         base_directory = self.session_hwo.get_image_directory("")
         output_directory = self.session_hwo.get_archive_directory()
 
@@ -1524,6 +1565,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.report_image = os.path.join(output_directory, 'report_xraycent.png')
         self.filename_mesh = os.path.join(output_directory, 'mesh_only.png')
         self.log_file = os.path.join(output_directory, 'log_report.txt')
+
+
 
     def set_base_directory(self,directory):
         log.debug("PX1XrayCentring - setting base directory to be %s" % directory)
@@ -1602,21 +1645,15 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.lightarm_hwo._adjust_light_level()
         return self.is_sampleview_phase()
 
-    def wait_envready(self,timeout=20):
-        start_time = datetime.now()
-        while True:
-            env_state = self.px1env_hwo.get_state()
-            if env_state not in  ["RUNNING", "MOVING"]:
-                break
-
-            t0 = (datetime.now() - start_time).seconds
-
-            if time.time() - t0 > timeout:
-                log.debug("PX1XrayCentring: timeout sending supervisor to sample view phase")
-                break
+    def wait_envready(self,timeout=40):
+        start_time = time.time()
+        while self.px1env_hwo.is_busy():
+            print(f"Waining env ready ..... state : {self.px1env_hwo.get_state()}")
             gevent.sleep(0.5)
+            if time.time() - start_time > timeout:
+                log.debug("PX1XrayCentring: timeout sending supervisor to sample view phase")
+                return False
         return True
-
 
     def is_collect_phase(self):
         return self.px1env_hwo.is_phase_collect()

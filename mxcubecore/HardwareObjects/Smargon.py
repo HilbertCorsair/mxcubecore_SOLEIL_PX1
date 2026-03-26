@@ -87,7 +87,6 @@ class Smargon(HardwareObject):
        # if self._state_chan is None:
        #     self.init()
         try :
-
             state = str(self.smargon._state_chan.get_value())
         except:
             # Hack to deal with the case in which self is of class Smargon not SmargonAxis
@@ -165,19 +164,7 @@ class Smargon(HardwareObject):
 
     def get_motor_from_signal(self, signal_name):
         return next((motor for motor, signal in self.signas.items() if signal == signal_name),None)
-    """
-        for motor in self.signals:
-            if self.signals[motor] == signal_name:
-                return motor
-        return None
 
-    def get_state(self):
-        print("------------- IN SMARGON GET STATE----------------------------")
-        state = str(self._state_chan.get_value())
-        if state != self.state:
-            self.state_changed(state)
-        return state
-    """
     def get_position(self, motor_name):
         motor_chan = self.motor_channels[motor_name]
         motor_position = motor_chan.get_value()
@@ -296,7 +283,7 @@ class Smargon(HardwareObject):
         logging.getLogger("HWR").debug( "Smargon. Setting freeze to: %s" % onoff)
         self._freeze_chan.set_value(onoff)
 
-    def wait_notready(self, timeout=15):
+    def wait_notready(self, timeout=40):
         t0 = time.time()
 
         while self.is_ready():
@@ -304,7 +291,7 @@ class Smargon(HardwareObject):
                 raise Timeout
             gevent.sleep(0.03)
 
-    def wait_ready(self,timeout=20):
+    def wait_ready(self,timeout=40):
         t0 = time.time()
 
         while self.backlash_task_running:
@@ -315,7 +302,7 @@ class Smargon(HardwareObject):
 
         self._wait_ready(timeout)
 
-    def _wait_ready(self, timeout=20):
+    def _wait_ready(self, timeout=40):
         t0 = time.time()
         logging.getLogger("HWR").debug("SMARGON not yet ready, please wait a few seconds ..... " )
 

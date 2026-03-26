@@ -116,8 +116,8 @@ class PX1Environment(HardwareObject):
         return str(self.state_chan.get_value())
 
     def is_busy(self, timeout=None):
-        state = self.state_chan.get_value()
-        return state not in [EnvironmentState.ON]
+        state = self.state_chan.get_value().name
+        return not state in ['ON', "STANDBY"]
 
     def wait_ready(self, timeout=None):
         print('Waiting in PX1ENV . ................')
@@ -126,7 +126,6 @@ class PX1Environment(HardwareObject):
     def _wait_state(self, states, timeout=None):
         if self.device is None:
             return
-
 
         with gevent.Timeout(timeout, Exception("Timeout waiting for device ready")):
             while self.state_chan.get_value().name not in states:

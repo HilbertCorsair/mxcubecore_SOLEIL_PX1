@@ -364,36 +364,27 @@ class CustomISPyBDataAdapter(ISPyBDataAdapter):
             for session in sessions:
 
                 beamline=self.check_to_string(session['beamlineName'])
-                start_date="%s 08:00:00" % self.check_to_string(session['startDate'])
-                end_date="%s 23:59:59" % self.check_to_string(session['endDate'])
-                start_date = start_date.split()[0]
-                end_date = end_date.split()[0]
+                start_date=self.check_to_string(session['startDate'])
+                end_date= self.check_to_string(session['endDate'])
+                #start_date = start_date.split()[0]
+                #end_date = end_date.split()[0]
 
-                try:
-                    start_struct=time.strptime(start_date,"%Y-%m-%d %H:%M:%S")
-                except ValueError:
-                    pass
-                else:
-                    try:
-                        end_struct=time.strptime(end_date,"%Y-%m-%d %H:%M:%S")
-                    except ValueError:
-                        pass
-                    else:
-                        start_time=time.mktime(start_struct)
-                        end_time=time.mktime(end_struct)
-                        current_time=time.time()
-                        # Check beamline name
-                        if beamline==self.beamline_name:
+                start_struct=time.strptime(start_date,"%Y-%m-%d %H:%M:%S")
+                end_struct=time.strptime(end_date,"%Y-%m-%d %H:%M:%S")
 
-                            # Check date
-                            if current_time>=start_time and current_time<=end_time:
-                                todays_session=session
-                                # Adding extra info to pass along
-                                todays_session['proposalNumber']=prop['Proposal']['number']
-                                todays_session['proposalTitle']=prop['Proposal']['title']
-                                todays_session['proposalCode']=prop['Proposal']['code']
+                start_time=time.mktime(start_struct)
+                end_time=time.mktime(end_struct)
+                current_time=time.time()
+                # Check beamline name
+                if beamline==self.beamline_name:
 
-                                break
+                    # Check date
+                    if current_time>=start_time and current_time<=end_time:
+                        todays_session=session
+                        # Adding extra info to pass along
+                        todays_session['proposalNumber']=prop['Proposal']['number']
+                        todays_session['proposalTitle']=prop['Proposal']['title']
+                        todays_session['proposalCode']=prop['Proposal']['code']
 
 
         if todays_session:
@@ -879,7 +870,7 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         # user selected a session that does not exist yet,
         # ask ISPyB to create it
         #
-        if _is_lazy_session_id(session_id):
+        if _is_lazy_session_id(str(session_id)):
             session = self.adapter.create_session(
                 session.proposal_id, session.beamline_name
             )

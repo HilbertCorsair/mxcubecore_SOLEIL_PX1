@@ -651,6 +651,7 @@ class PX1MiniDiff(GenericDiffractometer):
         try:
             pin_length_pos = float(self.px1conf_ho.get_pin_length())
             goto = float(pin_length_pos)
+            logging.getLogger("HWR").debug(f"PX1MiniDiff --->  pin length value is: {pin_length_pos}")
             if abs(goto) > 4:
                 logging.getLogger("HWR").debug(" pin length position %s is maybe too big?" % goto)
                 return
