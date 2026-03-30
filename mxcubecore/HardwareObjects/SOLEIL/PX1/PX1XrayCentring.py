@@ -318,8 +318,11 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.auto_collect_counter = 1
         with open('/home/experiences/proxima1/com-proxima1/arthur_mxcube/WebApp/config/paramRange.xml') as fd:
             doc = xmltodict.parse(fd.read())
-        dataPositions = self.convert_xml_dict(doc)
-        dataPositions = dataPositions['root']
+        dataPositions = self.convert_xml_dict(doc)['root']
+
+        #Get transmission and remove it from datapositions
+        transmission_xray_value = dataPositions.pop('transmission_xray_centring')
+
         positions = self.convert_dict_range(dataPositions)
 
 
@@ -393,7 +396,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
             HWR.beamline.collect.current_dc_parameters = param_list[0]
 
-            self.do_xcentring(showReport=False) # This should avoid PopUp window of report
+            self.do_xcentring(showReport=False, transmission=transmission_xray_value) # This should avoid PopUp window of report
             while self.flag_is_centring :
                 time.sleep(1)
 
@@ -587,8 +590,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         proteinAcronym = currentSample['proteinAcronym']
         sampleName = currentSample['sampleName']
         samplePrefix = proteinAcronym + "-" + sampleName
-        exposureTime = 0.02
-        oscillationRange = 0.2
         runNumber = 1
         proposal = HWR.beamline.lims.session_manager.active_session.number
         sessionID =  HWR.beamline.lims.session_manager.active_session.session_id
@@ -609,8 +610,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         param_list["sample_reference"]["blSampleId"] = blSampleID
         param_list['sample_reference']['sample_name'] = sampleName
         param_list['sample_reference']['acronym'] = proteinAcronym
-        param_list['oscillation_sequence'][0]['exposure_time'] = exposureTime
-        param_list['oscillation_sequence'][0]['range'] = oscillationRange
         param_list["EDNA_files_dir"] = masterPath + "PROCESSED_DATA"
         param_list['motors'] = motors
         param_list['blSampleId'] = blSampleID
@@ -740,7 +739,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.close_report_display()
 
     # MAIN CENTRING routine
-    def  do_xcentring(self, showReport=True):
+    def  do_xcentring(self, showReport=True, transmission=25):
         try:
             log.debug('PX1XrayCentring - running xcentring')
 
@@ -750,12 +749,12 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.errmsg = ""
 
             # decide file output, directory, template
-            #base_directory = self.get_base_directory()
-            #output_directory = self.get_process_directory()
+            base_directory = self.get_base_directory()
+            output_directory = self.get_process_directory()
             # run the sequence
             self.emit('xcentringInfo', 'running', 'Preparing')
-            #setting transmission to 20%
-            HWR.beamline.transmission.set_value(25)
+            
+            HWR.beamline.transmission.set_value(transmission)
 
             self.prepare()
             self.prepare_report()
@@ -764,7 +763,8 @@ class PX1XrayCentring(AbstractXrayCentring):
             #self.emit('xcentringInfo', 'running', 'Collecting snapshots')
             self.moved = True
 
-            #self.collect_snapshots(output_directory)
+            self.collect_snapshots(output_directory)
+            self.snapshots_to_report()
             self.minidiff.wait_ready()
             self.omega_mot.sync_move(self.omega_saved)
 
@@ -873,7 +873,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             #try again :
             try :
                 log.warning("First attempt at do_xraycentring failed. Attempting a secound time .... ")
-                self.do_xcentring()
+                self.do_xcentring(showReport=False)
             except:
                 raise(e)
             # raising error only after a secound attempt at do_xcentring
@@ -1588,17 +1588,18 @@ class PX1XrayCentring(AbstractXrayCentring):
     #
     # Supporting actions
     #
-    '''def collect_snapshots(self,output_directory):
+    def collect_snapshots(self,output_directory):
         """
         Descript. :
         """
+        '''
         if not self.is_sampleview_phase():
             self.go_to_sampleview()
             gevent.sleep(2) # allow time to refresh display after
 
         self.lightarm_hwo.adjustLightLevel()
         gevent.sleep(2) # allow time to refresh display after
-
+        '''
         snapshot_name = '%s_snapshot_0.png' % self.get_prefix()
         snapshot_filename = os.path.join(output_directory, snapshot_name)
 
@@ -1618,8 +1619,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         #  self.snapshot_image = self.graphics_manager_hwo.save_scene_snapshot(filename_noshape, return_as_array=True, include_items=False)
 
     def save_snapshot(self, filename):
-        self.graphics_manager_hwo.save_scene_snapshot(filename, include_items=False)
-        log.debug("PX1Collect:  - snapshot saved to %s" % filename)'''
+        self.minidiff.takePictureAnalysis(path=filename)
+        log.debug("PX1Collect:  - snapshot saved to %s" % filename)
 
     def is_sampleview_phase(self):
         return self.px1env_hwo.is_phase_visu_sample()
@@ -1878,7 +1879,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         axheat.set_yticklabels(ylabels, fontsize=8)
 
         self.show_grid(axheat)
-        #self.show_snapshot(axheat,0)
+        self.show_snapshot(axheat,0)
         self.show_spots(axheat, spots, show_values=True)
         self.show_center(axheat)
 
@@ -1944,7 +1945,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         h = self.helical_y_step
 
         axheat.axis([self.x_best-w/2.0-2*w, self.x_best+w/2.0+2*w, y_end, y_start])
-        #self.show_snapshot(axheat,helicalno+1)
+        self.show_snapshot(axheat,helicalno+1)
         xticks = [self.x_best,]
         xlabels = ["%.3f" % self.x_best, ]
         ylabels = [ "%.3f" % label for label in y_positions]
@@ -1967,7 +1968,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             axsnap.add_patch(p2)
             axheat.text(xc-w/3.0,yc+h/2.0,str(val), fontsize=7)
 
-    '''def snapshots_to_report(self):
+    def snapshots_to_report(self):
 
         snap_titles = ["MESH", "Helical@ omega+120", "Helical@ omega+240"]
 
@@ -1982,7 +1983,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         image = plt.imread(snapshot_filename)
         total_range = self.snapshot_info[snap_no]['range']
         log.debug(" - showing snapshot %d - total_range is %s" % (snap_no, str(total_range)))
-        ax.imshow(image, extent=total_range)'''
+        ax.imshow(image, extent=total_range)
 
     def show_grid(self, mpl_axis, helical=False):
         if helical:
