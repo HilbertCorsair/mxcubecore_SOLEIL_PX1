@@ -100,10 +100,12 @@ class PX1BeamlineActions(BeamlineActions):
 
         xc = self.get_object_by_role("xray_centring")
         if xc is not None and hasattr(xc, "run_unattended_for_queued_samples"):
+            # Stable id for API/UI; userName() is the label in mxcubeweb beamline_get_all_attributes.
             self.ctrl_list.append(
                 ControllerCommand(
-                    "Unattended collect (queued samples)",
+                    "UnattendedCollectQueuedSamples",
                     xc.run_unattended_for_queued_samples,
+                    "Unattended collect (queued samples)",
                 )
             )
 
