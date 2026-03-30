@@ -98,6 +98,15 @@ class PX1BeamlineActions(BeamlineActions):
         except AttributeError:
             pass
 
+        xc = self.get_object_by_role("xray_centring")
+        if xc is not None and hasattr(xc, "run_unattended_for_queued_samples"):
+            self.ctrl_list.append(
+                ControllerCommand(
+                    "Unattended collect (queued samples)",
+                    xc.run_unattended_for_queued_samples,
+                )
+            )
+
     def get_commands(self):
         """Get which objects to be used in the GUI
         Returns:

@@ -850,6 +850,33 @@ class SampleChanger(Container, HardwareObject):
     def trigger_progress_message(self, message: str):
         self.emit(self.PROGRESS_MESSAGE, (message,))
 
+    def force_emit_signals(self):
+        """Re-broadcast current state for UIs that subscribed after hardware init (e.g. web)."""
+        try:
+            self._trigger_state_changed_event(self.state)
+        except Exception:
+            logging.getLogger("HWR").exception(
+                "SampleChanger.force_emit_signals: stateChanged"
+            )
+        try:
+            self._trigger_status_changed_event()
+        except Exception:
+            logging.getLogger("HWR").exception(
+                "SampleChanger.force_emit_signals: statusChanged"
+            )
+        try:
+            self._trigger_info_changed_event()
+        except Exception:
+            logging.getLogger("HWR").exception(
+                "SampleChanger.force_emit_signals: infoChanged"
+            )
+        try:
+            self._trigger_loaded_sample_changed_event(self.get_loaded_sample())
+        except Exception:
+            logging.getLogger("HWR").exception(
+                "SampleChanger.force_emit_signals: loadedSampleChanged"
+            )
+
     # ########################    PRIVATE    #########################
 
     def _trigger_state_changed_event(self, former):

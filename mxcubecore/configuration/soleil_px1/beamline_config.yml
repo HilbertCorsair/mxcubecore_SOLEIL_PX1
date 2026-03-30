@@ -47,6 +47,8 @@ _objects:
   - lims: dbconnection.xml
   - queue_manager: queue.xml
   - queue_model: queue-model.xml
+  - xray_centring: px1-xray-centring.xml
+  - beamline_actions: beamcmds.xml
   # Procedures:
   - collect: mxcollect.xml
   - xrf_spectrum: xrf-spectrum-mockup.xml
@@ -106,6 +108,78 @@ default_acquisition_parameters:
     cell_counting: inverse-zig-zag
     cell_spacing: vertical,horizontal
     mesh_center: top-left
+
+# Template for unattended_collect / queue-driven x-ray centring collect.
+# Paths, sessionId, sample_reference, motors, EDNA_files_dir, and detector_distance
+# are overridden at runtime from LIMS/session/hardware; edit static defaults here.
+default_unattended_data_collection_parameters:
+  comments: ""
+  take_video: false
+  take_snapshots: 4
+  fileinfo:
+    directory: /data4/proxima1-soleil/2026_Run1/2025-10-09/20100023/RAW_DATA
+    prefix: MyoII-lysi01_09
+    runNumber: 1
+    archive_directory: /data4/proxima1-soleil/2026_Run1/2025-10-09/20100023/ARCHIVE
+    process_directory: /data4/proxima1-soleil/2026_Run1/2025-10-09/20100023/PROCESSED_DATA
+    template: MyoII-lysi01_09_1_%04d.h5
+    compression: false
+  in_queue: false
+  in_interleave: null
+  detector_binning_mode: 1
+  detector_roi_mode: null
+  shutterless: true
+  sessionId: 46896
+  do_inducedraddam: false
+  sample_reference:
+    spacegroup: ""
+    cell: ",,,,,"
+    blSampleId: 14
+    sample_name: lysi01_09
+    acronym: MyoII
+  processing: "True"
+  processing_offline: true
+  processing_online: false
+  residues: 200
+  dark: 1
+  resolution:
+    upper: 2.0
+  transmission: 100
+  energy: 12.67
+  oscillation_sequence:
+    - exposure_time: 0.0
+      kappaStart: 0
+      phiStart: 0
+      start_image_number: 1
+      number_of_images: 1800
+      overlap: 0
+      start: 0
+      range: 0.1
+      number_of_passes: 1
+      number_of_lines: 1
+      mesh_range: 0
+      num_triggers: 0
+      num_images_per_trigger: 0
+  group_id: null
+  EDNA_files_dir: /data4/proxima1-soleil/2025_Run2/2025-10-09/20100023/PROCESSED_DATA
+  xds_dir: ""
+  anomalous: false
+  experiment_type: OSC
+  skip_images: false
+  position_name: Point-1
+  motors:
+    phi: 200.004484375
+    phiz: 0.19153252
+    phiy: -1.1764268595849066
+    sampx: 0.15338704116266022
+    sampy: 0.15986878079949723
+    kappa: -1.6742011532187464e-05
+    kappa_phi: -0.00010000000149011611
+    beam_x: null
+    beam_y: null
+    zoom: null
+  ispyb_group_data_collections: false
+  workflow_parameters: {}
 
 # advanced:
 #   # Defaults for 'advanced' acquisition. Missing values are taken from default

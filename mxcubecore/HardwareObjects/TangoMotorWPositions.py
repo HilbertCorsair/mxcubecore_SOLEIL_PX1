@@ -60,6 +60,7 @@ class TangoMotorWPositions(AbstractNState):
         super().init()
 
         self.tango_name = self.get_property("tangoname")
+        self.tangoname = self.tango_name
         self._add_position_commands()
         self.parse_xml_config()
 
@@ -189,16 +190,15 @@ class TangoMotorWPositions(AbstractNState):
         curr_name = ''
         valid = False
 
-        for name in self.position_names:
-            offs = self.positions[name]['offset']
+        for name, pdata in self.positions.items():
+            offs = float(pdata["offset"])
             dist = abs(offs - pos)
             if dist < min_dist:
                 min_dist = dist
                 curr_name = name
 
-        if curr_name:
-            if min_dist <= self.delta:
-                valid = True
+        if curr_name and min_dist <= float(self.delta):
+            valid = True
 
         return curr_name, pos, valid
 
@@ -206,7 +206,6 @@ class TangoMotorWPositions(AbstractNState):
     def get_properties(self, name=None):
         pos = self.get_value()
         values = self.positions[pos] if not name else self.positions[name]
-
         return values
 
 

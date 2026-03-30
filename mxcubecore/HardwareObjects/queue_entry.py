@@ -1823,52 +1823,93 @@ class OpticalCentringQueueEntry(BaseQueueEntry):
     def get_type_str(self):
         return "Optical automatic centring"
 
-def mount_sample(beamline_setup_hwobj,
-                 view, data_model,
-                 centring_done_cb, async_result, wash=False):
 
-    centring_method = view.listView().parent().parent().centring_method
+def sample_data_model_from_web_sample(sample_dict):
+    """Build a queue Sample model from mxcubeweb sample list JSON (mount API)."""
+    sm = queue_model_objects.Sample()
+    loc_key = sample_dict.get("location") or sample_dict.get("sampleID") or ""
+    if isinstance(loc_key, str) and ":" in loc_key:
+        parts = loc_key.split(":", 1)
+        try:
+            sm.location = (int(parts[0].strip()), int(parts[1].strip()))
+            sm.loc_str = "%s:%s" % (sm.location[0], sm.location[1])
+        except ValueError:
+            sm.location = (None, None)
+    sm.code = sample_dict.get("code") or sample_dict.get("crystalUUID") or ""
+    lims_id = sample_dict.get("limsID", -1)
+    try:
+        sm.lims_id = int(lims_id)
+    except (TypeError, ValueError):
+        sm.lims_id = -1
+    sm.holder_length = float(sample_dict.get("holderLength", 22.0))
+    pa = sample_dict.get("proteinAcronym") or ""
+    sn = sample_dict.get("sampleName") or ""
+    sm.crystals[0].protein_acronym = pa
+    if sn:
+        sm.name = sn
+        sm.set_name(("%s-%s" % (pa, sn)) if pa else sn)
+    return sm
+
+
+def _mount_sample_view_set_text(view, col, text):
+    if view is None:
+        return
+    try:
+        view.setText(col, text)
+    except Exception:
+        logging.getLogger("HWR").debug("mount_sample: cannot update queue view text")
+
+
+def mount_sample_core(
+    beamline_setup_hwobj,
+    data_model,
+    centring_method,
+    centring_done_cb,
+    async_result,
+    wash=False,
+    view=None,
+):
+    """
+    Mount sample and run post-mount centring without requiring a Qt queue list view.
+    Used by mount_sample (queue UI) and mxcubeweb SampleChanger.
+    """
+    log = logging.getLogger("queue_exec")
 
     if not wash:
-        view.setText(1, "Loading sample")
+        _mount_sample_view_set_text(view, 1, "Loading sample")
     else:
-        view.setText(1, "Washing sample")
+        _mount_sample_view_set_text(view, 1, "Washing sample")
 
     if not wash:
         if not beamline_setup_hwobj.in_chip_mode():
             beamline_setup_hwobj.shape_history_hwobj.clear_all()
 
-    log = logging.getLogger("queue_exec")
-
     loc = data_model.location
     holder_length = data_model.holder_length
 
+    robot_action_dict = {
+        "actionType": "LOAD",
+        "containerLocation": loc[1],
+        "dewarLocation": loc[0],
+        "sampleBarcode": data_model.code,
+        "sampleId": data_model.lims_id,
+        "sessionId": beamline_setup_hwobj.session_hwobj.session_id,
+        "startTime": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "xtalSnapshotBefore": data_model.get_snapshot_filename(prefix="before"),
+        "xtalSnapshotAfter": data_model.get_snapshot_filename(prefix="after"),
+    }
 
-    robot_action_dict = {"actionType": "LOAD",
-                         "containerLocation": loc[1],
-                         "dewarLocation": loc[0],
-                         "sampleBarcode": data_model.code,
-                         "sampleId": data_model.lims_id,
-                         "sessionId": beamline_setup_hwobj.session_hwobj.session_id,
-                         "startTime": time.strftime("%Y-%m-%d %H:%M:%S"),
-                         "xtalSnapshotBefore": data_model.get_snapshot_filename(prefix="before"),
-                         "xtalSnapshotAfter": data_model.get_snapshot_filename(prefix="after")}
-
-    # This is a possible solution how to deal with two devices that
-    # can move sample on beam (sample changer, plate holder, in future
-    # also harvester)
-    # TODO make sample_Changer_one, sample_changer_two
     if beamline_setup_hwobj.diffractometer_hwobj.in_plate_mode():
         sample_mount_device = beamline_setup_hwobj.plate_manipulator_hwobj
     elif beamline_setup_hwobj.in_chip_mode():
-        logging.getLogger("HWR").debug("   using chip manager" )
+        logging.getLogger("HWR").debug("   using chip manager")
         sample_mount_device = beamline_setup_hwobj.chip_manager_hwobj
     else:
         sample_mount_device = beamline_setup_hwobj.sample_changer_hwobj
 
-    if hasattr(sample_mount_device, '__TYPE__'):
-        if sample_mount_device.__TYPE__ in ['Marvin','CATS']:
-            element = '%d:%02d' % loc
+    if hasattr(sample_mount_device, "__TYPE__"):
+        if sample_mount_device.__TYPE__ in ["Marvin", "CATS"]:
+            element = "%d:%02d" % loc
             if wash:
                 diffractometer_device = beamline_setup_hwobj.diffractometer_hwobj
                 saved_diffr_positions = diffractometer_device.get_motor_positions()
@@ -1883,108 +1924,169 @@ def mount_sample(beamline_setup_hwobj,
         elif sample_mount_device.__TYPE__ == "PlateManipulator":
             sample_mount_device.load_sample(sample_location=loc)
         elif sample_mount_device.__TYPE__ == "ChipManager":
-            logging.getLogger("HWR").debug("  Mounting with ChipManager. location is %s" % str(loc))
+            logging.getLogger("HWR").debug(
+                "  Mounting with ChipManager. location is %s" % str(loc)
+            )
             sample_mount_device.goto_sample(sample_location=loc)
         else:
-            if sample_mount_device.load_sample(holder_length, sample_location=loc, wait=True) == False:
-                # WARNING: explicit test of False return value.
-                # This is to preserve backward compatibility (load_sample was supposed to return None);
-                # if sample could not be loaded, but no exception is raised, let's skip the sample
-                raise QueueSkippEntryException("Sample changer could not load sample", "")
+            if (
+                sample_mount_device.load_sample(
+                    holder_length, sample_location=loc, wait=True
+                )
+                == False
+            ):
+                raise QueueSkippEntryException(
+                    "Sample changer could not load sample", ""
+                )
 
     robot_action_dict["endTime"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
     if sample_mount_device.hasLoadedSample():
-        robot_action_dict['status'] = "SUCCESS"
+        robot_action_dict["status"] = "SUCCESS"
     else:
-        logging.getLogger("HWR").debug("   loading did not success" )
-        robot_action_dict['message'] = "Sample was not loaded"
-        robot_action_dict['status'] = "ERROR"
+        logging.getLogger("HWR").debug("   loading did not success")
+        robot_action_dict["message"] = "Sample was not loaded"
+        robot_action_dict["status"] = "ERROR"
+
+    lims = getattr(beamline_setup_hwobj, "lims_client_hwobj", None)
+    if lims is None:
+        try:
+            from mxcubecore import HardwareRepository as HWR
+
+            lims = HWR.beamline.lims
+        except Exception:
+            lims = None
+    if lims is not None and hasattr(lims, "store_robot_action"):
+        try:
+            lims.store_robot_action(robot_action_dict)
+        except Exception:
+            logging.getLogger("HWR").exception("store_robot_action failed after mount")
 
     if beamline_setup_hwobj.in_chip_mode():
-        # no lims no centring in chip mode
         if sample_mount_device.hasLoadedSample():
-            view.setText(1, "Sample loaded")
+            _mount_sample_view_set_text(view, 1, "Sample loaded")
         else:
-            view.setText(1, "Sample not loaded")
+            _mount_sample_view_set_text(view, 1, "Sample not loaded")
         return
 
     if not sample_mount_device.hasLoadedSample():
-        #Disables all related collections
-        logging.getLogger("HWR").debug("   sample not loaded" )
-        view.setOn(False)
-        view.setText(1, "Sample not loaded")
+        logging.getLogger("HWR").debug("   sample not loaded")
+        try:
+            if view is not None:
+                view.setOn(False)
+        except Exception:
+            pass
+        _mount_sample_view_set_text(view, 1, "Sample not loaded")
         raise QueueSkippEntryException("Sample not loaded", "")
-    else:
-        in_collision = False
-        try:
-            if sample_mount_device.gonioCollisionDetected():
-                logging.getLogger("HWR").debug("   cats in collision state")
-                in_collision = True
-        except:
-            logging.getLogger("HWR").debug("   cannot obtain collision state from sample changer" )
 
-        try:
-            view.setText(1, "Sample loaded")
-        except:
-            logging.getLogger("HWR").debug("   cannot display loaded message" )
+    in_collision = False
+    try:
+        if sample_mount_device.gonioCollisionDetected():
+            logging.getLogger("HWR").debug("   cats in collision state")
+            in_collision = True
+    except Exception:
+        logging.getLogger("HWR").debug(
+            "   cannot obtain collision state from sample changer"
+        )
 
-        if in_collision:
-            logging.getLogger("HWR").debug("   not starting centring procedure as collision detected on gonio" )
+    _mount_sample_view_set_text(view, 1, "Sample loaded")
+
+    if in_collision:
+        logging.getLogger("HWR").debug(
+            "   not starting centring procedure as collision detected on gonio"
+        )
+        return
+
+    dm = beamline_setup_hwobj.diffractometer_hwobj
+    gm = beamline_setup_hwobj.shape_history_hwobj
+
+    if dm is None:
+        return
+
+    if hasattr(sample_mount_device, "__TYPE__"):
+        if sample_mount_device.__TYPE__ in (
+            "Marvin",
+            "PlateManipulator",
+            "ChipManager",
+        ):
             return
 
-        dm = beamline_setup_hwobj.diffractometer_hwobj
-        gm = beamline_setup_hwobj.shape_history_hwobj
+    none_method = getattr(CENTRING_METHOD, "NONE", None)
+    if none_method is not None and centring_method == none_method:
+        return
 
-        if dm is not None:
-            if hasattr(sample_mount_device, '__TYPE__'):
-                if sample_mount_device.__TYPE__  in ('Marvin', 'PlateManipulator', 'ChipManager'):
-                    return
-            try:
-                dm.mount_finished(wash=wash)
-                dm.connect("centringAccepted", centring_done_cb)
-                #TODO store current centring method in minidiff
-                #centring_method = view.listView().parent().parent().\
-                #                  centring_method
+    try:
+        dm.mount_finished(wash=wash)
+        dm.connect("centringAccepted", centring_done_cb)
 
-                if centring_method == CENTRING_METHOD.MANUAL:
-                    log.debug("Manual centring used, waiting for" +\
-                                " user to center sample")
-                    gm.start_centring(tree_click=True)
+        if centring_method == CENTRING_METHOD.MANUAL:
+            log.debug(
+                "Manual centring used, waiting for" + " user to center sample"
+            )
+            gm.start_centring(tree_click=True)
 
-                elif centring_method == CENTRING_METHOD.LOOP:
-                    dm.start_centring_method(dm.CENTRING_METHOD_AUTO)
-                    log.debug("Centring in progress. Please save" +\
-                                " the suggested centring or re-center")
-
-                elif centring_method == CENTRING_METHOD.FULLY_AUTOMATIC:
-                    log.info("Centring sample, please wait.")
-                    dm.start_centring_method(dm.CENTRING_METHOD_AUTO)
-
-                else:
-                    dm.start_centring_method(dm.CENTRING_METHOD_MANUAL)
-
+        elif centring_method == CENTRING_METHOD.LOOP:
+            if hasattr(dm, "reject_centring"):
                 try:
-                    view.setText(1, "Centring !")
-                except:
+                    dm.reject_centring()
+                except Exception:
                     pass
+            mode = (
+                dm.C3D_MODE if hasattr(dm, "C3D_MODE") else dm.CENTRING_METHOD_AUTO
+            )
+            dm.start_centring_method(mode)
+            log.debug(
+                "Centring in progress. Please save"
+                + " the suggested centring or re-center"
+            )
 
-                centring_result = async_result.get()
-                if centring_result['valid']:
-                    try:
-                       view.setText(1, "Centring done !")
-                    except:
-                       pass
-                    log.info("Centring saved")
-                else:
-                    if centring_method == CENTRING_METHOD.FULLY_AUTOMATIC:
-                        raise QueueSkippEntryException("Could not center sample, skipping", "")
-                    else:
-                        raise RuntimeError("Could not center sample")
-            except Exception as ex:
-                log.exception('Could not center sample: ' + str(ex))
-            finally:
-                dm.disconnect("centringAccepted", centring_done_cb)
+        elif centring_method == CENTRING_METHOD.FULLY_AUTOMATIC:
+            log.info("Centring sample, please wait.")
+            mode = (
+                dm.C3D_MODE if hasattr(dm, "C3D_MODE") else dm.CENTRING_METHOD_AUTO
+            )
+            dm.start_centring_method(mode)
+
+        else:
+            dm.start_centring_method(dm.CENTRING_METHOD_MANUAL)
+
+        _mount_sample_view_set_text(view, 1, "Centring !")
+
+        centring_result = async_result.get()
+        if centring_result["valid"]:
+            _mount_sample_view_set_text(view, 1, "Centring done !")
+            log.info("Centring saved")
+        else:
+            if centring_method == CENTRING_METHOD.FULLY_AUTOMATIC:
+                raise QueueSkippEntryException(
+                    "Could not center sample, skipping", ""
+                )
+            else:
+                raise RuntimeError("Could not center sample")
+    except Exception:
+        logging.getLogger("queue_exec").exception("Could not center sample")
+        raise
+    finally:
+        try:
+            dm.disconnect("centringAccepted", centring_done_cb)
+        except Exception:
+            pass
+
+
+def mount_sample(beamline_setup_hwobj, view, data_model, centring_done_cb, async_result, wash=False):
+    centring_method = view.listView().parent().parent().centring_method
+    mount_sample_core(
+        beamline_setup_hwobj,
+        data_model,
+        centring_method,
+        centring_done_cb,
+        async_result,
+        wash=wash,
+        view=view,
+    )
+
+
+
 
 MODEL_QUEUE_ENTRY_MAPPINGS = \
     {queue_model_objects.DataCollection: DataCollectionQueueEntry,

@@ -33,8 +33,8 @@ class PX1BeamInfo(BeamInfo):
         BeamInfo.init(self)
 
         self.zoomMotor = self.get_object_by_role("zoom")
-        self.zoomMotor.init()
-        self.current_zoom = self.zoomMotor.get_value()
+        gv = self.zoomMotor.get_value() if self.zoomMotor else None
+        self.current_zoom = getattr(gv, "value", gv)
         #beam_size_slits = self.get_property("beam_size_slits")
 
 
@@ -64,8 +64,16 @@ class PX1BeamInfo(BeamInfo):
         self.beam_definer = self.get_object_by_role("beam_definer")
 
     def zoomPositionChanged(self, name=None, offset=None):
-        if not self.current_zoom:
-            self.current_zoom = self.zoomMotor.get_value()
+        if name:
+            self.current_zoom = name
+        elif self.zoomMotor is not None:
+            gv = self.zoomMotor.get_value()
+            self.current_zoom = getattr(gv, "value", gv)
+        if (
+            not self.current_zoom
+            or self.current_zoom not in self.zoomMotor.positions
+        ):
+            return
         zoom_props = self.zoomMotor.positions[self.current_zoom]["calibrationData"]
 
         if "beamPositionX" in zoom_props:

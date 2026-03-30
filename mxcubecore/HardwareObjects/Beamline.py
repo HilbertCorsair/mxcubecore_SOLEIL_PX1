@@ -127,6 +127,9 @@ class Beamline(ConfiguredObject):
         # Dictionary-of-dictionaries of default acquisition parameters
         self.default_acquisition_parameters = {}
 
+        # Full current_dc_parameters-style template for unattended collect (beamline_config.yml)
+        self.default_unattended_data_collection_parameters = None
+
         # Dictionary of acquisition parameter limits
         self.acquisition_limit_values = {}
 
