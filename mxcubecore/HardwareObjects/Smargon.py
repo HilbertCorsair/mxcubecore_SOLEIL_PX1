@@ -290,6 +290,7 @@ class Smargon(HardwareObject):
             if (time.time() - t0) > timeout:
                 raise Timeout
             gevent.sleep(0.03)
+        logging.getLogger("HWR").debug(f"Waited {time.time() - t0} beacuse Smargon NOT READY (wait not ready)")
 
     def wait_ready(self,timeout=40):
         t0 = time.time()
@@ -301,6 +302,8 @@ class Smargon(HardwareObject):
             gevent.sleep(0.03)
 
         self._wait_ready(timeout)
+        logging.getLogger("HWR").debug(f"Waited {time.time() - t0} for Smargon READY")
+
 
     def _wait_ready(self, timeout=40):
         t0 = time.time()

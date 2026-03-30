@@ -351,7 +351,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             gevent.sleep(6)
             #self.wait_envready()
             self.minidiff.start_centring_method(self.minidiff.CENTRING_METHOD_AUTO)
-            gevent.sleep(15)
+            gevent.sleep(10)
             #self.wait_envready()
 
             x1, y1, x2, y2 = self.generateGridFromAnalysis(self.minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False)
@@ -389,6 +389,8 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.graphics_manager_hwo.add_shape(grid1)
             self.flag_is_centring = True
             param_list = self.prepareParamList( sample.get_id(), position)
+            self.protein_acro = param_list[0]['sample_reference']['acronym']
+
             HWR.beamline.collect.current_dc_parameters = param_list[0]
 
             self.do_xcentring(showReport=False) # This should avoid PopUp window of report
@@ -404,7 +406,7 @@ class PX1XrayCentring(AbstractXrayCentring):
                 # A verifier qu le ID des samples change pour chaque itration.
                 #self.wait_envready()
 
-                time.sleep(5)
+                time.sleep(1)
                 self.go_to_sampleview()
 
                 #self.wait_envready()
@@ -424,13 +426,17 @@ class PX1XrayCentring(AbstractXrayCentring):
                 # A verifier l'etat du PX1Cryotong
                 # HWR.beamline.sample_changer._wait_device_ready()
 
+
+
                 #param_list = self.prepareParamList( sample.get_id(), position)
-                #HWR.beamline.collect.current_dc_parameters = param_list[0]
+                """import pdb
+                pdb.set_trace()
+                HWR.beamline.collect.current_dc_parameters['sample_reference']['acronym'] = self.protein_acro #param_list[0]"""
                 print ("Waitin is over  - DO collect!")
 
                 HWR.beamline.collect.do_collect("mxcube")
                 #self.wait_envready()
-                gevent.sleep(20)
+                gevent.sleep(10)
 
                 # delete shapes and reset all counters
                 self.graphics_manager_hwo.clear_all()
@@ -440,7 +446,6 @@ class PX1XrayCentring(AbstractXrayCentring):
 
                 if self.auto_collect_counter == len(positions):
                     HWR.beamline.sample_changer._do_unload(sample, wash=False)
-
                     break
                 HWR.beamline.sample_changer._do_load(sample=samples[positions[self.auto_collect_counter]], wash=False, souflette_time = False)
                 self.auto_collect_counter += 1
@@ -569,16 +574,21 @@ class PX1XrayCentring(AbstractXrayCentring):
             retrieved_data = xmltodict.parse(fd.read())
 
         param_list = self.convert_xml_dict(retrieved_data)['root']
+        smp_list = HWR.beamline.lims.get_samples()
         containerSampleChangerLocation, sampleLocation = (position // 16) + 1, (position % 16) + 1
         blSampleID = position + 6 # THIS IS HARD CODED AND WILL NEED TO BE FIXED WHEN POSSIBLE
-        SamplesInContainer = [d for d in HWR.beamline.lims.get_samples() if d['containerSampleChangerLocation'] == str(containerSampleChangerLocation)]
+        SamplesInContainer = [s for s in smp_list if s['containerSampleChangerLocation'] == str(containerSampleChangerLocation)]
         SampleAtLocation = [d for d in SamplesInContainer if d['sampleLocation'] == str(sampleLocation)]
+        if not SampleAtLocation:
+            log.error(
+                f"No ISPyB sample found for container {containerSampleChangerLocation}, location {sampleLocation}, position {position}"
+            )
         currentSample = SampleAtLocation[0]
         proteinAcronym = currentSample['proteinAcronym']
         sampleName = currentSample['sampleName']
         samplePrefix = proteinAcronym + "-" + sampleName
-        exposureTime = 0.01
-        oscillationRange = 0.1
+        exposureTime = 0.02
+        oscillationRange = 0.2
         runNumber = 1
         proposal = HWR.beamline.lims.session_manager.active_session.number
         sessionID =  HWR.beamline.lims.session_manager.active_session.session_id
@@ -587,9 +597,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         stringTimestamp = str(datetime.now())
         # TO DO put this in an config file
         masterPath = "/data4/proxima1-soleil/"+ "2026_Run2/" + stringTimestamp[:10] + "/" + proposal + '/'
-        #protocole =  HWR.beamline.lims.session_manager.active_session.number
-        # ISPyB or param_list -- a implementer HWR.beamline.lims
-        smp_list = HWR.beamline.lims.get_samples()
         resolution =  smp_list[position]["diffractionPlan"]["requiredResolution"]
         param_list["detector_distance"] = HWR.beamline.resolution.resolution_to_distance(resolution, 0.979)
         param_list["fileinfo"]["prefix"] = samplePrefix
@@ -758,17 +765,13 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.moved = True
 
             #self.collect_snapshots(output_directory)
-            #self.minidiff.wait_ready()
-            gevent.sleep(1)
+            self.minidiff.wait_ready()
             self.omega_mot.sync_move(self.omega_saved)
-
-            gevent.sleep(3)
 
             if not self.wait_envready():
                 print("DO XCENTRING waiting env ready")
                 self.emit('xcentringInfo', 'running', 'Error waiting for environment. Cannot continue')
                 return
-
             # run a 2D mesh and move to best position
 
             if not self.only_helical:
@@ -791,11 +794,6 @@ class PX1XrayCentring(AbstractXrayCentring):
                     self.emit('xcentringInfo', 'running', 'No result from mesh analysis')
                     self.finish_centring()
                     return
-                    HWR.beamline.sample_changer._do_load(sample=samples[positions[self.auto_collect_counter]], wash=False, souflette_time = False)
-
-                    # Continue with unatended data collection
-                    #raise Exception('No result from mesh analyis')
-
 
                 self.found_spots = True
                 log.debug('PX1XrayCentring  obtaining mesh results x / y = %s / %s' %(x, y))
@@ -838,6 +836,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
                 if not best_y:
                     self.emit('xcentringInfo', 'running', 'No spots in helical analysis')
+                    self.found_spots = False
                     return
                 self.found_spots = True
 
@@ -854,10 +853,8 @@ class PX1XrayCentring(AbstractXrayCentring):
             if None in self.Y:
                 self.emit('xcentringInfo', 'running', 'No spots in helical analysis')
                 self.finish_centring()
-                self.flag_is_centring = False
                 self.found_spots = False
                 return
-                raise Exception('No spots in helical analyis')
 
             self.emit('xcentringInfo', 'running', 'Calculating centred position')
             cpos = self.calculate_center()
@@ -865,7 +862,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.move_motors(cpos)
             self.emit('xcentringInfo', 'running', 'Registering centered position')
             self.register_center_position(cpos)
-            time.sleep(5)
+            time.sleep(1)
             print("C'est fini !!! ")
 
         except BaseException as e:
@@ -882,6 +879,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             # raising error only after a secound attempt at do_xcentring
 
         finally:
+            self.flag_is_centring = False
             if not self.only_helical:
                 if self.fig:
                     self.fig.savefig(self.report_image)
@@ -891,8 +889,7 @@ class PX1XrayCentring(AbstractXrayCentring):
                         log.debug("report display launched. process id is %s" % self.proc_display.pid)
 
         self.finish_centring()
-        gevent.sleep(7)
-        self.flag_is_centring = False
+        self.smargon_hwo.wait_ready()
 
 
 
@@ -901,13 +898,13 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.log_msg("ZEROing sgonaxis axis")
         self.sgonaxis_dev.x = 0.0
         #self.minidiff.wait_device_ready( timeout = 20 )
-        gevent.sleep(2)
+        gevent.sleep(1)
         self.sgonaxis_dev.y = 0.0
         #self.minidiff.wait_device_ready( timeout = 20 )
-        gevent.sleep(2)
+        gevent.sleep(1)
         self.sgonaxis_dev.z = 0.0
         self.minidiff.wait_device_ready( timeout = 20 )
-        gevent.sleep(2)
+        gevent.sleep(1)
         log.debug("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % \
             (self.sgonaxis_dev.x, self.sgonaxis_dev.y, self.sgonaxis_dev.z))
         self.log_msg("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % \
@@ -1684,7 +1681,6 @@ class PX1XrayCentring(AbstractXrayCentring):
     #
     def run_dozor (self, dozor_log_file):
         #self.graphics_manager_hwo.stop_stream()
-        print(f"DOZOR called !!!!!!!!!!!!!!!!!!!!!! wit out dir : {self.get_process_directory()} ")
         log.debug('PX1XrayCentring - triggering run_dozor function')
         output_dir = self.get_process_directory()
         #dozor_cmd = "/home/experiences/proxima1/com-proxima1/progs/dozor_offline.sh"
