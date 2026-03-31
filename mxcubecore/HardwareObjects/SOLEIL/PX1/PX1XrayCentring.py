@@ -748,9 +748,6 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.Y = []
             self.errmsg = ""
 
-            # decide file output, directory, template
-            base_directory = self.get_base_directory()
-            output_directory = self.get_process_directory()
             # run the sequence
             self.emit('xcentringInfo', 'running', 'Preparing')
 
@@ -758,6 +755,10 @@ class PX1XrayCentring(AbstractXrayCentring):
 
             self.prepare()
             self.prepare_report()
+
+            # decide file output, directory, template
+            base_directory = self.get_base_directory()
+            output_directory = self.get_process_directory()
 
             # get sample snapshots
             #self.emit('xcentringInfo', 'running', 'Collecting snapshots')
