@@ -108,6 +108,7 @@ class PX1Cryotong(Cats90):
 
         self._init_sc_contents()
         self._do_update_state()
+        self._update_state()
         self._update_loaded_list()
 
     # ## CRYOTONG SPECIFIC METHODS ###
@@ -247,6 +248,7 @@ class PX1Cryotong(Cats90):
         else:
             _state = SampleChangerState.Unknown
         return _state
+
 
     def _software_authorization(self, value):
         if value != self.soft_auth:

@@ -753,7 +753,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             output_directory = self.get_process_directory()
             # run the sequence
             self.emit('xcentringInfo', 'running', 'Preparing')
-            
+
             HWR.beamline.transmission.set_value(transmission)
 
             self.prepare()
@@ -793,6 +793,7 @@ class PX1XrayCentring(AbstractXrayCentring):
                     samples = HWR.beamline.sample_changer.get_sample_list()[:48]
                     self.emit('xcentringInfo', 'running', 'No result from mesh analysis')
                     self.finish_centring()
+                    self.wait_envready(timeout=200)
                     return
 
                 self.found_spots = True
@@ -854,6 +855,7 @@ class PX1XrayCentring(AbstractXrayCentring):
                 self.emit('xcentringInfo', 'running', 'No spots in helical analysis')
                 self.finish_centring()
                 self.found_spots = False
+                self.wait_envready(timeout=200)
                 return
 
             self.emit('xcentringInfo', 'running', 'Calculating centred position')
