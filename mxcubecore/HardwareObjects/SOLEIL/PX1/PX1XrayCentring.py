@@ -598,7 +598,13 @@ class PX1XrayCentring(AbstractXrayCentring):
         stringTimestamp = str(datetime.now())
         # TO DO put this in an config file
         masterPath = "/data4/proxima1-soleil/"+ "2026_Run2/" + stringTimestamp[:10] + "/" + proposal + '/'
-        resolution =  smp_list[position]["diffractionPlan"]["requiredResolution"]
+        try:
+            resolution =  smp_list[position -1]["diffractionPlan"]["requiredResolution"]
+        except Exception as e:
+            log.error(f"Resolution problem: {e}")
+            log.warning(e,f"\nCould not recover a valid resolution value. Check if the folowing makes sense or just input a valid numeric value and hit Enter:\nSample list length si : {len(smp_list)}\nthe index used is : {position -1}")
+            resolution = input("Please enter a valid resolution value to continue! :")
+
         param_list["detector_distance"] = HWR.beamline.resolution.resolution_to_distance(resolution, 0.979)
         param_list["fileinfo"]["prefix"] = samplePrefix
         param_list["fileinfo"]["directory"] = masterPath + "RAW_DATA/" + proteinAcronym + "/" + samplePrefix
@@ -1988,7 +1994,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         image = plt.imread(snapshot_filename)
         total_range = self.snapshot_info[snap_no]['range']
         log.debug(" - showing snapshot %d - total_range is %s" % (snap_no, str(total_range)))
-        ax.imshow(image, extent=total_range)
+        ax.imshow(image, extent=total_range, aspect='auto')
 
     def show_grid(self, mpl_axis, helical=False):
         if helical:
