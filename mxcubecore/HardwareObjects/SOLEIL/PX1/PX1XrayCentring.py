@@ -1986,7 +1986,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         image = plt.imread(snapshot_filename)
         total_range = self.snapshot_info[snap_no]['range']
         log.debug(" - showing snapshot %d - total_range is %s" % (snap_no, str(total_range)))
-        ax.imshow(image, extent=total_range)
+        ax.imshow(image, extent=total_range, aspect='auto')
 
     def show_grid(self, mpl_axis, helical=False):
         if helical:
