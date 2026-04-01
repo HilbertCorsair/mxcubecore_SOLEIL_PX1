@@ -1245,7 +1245,7 @@ class Cats90(SampleChanger):
         :returns: None
         :rtype: None
         """
-        with gevent.Timeout(timeout, Exception("Timeout waiting for device ready")):
+        with gevent.Timeout(timeout, Exception("Timeout waiting for CATS device READY")):
             while not self._is_device_ready():
                 gevent.sleep(0.01)
 

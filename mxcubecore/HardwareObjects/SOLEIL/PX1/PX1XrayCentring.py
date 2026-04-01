@@ -786,15 +786,16 @@ class PX1XrayCentring(AbstractXrayCentring):
                 self.mesh_heatmap_report(axsnap, axheat, spots)
 
                 if None in [x,y]:
-                    with open('/home/experiences/proxima1/com-proxima1/arthur_mxcube/WebApp/config/paramRange.xml') as fd:
+                    # By default
+                    """with open('/home/experiences/proxima1/com-proxima1/arthur_mxcube/WebApp/config/paramRange.xml') as fd:
                         doc = xmltodict.parse(fd.read())
                     dataPositions = self.convert_xml_dict(doc)
                     dataPositions = dataPositions['root']
                     positions = self.convert_dict_range(dataPositions)
-                    samples = HWR.beamline.sample_changer.get_sample_list()[:48]
+                    samples = HWR.beamline.sample_changer.get_sample_list()[:48]"""
                     self.emit('xcentringInfo', 'running', 'No result from mesh analysis')
                     self.finish_centring()
-                    self.wait_envready(timeout=200)
+                    HWR.beamline.sample_changer._wait_device_ready(200)
                     return
 
                 self.found_spots = True
@@ -856,7 +857,8 @@ class PX1XrayCentring(AbstractXrayCentring):
                 self.emit('xcentringInfo', 'running', 'No spots in helical analysis')
                 self.finish_centring()
                 self.found_spots = False
-                self.wait_envready(timeout=200)
+                self.log_msg("NO SPOTS IN HELICAL ????? !!!!!! This shouldn't happen !")
+                HWR.beamline.sample_changer._wait_device_ready(200)
                 return
 
             self.emit('xcentringInfo', 'running', 'Calculating centred position')
