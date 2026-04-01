@@ -1873,7 +1873,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.show_center(axsnap)
 
         axheat.set_title("mesh spots")
-        axheat.axis([self.mesh_x_start, self.mesh_x_end,self.mesh_y_end,self.mesh_y_start])
 
         xlabels = [ "%.3f" % label for label in self.x_positions]
         ylabels = [ "%.3f" % label for label in self.y_positions]
@@ -1885,6 +1884,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         self.show_grid(axheat)
         self.show_snapshot(axheat,0)
+        axheat.axis([self.mesh_x_start, self.mesh_x_end,self.mesh_y_end,self.mesh_y_start])
         self.show_spots(axheat, spots, show_values=True)
         self.show_center(axheat)
 
@@ -1949,8 +1949,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         w = self.mesh_x_step
         h = self.helical_y_step
 
-        axheat.axis([self.x_best-w/2.0-2*w, self.x_best+w/2.0+2*w, y_end, y_start])
         self.show_snapshot(axheat,helicalno+1)
+        axheat.axis([self.x_best-w/2.0-2*w, self.x_best+w/2.0+2*w, y_end, y_start])
         xticks = [self.x_best,]
         xlabels = ["%.3f" % self.x_best, ]
         ylabels = [ "%.3f" % label for label in y_positions]
@@ -1965,7 +1965,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             yc = y_positions[i] - self.helical_y_halfstep
             val = int(spots[i])
             xy = xc-w/2.0,yc
-            spot_no = 1.0 - val / float(nb_colors)
+            spot_no = 1.0 - (val - min_spots) / float(nb_colors)
             color = my_cmap(spot_no)
             p = Rectangle(xy,color=color,alpha=0.2,width=w, height=h)
             p2 = Rectangle(xy,color=color,alpha=0.2,width=w, height=h)
@@ -2031,7 +2031,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
                 val = int(spots[coord])
                 xy = xc,yc
-                spot_no = 1.0 - val / float(nb_colors)
+                spot_no = 1.0 - (val - min_spots) / float(nb_colors)
                 color = my_cmap(spot_no)
                 p = Rectangle(xy,color=color,alpha=0.2,width=w, height=h)
                 ax.add_patch(p)
