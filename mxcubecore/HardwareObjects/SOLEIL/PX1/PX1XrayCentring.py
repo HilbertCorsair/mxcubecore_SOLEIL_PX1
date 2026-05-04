@@ -1263,7 +1263,6 @@ class PX1XrayCentring(AbstractXrayCentring):
 
             self.run_dozor(log_filename) if self.processing_method == "dozor" else self.run_dials(log_filename)
 
-
         output_dir = self.get_process_directory()
         log.debug("PX1XrayCentring - proces directory is %s" % output_dir)
         meshlog_filename = "%s_mesh" % os.path.basename(log_filename)

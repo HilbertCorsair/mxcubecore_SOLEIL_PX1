@@ -131,7 +131,6 @@ class RedisMpegVideo(HardwareObject):
 
 
             logger.info(f"VS PARAMS : uri {self.uri}\nhs {self.host}\n port {self.port} ")
-
             self._video_stream_process = subprocess.Popen(
                 [
                     "video-streamer",
@@ -157,7 +156,7 @@ class RedisMpegVideo(HardwareObject):
                 close_fds=True,
             )
             with open("/tmp/mxcube.pid", "a") as f:
-                f.write("%s " % self._video_stream_process.pid)\
+                f.write("%s " % self._video_stream_process.pid)
 
     def poll_image(self): #, device, video_mode, FORMATS):
         if self._redis:
