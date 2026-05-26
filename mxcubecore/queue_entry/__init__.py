@@ -91,6 +91,7 @@ def import_queue_entries(site_name_list=()):
         queue_model_objects.Workflow: _modules["GenericWorkflowQueueEntry"],
         queue_model_objects.XrayCentring: _modules["XrayCentringQueueEntry"],
         queue_model_objects.XrayCentring2: _modules["XrayCentring2QueueEntry"],
+        queue_model_objects.UnattendedCollect: _modules["UnattendedCollectQueueEntry"],
         queue_model_objects.GphlWorkflow: GphlQueueEntry.GphlWorkflowQueueEntry,
         queue_model_objects.XrayImaging: EMBLQueueEntry.XrayImagingQueueEntry,
     }
