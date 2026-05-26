@@ -1246,6 +1246,24 @@ class XrayCentring(TaskNode):
         pass
 
 
+class UnattendedCollect(TaskNode):
+    """Per-sample unattended centring + data collection.
+
+    One instance is added to the queue under each Sample node selected in the
+    samples-tab right-click action. Execution delegates to
+    PX1XrayCentring.unattended_collect_single() via UnattendedCollectQueueEntry.
+    The queue handles iteration across samples; this task is single-sample.
+    """
+
+    def __init__(self):
+        TaskNode.__init__(self)
+        self.set_name("Unattended collect")
+        self.set_requires_centring(False)
+
+    def get_display_name(self):
+        return "Unattended collect"
+
+
 class XrayCentring2(TaskNode):
     """X-ray centring (2022 version)
 

@@ -245,141 +245,73 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.define_state()
         return workflow_list
 
-    def start(self, list_arguments):
+    default_transmission_xray = 25
 
+    def unattended_collect_single(self, sample_model):
+        """Run the unattended centring + data collection for ONE sample.
 
-        # If necessary unblock dialog
-        if not self.gevent_event.is_set():
-            self.gevent_event.set()
-        self.state.value = "RUNNING"
+        Iteration across samples is handled by the queue (one
+        UnattendedCollectQueueEntry per sample under its Sample node). The
+        parent SampleQueueEntry mounts the sample before this runs; we
+        re-check and mount defensively, then always unload at the end.
 
-        self.dict_parameters = {}
-        index = 0
-        if len(list_arguments) == 0:
-            self.error_stream("ERROR! No input arguments!")
-            return
-        elif len(list_arguments) % 2 != 0:
-            self.error_stream("ERROR! Odd number of input arguments!")
-            return
-        while index < len(list_arguments):
-            self.dict_parameters[list_arguments[index]] = list_arguments[index + 1]
-            index += 2
-        logging.info("Input arguments:")
-        logging.info(print(self.dict_parameters))
-
-        if "modelpath" in self.dict_parameters:
-            modelpath = self.dict_parameters["modelpath"]
-            if "." in modelpath:
-                modelpath = modelpath.split(".")[0]
-            self.workflow_name = os.path.basename(modelpath)
-        else:
-            self.error_stream("ERROR! No modelpath in input arguments!")
-            return
-
-        time0 = time.time()
-        self.unattended_collect()
-        time1 = time.time()
-        logging.info("Time to start workflow: %f sec", time1 - time0)
-
-    def unattended_collect(self):
+        Args:
+            sample_model: queue_model_objects.Sample for the target sample.
+                Its .location is a (basket, pos_in_basket) tuple, both 1-indexed.
         """
-        The unattended_collect method aims to be a placeholder of an automatic collect of all samples
+        basket, pos_in_basket = sample_model.location
+        position = (int(basket) - 1) * 16 + (int(pos_in_basket) - 1)
 
-        It goes through a double for loop, one for the basket (1 to 3) and inside one for the position (1 to 16)
-        This creates a sampleLocation to load with the sampleChanger
+        samples = HWR.beamline.sample_changer.get_sample_list()
+        sample = samples[position]
 
-        Once loaded we set the zoom to 1 and do a first centring with murko
-        We follow up with a second centring with murko at zoom 3
-
-        Next we ask the coordinates of the bounding box of the loop at Murko and create a Grid shape based of it
-
-        We then perferm an do_xcentring() which should find the Grid and use it for the heatmap
-
-        Finally we prepare a params_list based on some dynamic modification and a xml file for static parameters and
-        run a collect of the sample.
-
-        ######################
-        # CLUES AND WARNINGS #
-        ######################
-
-        => RedisMpegVideo has a restart_streaming(size) method, maybe we can use it when we loose camera
-            sample_view._camera.restart_streaming(size=(sample_view._camera.get_width(), sample_view._camera.get_height()))
-        => We can bring the light with lightarm_hwo._adjust_light_level() which puts the light based on current zoom level
-            check PX1self.minidiff.py:632
-
-        """
-
-        log.debug("Debut de la method unattended_collect")
-
-        #self.minidiff = HWR.beamline.diffractometer
-
-        # hacking teh sample list by hardcoded slicing
-        samples = HWR.beamline.sample_changer.get_sample_list()[:48]
-        self.auto_collect_counter = 1
-        with open('/home/experiences/proxima1/com-proxima1/arthur_mxcube/WebApp/config/paramRange.xml') as fd:
-            doc = xmltodict.parse(fd.read())
-        dataPositions = self.convert_xml_dict(doc)['root']
-
-        #Get transmission and remove it from datapositions
-        transmission_xray_value = dataPositions.pop('transmission_xray_centring')
-
-        positions = self.convert_dict_range(dataPositions)
-
-
-        log.debug("All positions that will be visited : %s\n", str(positions))
+        log.debug(
+            "unattended_collect_single: sample at basket=%s pos=%s (flat=%s)",
+            basket, pos_in_basket, position,
+        )
 
         start_time = time.perf_counter()
-        previous_time = start_time
-        all_timestamps = []
 
-        for position in positions:
+        if not HWR.beamline.sample_changer.is_mounted_sample(
+            (int(basket), int(pos_in_basket))
+        ):
+            log.debug("Sample not mounted, loading.")
+            HWR.beamline.sample_changer.load(sample=sample_model.loc_str, wait=True)
 
-            """
-            # Try restart camera with the RedisMpegVideo, maybe this can fix the issue
-            sampleViewer = HWR.beamline.sample_view
-            sampleViewer._camera.restart_streaming(size=(sampleViewer._camera.get_width(), sampleViewer._camera.get_height()))
-            """
+        try:
             zoom_position = self.minidiff.zoom.get_value()
-
-            sample = samples[position]
             if zoom_position != "zoom1":
                 self.minidiff.zoom._set_value(self.minidiff.zoom.VALUES['zoom1'])
-                #self.wait_envready()
                 gevent.sleep(10)
 
             self.minidiff.start_centring_method(self.minidiff.CENTRING_METHOD_AUTO)
             gevent.sleep(10)
-            #self.wait_envready()
             self.minidiff.zoom._set_value(self.minidiff.zoom.VALUES['zoom2'])
             gevent.sleep(6)
-            #self.wait_envready()
             self.minidiff.start_centring_method(self.minidiff.CENTRING_METHOD_AUTO)
             gevent.sleep(10)
-            #self.wait_envready()
 
-            x1, y1, x2, y2 = self.generateGridFromAnalysis(self.minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False)
+            x1, y1, x2, y2 = self.generateGridFromAnalysis(
+                self.minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False
+            )
             zoom_position = self.minidiff.zoom.get_value()
             beam_size_x = HWR.beamline.beam.get_beam_size()[0] * self.minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmY']
-            number_colums = math.ceil((x2-x1)/beam_size_x)
-            x2n = x1 + number_colums*beam_size_x
+            number_colums = math.ceil((x2 - x1) / beam_size_x)
+            x2n = x1 + number_colums * beam_size_x
             beam_size_y = HWR.beamline.beam.get_beam_size()[1] * self.minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmZ']
-            number_lines = math.ceil((y2-y1)/beam_size_y)
-            y2n = y1 + number_lines*beam_size_y
+            number_lines = math.ceil((y2 - y1) / beam_size_y)
+            y2n = y1 + number_lines * beam_size_y
 
-            #Creating virtual grid
-
-            mpos_left_top = self.minidiff.get_centred_point_from_coord(x1,y1)
-            mpos_right_bottom = self.minidiff.get_centred_point_from_coord(x2n,y2n)
+            mpos_left_top = self.minidiff.get_centred_point_from_coord(x1, y1)
+            mpos_right_bottom = self.minidiff.get_centred_point_from_coord(x2n, y2n)
             mpos_list = [mpos_left_top, mpos_right_bottom]
-            center_x = x1 + 1/2* (x2n -x1)
-            center_y = y1 +1/2 *(y2n - y1)
+            center_x = x1 + 1 / 2 * (x2n - x1)
+            center_y = y1 + 1 / 2 * (y2n - y1)
             screen_coords = [center_x, center_y]
 
-            # Create Grid object from imported Grid clas
             grid1 = Grid(mpos_list, screen_coords)
-            #Grid default attributes :
-            grid1.width = x2n-x1
-            grid1.height = y2n- y1
+            grid1.width = x2n - x1
+            grid1.height = y2n - y1
             grid1.cell_count_fun = "zig-zag"
             grid1.cell_h_space = -1
             grid1.cell_height = beam_size_y
@@ -391,92 +323,58 @@ class PX1XrayCentring(AbstractXrayCentring):
             grid1.selected = False
             self.graphics_manager_hwo.add_shape(grid1)
             self.flag_is_centring = True
-            param_list = self.prepareParamList( sample.get_id(), position)
-            self.protein_acro = param_list[0]['sample_reference']['acronym']
 
+            param_list = self.prepareParamList(sample.get_id(), position)
+            self.protein_acro = param_list[0]['sample_reference']['acronym']
             HWR.beamline.collect.current_dc_parameters = param_list[0]
 
-            self.do_xcentring(showReport=False, transmission=transmission_xray_value) # This should avoid PopUp window of report
-            while self.flag_is_centring :
+            self.do_xcentring(
+                showReport=False, transmission=self.default_transmission_xray
+            )
+            while self.flag_is_centring:
                 time.sleep(1)
 
             param_list[0]['motors'] = self.createMotorDict()
             HWR.beamline.collect.current_dc_parameters = param_list[0]
 
-
             if self.found_spots:
-                # Generate a param_list to give to the collect
-                # A verifier qu le ID des samples change pour chaque itration.
-                #self.wait_envready()
-
                 time.sleep(1)
                 self.go_to_sampleview()
-
-                #self.wait_envready()
                 time.sleep(3)
-                imgPath1 = param_list[0]["fileinfo"]["archive_directory"] + '/' + param_list[0]["fileinfo"]["prefix"] + '_1_1.snapshot.jpeg'
+                imgPath1 = (
+                    param_list[0]["fileinfo"]["archive_directory"] + '/'
+                    + param_list[0]["fileinfo"]["prefix"] + '_1_1.snapshot.jpeg'
+                )
                 self.minidiff.takePictureAnalysis(path=imgPath1)
-                #self.wait_envready()
                 time.sleep(2)
-                imgPath2 = param_list[0]["fileinfo"]["archive_directory"] + '/' + param_list[0]["fileinfo"]["prefix"] + '_1_2.snapshot.jpeg'
+                imgPath2 = (
+                    param_list[0]["fileinfo"]["archive_directory"] + '/'
+                    + param_list[0]["fileinfo"]["prefix"] + '_1_2.snapshot.jpeg'
+                )
                 self.omega_mot.set_value(self.omega_mot.get_value() + 90)
-                #self.wait_envready()
                 time.sleep(3)
                 self.minidiff.takePictureAnalysis(path=imgPath2)
-                #self.wait_envready()
                 time.sleep(2)
 
-                # A verifier l'etat du PX1Cryotong
-                # HWR.beamline.sample_changer._wait_device_ready()
-
-
-
-                #param_list = self.prepareParamList( sample.get_id(), position)
-                """import pdb
-                pdb.set_trace()
-                HWR.beamline.collect.current_dc_parameters['sample_reference']['acronym'] = self.protein_acro #param_list[0]"""
-                print ("Waitin is over  - DO collect!")
-
                 HWR.beamline.collect.do_collect("mxcube")
-                #self.wait_envready()
                 gevent.sleep(10)
-
-                # delete shapes and reset all counters
-                self.graphics_manager_hwo.clear_all()
-
-                self.graphics_manager_hwo._shapes = {} #delete_shape(grid_id)
-                self.found_spots = False
-
-                if self.auto_collect_counter == len(positions):
-                    HWR.beamline.sample_changer._do_unload(sample, wash=False)
-                    break
-                HWR.beamline.sample_changer._do_load(sample=samples[positions[self.auto_collect_counter]], wash=False, souflette_time = False)
-                self.auto_collect_counter += 1
-
             else:
-                if self.auto_collect_counter == len(positions):
-                    HWR.beamline.sample_changer._do_unload(sample, wash=False)
-                    break
-                self.graphics_manager_hwo.clear_all()
-                self.graphics_manager_hwo._shapes = {}
-                HWR.beamline.sample_changer._do_load(sample=samples[positions[self.auto_collect_counter]], wash=False, souflette_time = False)
-                self.auto_collect_counter += 1
+                log.debug("No spots found, skipping data collection for this sample.")
 
-            end_time = time.perf_counter()
-            time_for_sample = end_time - previous_time
-            previous_time = end_time
-            all_timestamps.append(time_for_sample)
+            self.graphics_manager_hwo.clear_all()
+            self.graphics_manager_hwo._shapes = {}
+            self.found_spots = False
+        finally:
+            try:
+                HWR.beamline.sample_changer._do_unload(sample, wash=False)
+            except Exception:
+                log.exception("Error during unload at end of unattended_collect_single")
 
-
-
-        end_time = time.perf_counter()
-        time_for_sample = end_time - previous_time
-        previous_time = end_time
-        all_timestamps.append(time_for_sample)
-
-        log.debug("\nUnattended Collection finished\n\n")
-        log.debug("Time per sample %s", str(all_timestamps))
-        log.debug("Total time for collect was : %.4f seconds", (end_time - start_time))
+            elapsed = time.perf_counter() - start_time
+            log.debug(
+                "unattended_collect_single finished for sample %s in %.2fs",
+                sample_model.loc_str, elapsed,
+            )
 
     def generateGridFromAnalysis(self, minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False):
 
