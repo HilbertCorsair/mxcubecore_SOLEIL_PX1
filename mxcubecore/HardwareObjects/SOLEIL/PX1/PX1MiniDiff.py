@@ -3,12 +3,11 @@ import logging
 import gevent
 import time
 import os
-import sys
-import simplejpeg
 import cv2
-import datetime
 from redis_camera import camera
 from imageio import imwrite
+import zmq
+import pickle
 
 from mxcubecore.HardwareObjects.GenericDiffractometer import (
     GenericDiffractometer,
@@ -17,17 +16,20 @@ from mxcubecore.HardwareObjects.GenericDiffractometer import (
 
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.HardwareObjects import sample_centring
-import numpy as np
 import math
 
 log = logging.getLogger("HWR")
 
+"""
+# Rewrote the function get_predictions to avoid needing the dependencies of murko/utils.py
+
+import sys
 murko_path = os.getenv("MURKO_PATH")
 sys.path.insert(1, murko_path)
 from utils import (
     get_predictions,
-    plot_analysis,
 )
+"""
 
 
 class PX1MiniDiff(GenericDiffractometer):
@@ -154,6 +156,20 @@ class PX1MiniDiff(GenericDiffractometer):
             logging.getLogger("user_level_log").info("%s" %e)
         return img, imgName
 
+    def __get_predictions__(self, request_arguments, host="localhost", port=89019, verbose=False):
+        start = time.time()
+        context = zmq.Context()
+        if verbose:
+            print("Connecting to server ...")
+        socket = context.socket(zmq.REQ)
+        socket.connect("tcp://%s:%d" % (host, port))
+        socket.send(pickle.dumps(request_arguments))
+        raw_predictions = socket.recv()
+        predictions = pickle.loads(raw_predictions)
+        if verbose:
+            print("Received predictions in %.4f seconds" % (time.time() - start))
+        return predictions
+
     def estimate_click_murko(self, frame, forceSquaredGrid=False, imgName=None, useInsideLoop=False):
         """Gets relative coordinates from murko
 
@@ -194,7 +210,7 @@ class PX1MiniDiff(GenericDiffractometer):
         request_args["prefix"] = "predicted"
         mhost = os.getenv("MURKO_HOST")
         mport = int(os.getenv("MURKO_PORT"))
-        analysis = get_predictions(request_args, host=mhost, port = mport)
+        analysis = self.__get_predictions__(request_args, host=mhost, port = mport)
         descriptions = analysis['descriptions'][0]
 
         analysis_good = descriptions['present']
@@ -244,6 +260,30 @@ class PX1MiniDiff(GenericDiffractometer):
                     cv2.rectangle(image_drawing_predictions, (x1_in, y1_in), (x2_in, y2_in), (255, 0, 255), 2) # Blue bbox
                 cv2.circle(image_drawing_predictions, position_center_aoi, 5, (0, 0, 255), -1) # Red center of bbox
                 cv2.circle(image_drawing_predictions, (x1, y2), 5, (0, 255, 0), -1) # Green BottomLeft angle
+
+                if "frozen" in descriptions:
+                    frozen_prob = descriptions["frozen"]["probability"]
+                    frozen_flag = descriptions["frozen"]["present"]
+                    frozen_text = "Frozen: %.1f%% (%s)" % (
+                        frozen_prob * 100.0,
+                        "FROZEN" if frozen_flag else "not frozen",
+                    )
+                    text_color = (0, 0, 255) if frozen_flag else (0, 200, 0)  # BGR
+                else:
+                    frozen_text = "Frozen: head not available in this model"
+                    text_color = (150, 150, 150)
+
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = max(0.6, original_width / 1600.0)
+                thickness = max(1, int(font_scale * 2))
+                text_x = 10
+                text_y = original_height - 10
+                cv2.putText(image_drawing_predictions, frozen_text, (text_x, text_y),
+                            font, font_scale, (0, 0, 0), thickness + 2, cv2.LINE_AA)
+                cv2.putText(image_drawing_predictions, frozen_text, (text_x, text_y),
+                            font, font_scale, text_color, thickness, cv2.LINE_AA)
+
+
                 tmpName = imgName[:-4] + "_analysis.jpg"
                 cv2.imwrite(tmpName, image_drawing_predictions)
 

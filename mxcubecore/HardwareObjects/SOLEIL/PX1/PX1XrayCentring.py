@@ -649,21 +649,32 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.log_msg("<Starting xray centring procedure>")
 
     def get_xcentring_deltas_start_end_mm(self):
-
+        # Offset must be measured from the BEAM CENTER (not shape center) to each corner of the grid in pixels
+        beam_pos = HWR.beamline.beam.get_beam_position_on_screen()
         extent_dx_pix = self.shape.width
-        extent_dy_pix =  self.shape.height
+        extent_dy_pix = self.shape.height
+
+        start_dx_pix = self.shape_coords[0] - beam_pos[0]
+        start_dy_pix =  self.shape_coords[1] - beam_pos[1]
+
+        end_dx_pix = self.shape_coords[0] + extent_dx_pix - beam_pos[0]
+        end_dy_pix = self.shape_coords[1] + extent_dy_pix - beam_pos[1]
+
+        """extent_dy_pix =  self.shape.height
         cent_x_pix = self.shape_coords[0] + extent_dx_pix/2
         cent_y_pix = self.shape_coords[1] + extent_dy_pix/2
         start_dx_pix = self.shape_coords[0] - cent_x_pix
         start_dy_pix = self.shape_coords[1] - cent_y_pix
         end_dx_pix = self.shape_coords[0] + self.shape.width - cent_x_pix
-        end_dy_pix = self.shape_coords[1] + self.shape.height - cent_y_pix
+        end_dy_pix = self.shape_coords[1] + self.shape.height - cent_y_pix"""
+
         start_dx_mm = -start_dx_pix / float(self.shape.pixels_per_mm[0])
-        start_dy_mm = start_dy_pix / float(self.shape.pixels_per_mm[1])  # axe y opposite from grid to motor
+        start_dy_mm = start_dy_pix / float(self.shape.pixels_per_mm[1])
         end_dx_mm = -end_dx_pix / float(self.shape.pixels_per_mm[0])
         end_dy_mm = end_dy_pix / float(self.shape.pixels_per_mm[1])
         extent_dx_mm = extent_dx_pix / float(self.shape.pixels_per_mm[0])
         extent_dy_mm = extent_dy_pix / float(self.shape.pixels_per_mm[1])
+
         return start_dx_mm, start_dy_mm, end_dx_mm, end_dy_mm, extent_dx_mm, extent_dy_mm
 
     def set_grid_and_continue(self):
@@ -671,7 +682,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.waiting_grid = False
 
         nlines = self.shape.num_rows
-        nimgs = self.shape.num_cols * self.shape.num_rows
+        nimgs = self.shape.num_cols # per line
 
         start_dx, start_dy, end_dx, end_dy, extent_x, extent_y = \
               self.get_xcentring_deltas_start_end_mm()
@@ -995,7 +1006,10 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.set_base_directories()
 
         self.shape = self.graphics_manager_hwo.shapes
-        self.shape_name = [name for name in self.shape.keys() if name.startswith("G")][0] # replace with [-1]
+        grid_names = [name for name in self.shape.keys() if name.startswith("G")]
+        if not grid_names:
+            raise RuntimeError ("PX1XrayCentring: no grid found in SampleView")
+        self.shape_name = grid_names[-1]
         self.shape_coords = self.shape[self.shape_name].screen_coord
 
         self.shape = self.shape[self.shape_name]
@@ -1103,8 +1117,19 @@ class PX1XrayCentring(AbstractXrayCentring):
 
     def fill_position_grid(self):
         # positions where the images are expected (at the center of each square)
+        # Useing linespace with explicit point ocuonts to guarantee nb imgs = nb spots.shape
+        self.x_positions = np.linspace (self.mesh_x_start + self.mesh_x_halfstep ,
+                                         self.mesh_x_end - self.mesh_x_halfstep,
+                                         self.mesh_img_per_line)
+        
+        self.y_positions = np.linspace (self.mesh_y_start + self.mesh_y_halfstep,
+                                        self.mesh_y_end - self.mesh_y_halfstep,
+                                        self.mesh_nb_lines)
+
+        """
         self.x_positions = np.arange(self.mesh_x_start+self.mesh_x_halfstep, self.mesh_x_end, self.mesh_x_step)
         self.y_positions = np.arange(self.mesh_y_start+self.mesh_y_halfstep, self.mesh_y_end, self.mesh_y_step)
+        """
 
         self.x_grid, self.y_grid = np.meshgrid(self.x_positions, self.y_positions)
 
@@ -1307,8 +1332,8 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.y_best = None
             log.debug('PX1XrayCentring / data analysis done. cannot find best position')
 
-        self.log_msg('    pos x:' % self.x_grid[index_max])
-        self.log_msg('    pos y:' % (self.y_grid[index_max]+ self.mesh_y_halfstep))
+        self.log_msg('    pos x: %s' % self.x_grid[index_max])
+        self.log_msg('    pos y: %s' % (self.y_grid[index_max] + self.mesh_y_halfstep))
 
         self.log_msg('data analysis done. best position is x=%s, y=%s' % (self.x_best, self.y_best))
 
