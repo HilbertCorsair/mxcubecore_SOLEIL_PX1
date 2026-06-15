@@ -95,6 +95,9 @@ class PX1XrayCentring(AbstractXrayCentring):
     sigma = 2
     filter_highpass = 0.60
 
+    grid_fallback_size_mm = 0.4
+    grid_max_area_mm2 = 0.25
+
 #####
 # COMMENTED OUT BY LEO ON 2020-07-20 TO CHECK BEHAVIOUR
 #    default_velocity = 100
@@ -488,21 +491,30 @@ class PX1XrayCentring(AbstractXrayCentring):
             except Exception:
                 log.exception("Error during unload at end of unattended collect")
 
-    def generateGridFromAnalysis(self, minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False):
+    def generateGridFromAnalysis(self, minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=True, safeGuard=True):
 
         # Automatic grid coordinates generation from murko analysis
         snapshot, imgName = minidiff.takePictureAnalysis()
-        w, h, r, c = minidiff.estimate_click_murko(snapshot, forceSquaredGrid=False, imgName=imgName, useInsideLoop=False)
+        w, h, r, c = minidiff.estimate_click_murko(snapshot, forceSquaredGrid=False, imgName=imgName, useInsideLoop=useInsideLoop)
         og_h, og_w = int(os.getenv("MURKO_SIZEY")), int(os.getenv("MURKO_SIZEX"))
 
         zoom_position = minidiff.zoom.get_value()
         zoom_Y, zoom_Z = minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmY'], minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmZ']
 
-        maxWidth = (0.4 * zoom_Y) / og_w
-        maxHeight = (0.4 * zoom_Z) / og_h
+        maxWidth = (self.grid_fallback_size_mm * zoom_Y) / og_w
+        maxHeight = (self.grid_fallback_size_mm * zoom_Z) / og_h
+
+        predicted_width_mm = (w * og_w) / zoom_Y
+        predicted_height_mm = (h * og_h) / zoom_Z
+        predicted_area_mm2 = predicted_width_mm * predicted_height_mm
+
+        if predicted_area_mm2 > self.grid_max_area_mm2 and safeGuard == True:
+            log.warning("GenerateGridFromAnalysis: murko grid area exceeds threshold, setting forced grid size")
+            w = maxWidth
+            h = maxHeight
 
         if (forceSquaredGrid):
-            _, _, r, c = minidiff.estimate_click_murko(snapshot, forceSquaredGrid=False, imgName=imgName, useInsideLoop=False)
+            _, _, r, c = minidiff.estimate_click_murko(snapshot, forceSquaredGrid=False, imgName=imgName, useInsideLoop=useInsideLoop)
             if (r == 0.5 and c == 0.5):
                 logging.getLogger("HWR").debug('There will be an issue in murko here !!!!!!!!!!!!!!!!!!!!!!!!!!!!')
             w = maxWidth
@@ -1178,7 +1190,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.x_positions = np.linspace (self.mesh_x_start + self.mesh_x_halfstep ,
                                          self.mesh_x_end - self.mesh_x_halfstep,
                                          self.mesh_img_per_line)
-        
+
         self.y_positions = np.linspace (self.mesh_y_start + self.mesh_y_halfstep,
                                         self.mesh_y_end - self.mesh_y_halfstep,
                                         self.mesh_nb_lines)
