@@ -46,9 +46,13 @@ class UnattendedCollectQueueEntry(BaseQueueEntry):
 
     def execute(self):
         BaseQueueEntry.execute(self)
-        sample_model = self.get_data_model().get_parent()
+        uc_model = self.get_data_model()
+        sample_model = uc_model.get_parent()
+        user_params = uc_model.get_parameters()
         try:
-            HWR.beamline.xray_centring.unattended_collect_single(sample_model)
+            HWR.beamline.xray_centring.unattended_collect_single(
+                sample_model, user_params
+            )
         except Exception as e:
             logging.getLogger("HWR").exception("Unattended collect failed")
             raise QueueExecutionException(str(e), self)
