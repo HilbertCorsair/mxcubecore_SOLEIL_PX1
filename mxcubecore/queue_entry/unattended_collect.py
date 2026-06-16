@@ -47,7 +47,9 @@ class UnattendedCollectQueueEntry(BaseQueueEntry):
     def execute(self):
         BaseQueueEntry.execute(self)
         uc_model = self.get_data_model()
-        sample_model = uc_model.get_parent()
+        # The queue hierarchy is Sample -> TaskGroup -> UnattendedCollect, so
+        # get_parent() would return the TaskGroup. Walk up to the Sample node.
+        sample_model = uc_model.get_sample_node()
         user_params = uc_model.get_parameters()
         try:
             HWR.beamline.xray_centring.unattended_collect_single(
