@@ -1259,6 +1259,16 @@ class UnattendedCollect(TaskNode):
         TaskNode.__init__(self)
         self.set_name("Unattended collect")
         self.set_requires_centring(False)
+        # User-edited acquisition subset (osc_start, osc_range, exp_time,
+        # num_images, transmission, resolution). Empty when not set; the
+        # collect path then falls back to the paramCollect.xml defaults.
+        self.acquisition_params = {}
+
+    def set_parameters(self, params):
+        self.acquisition_params = dict(params or {})
+
+    def get_parameters(self):
+        return self.acquisition_params
 
     def get_display_name(self):
         return "Unattended collect"

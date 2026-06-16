@@ -247,7 +247,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
     default_transmission_xray = 25
 
-    def unattended_collect_single(self, sample_model):
+    def unattended_collect_single(self, sample_model, user_params=None):
         """Run the unattended centring + data collection for ONE sample.
 
         Iteration across samples is handled by the queue (one
@@ -258,6 +258,11 @@ class PX1XrayCentring(AbstractXrayCentring):
         Args:
             sample_model: queue_model_objects.Sample for the target sample.
                 Its .location is a (basket, pos_in_basket) tuple, both 1-indexed.
+            user_params: optional dict with the user-edited acquisition subset
+                (osc_start, osc_range, exp_time, num_images, transmission,
+                resolution) entered in the Unattended collect form. When given,
+                these override the paramCollect.xml defaults; per-sample derived
+                fields (file paths, motors, sample identity) are left untouched.
         """
         basket, pos_in_basket = sample_model.location
         position = (int(basket) - 1) * 16 + (int(pos_in_basket) - 1)
@@ -325,6 +330,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             self.flag_is_centring = True
 
             param_list = self.prepareParamList(sample.get_id(), position)
+            self.applyUserParams(param_list[0], user_params)
             self.protein_acro = param_list[0]['sample_reference']['acronym']
             HWR.beamline.collect.current_dc_parameters = param_list[0]
 
@@ -519,6 +525,52 @@ class PX1XrayCentring(AbstractXrayCentring):
         param_list['blSampleId'] = blSampleID
 
         return [param_list]
+
+    def applyUserParams(self, params, user_params):
+        """Override the acquisition subset in <params> with the user-edited
+        values from the Unattended collect form.
+
+        Only the keys the form exposes are touched; everything else
+        (file paths, motors, sample identity, sessionId) stays as derived by
+        prepareParamList. Each override is guarded so a missing/blank field
+        falls back to the paramCollect.xml default. The frontend field names
+        are mapped here onto the keys the collect path consumes
+        (current_dc_parameters / oscillation_sequence).
+        """
+        if not user_params:
+            return
+
+        osc = None
+        osc_seq = params.get("oscillation_sequence")
+        if isinstance(osc_seq, list) and osc_seq:
+            osc = osc_seq[0]
+
+        osc_map = {
+            "osc_start": "start",
+            "osc_range": "range",
+            "exp_time": "exposure_time",
+            "num_images": "number_of_images",
+        }
+        if osc is not None:
+            for ui_key, dc_key in osc_map.items():
+                value = user_params.get(ui_key)
+                if value not in (None, ""):
+                    osc[dc_key] = value
+
+        transmission = user_params.get("transmission")
+        if transmission not in (None, ""):
+            params["transmission"] = transmission
+
+        resolution = user_params.get("resolution")
+        if resolution not in (None, ""):
+            try:
+                params["detector_distance"] = (
+                    HWR.beamline.resolution.resolution_to_distance(
+                        resolution, 0.979
+                    )
+                )
+            except Exception as e:
+                log.error(f"Could not apply user resolution {resolution}: {e}")
 
     def is_user_enabled(self):
         return self.user_enabled
