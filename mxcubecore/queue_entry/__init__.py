@@ -92,6 +92,13 @@ def import_queue_entries(site_name_list=()):
         queue_model_objects.XrayCentring: _modules["XrayCentringQueueEntry"],
         queue_model_objects.XrayCentring2: _modules["XrayCentring2QueueEntry"],
         queue_model_objects.UnattendedCollect: _modules["UnattendedCollectQueueEntry"],
+        queue_model_objects.GridScan: _modules["GridScanQueueEntry"],
+        queue_model_objects.LineScan: _modules["LineScanQueueEntry"],
+        queue_model_objects.FinalizeCentring: _modules["FinalizeCentringQueueEntry"],
+        queue_model_objects.UnattendedDataCollection: _modules[
+            "UnattendedDataCollectionQueueEntry"
+        ],
+        queue_model_objects.Unmount: _modules["UnmountQueueEntry"],
         queue_model_objects.GphlWorkflow: GphlQueueEntry.GphlWorkflowQueueEntry,
         queue_model_objects.XrayImaging: EMBLQueueEntry.XrayImagingQueueEntry,
     }

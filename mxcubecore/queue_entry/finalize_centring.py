@@ -20,50 +20,48 @@ import logging
 
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.model import queue_model_objects
-from mxcubecore.queue_entry.base_queue_entry import (
-    BaseQueueEntry,
-    QueueExecutionException,
-)
+from mxcubecore.queue_entry.base_queue_entry import BaseQueueEntry
 
 __credits__ = ["MXCuBE collaboration"]
 __license__ = "LGPLv3+"
 __category__ = "General"
 
 
-class UnattendedCollectQueueEntry(BaseQueueEntry):
-    """Runs a single-sample unattended centring + data collection.
+class FinalizeCentringQueueEntry(BaseQueueEntry):
+    """Unattended pipeline phase: fit the accumulated scans and centre.
 
-    The parent SampleQueueEntry mounts the sample before this entry executes;
-    we delegate the per-sample sequence (centring -> xcentring -> collect ->
-    unload) to PX1XrayCentring.unattended_collect_single().
+    Runs PX1XrayCentring.finalize_centring() (fit over all accumulated mesh +
+    helical results, move to the centred position, register the point, save the
+    report). Skips if no spots were found by the scan phases.
     """
 
-    NAME = "Unattended collect"
-    DATA_MODEL = queue_model_objects.UnattendedCollect
+    NAME = "Finalize centring"
+    DATA_MODEL = queue_model_objects.FinalizeCentring
 
     def __init__(self, view=None, data_model=None, view_set_queue_entry=True):
         BaseQueueEntry.__init__(self, view, data_model, view_set_queue_entry)
 
     def execute(self):
         BaseQueueEntry.execute(self)
-        logging.getLogger("HWR").info(
-            "[UC] UnattendedCollectQueueEntry.execute reached"
-        )
-        uc_model = self.get_data_model()
-        # The queue hierarchy is Sample -> TaskGroup -> UnattendedCollect, so
-        # get_parent() would return the TaskGroup. Walk up to the Sample node.
-        sample_model = uc_model.get_sample_node()
-        user_params = uc_model.get_parameters()
+        log = logging.getLogger("HWR")
+        xc = HWR.beamline.xray_centring
+        log.info("[UC] FinalizeCentringQueueEntry.execute reached")
+
+        if not getattr(xc, "found_spots", False):
+            log.info("[UC] finalize centring skipped (no spots)")
+            return
+
         try:
-            HWR.beamline.xray_centring.unattended_collect_single(
-                sample_model, user_params
-            )
-        except Exception as e:
-            logging.getLogger("HWR").exception("Unattended collect failed")
-            raise QueueExecutionException(str(e), self)
+            xc.finalize_centring()
+        except Exception:
+            log.exception("[UC] finalize centring failed")
+            xc.found_spots = False
 
     def pre_execute(self):
         BaseQueueEntry.pre_execute(self)
 
     def post_execute(self):
         BaseQueueEntry.post_execute(self)
+
+    def get_type_str(self):
+        return "Finalize centring"
