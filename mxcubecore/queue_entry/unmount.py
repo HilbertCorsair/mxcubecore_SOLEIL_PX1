@@ -20,50 +20,44 @@ import logging
 
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.model import queue_model_objects
-from mxcubecore.queue_entry.base_queue_entry import (
-    BaseQueueEntry,
-    QueueExecutionException,
-)
+from mxcubecore.queue_entry.base_queue_entry import BaseQueueEntry
 
 __credits__ = ["MXCuBE collaboration"]
 __license__ = "LGPLv3+"
 __category__ = "General"
 
 
-class UnattendedCollectQueueEntry(BaseQueueEntry):
-    """Runs a single-sample unattended centring + data collection.
+class UnmountQueueEntry(BaseQueueEntry):
+    """Unattended pipeline phase: clear graphics and unload the sample.
 
-    The parent SampleQueueEntry mounts the sample before this entry executes;
-    we delegate the per-sample sequence (centring -> xcentring -> collect ->
-    unload) to PX1XrayCentring.unattended_collect_single().
+    Runs PX1XrayCentring.finalize_session(), which clears the SampleView shapes
+    and unloads the sample. This is the last phase and runs regardless of
+    whether the earlier phases found spots, so the changer is always left empty
+    for the next sample.
     """
 
-    NAME = "Unattended collect"
-    DATA_MODEL = queue_model_objects.UnattendedCollect
+    NAME = "Unmount"
+    DATA_MODEL = queue_model_objects.Unmount
 
     def __init__(self, view=None, data_model=None, view_set_queue_entry=True):
         BaseQueueEntry.__init__(self, view, data_model, view_set_queue_entry)
 
     def execute(self):
         BaseQueueEntry.execute(self)
-        logging.getLogger("HWR").info(
-            "[UC] UnattendedCollectQueueEntry.execute reached"
-        )
-        uc_model = self.get_data_model()
-        # The queue hierarchy is Sample -> TaskGroup -> UnattendedCollect, so
-        # get_parent() would return the TaskGroup. Walk up to the Sample node.
-        sample_model = uc_model.get_sample_node()
-        user_params = uc_model.get_parameters()
+        log = logging.getLogger("HWR")
+        xc = HWR.beamline.xray_centring
+        sample_model = self.get_data_model().get_sample_node()
+        log.info("[UC] UnmountQueueEntry.execute reached")
         try:
-            HWR.beamline.xray_centring.unattended_collect_single(
-                sample_model, user_params
-            )
-        except Exception as e:
-            logging.getLogger("HWR").exception("Unattended collect failed")
-            raise QueueExecutionException(str(e), self)
+            xc.finalize_session(sample_model)
+        except Exception:
+            log.exception("[UC] unmount failed")
 
     def pre_execute(self):
         BaseQueueEntry.pre_execute(self)
 
     def post_execute(self):
         BaseQueueEntry.post_execute(self)
+
+    def get_type_str(self):
+        return "Unmount"

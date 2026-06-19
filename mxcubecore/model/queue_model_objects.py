@@ -1270,8 +1270,72 @@ class UnattendedCollect(TaskNode):
     def get_parameters(self):
         return self.acquisition_params
 
+
     def get_display_name(self):
         return "Unattended collect"
+
+
+class _UnattendedPhase(TaskNode):
+    """Base for the decomposed unattended-collect phase tasks.
+
+    Each phase is one sub-task under the per-sample unattended TaskGroup and is
+    executed by its own queue entry, which calls a public phase method on
+    HWR.beamline.xray_centring. They carry the user-edited acquisition subset
+    (only GridScan actually consumes it, via begin_centring_session) so the
+    tasks remain self-contained when added manually. set_requires_centring is
+    False since the unattended pipeline does its own centring.
+    """
+
+    _display_name = "Unattended phase"
+
+    def __init__(self):
+        TaskNode.__init__(self)
+        self.set_name(self._display_name)
+        self.set_requires_centring(False)
+        self.acquisition_params = {}
+
+    def set_parameters(self, params):
+        self.acquisition_params = dict(params or {})
+
+    def get_parameters(self):
+        return self.acquisition_params
+
+    def get_display_name(self):
+        return self._display_name
+
+
+class GridScan(_UnattendedPhase):
+    """Mesh (grid) scan phase: begin the centring session + run the 2D mesh."""
+
+    _display_name = "Grid scan"
+
+
+class LineScan(_UnattendedPhase):
+    """One helical (line) scan phase, identified by its 0-based index."""
+
+    _display_name = "Line scan"
+
+    def __init__(self, index=0):
+        _UnattendedPhase.__init__(self)
+        self.index = index
+
+
+class FinalizeCentring(_UnattendedPhase):
+    """Centring-fit phase: fit accumulated scans, move + register the point."""
+
+    _display_name = "Finalize centring"
+
+
+class UnattendedDataCollection(_UnattendedPhase):
+    """Data-collection phase: snapshots + do_collect (guarded by found_spots)."""
+
+    _display_name = "Data collection"
+
+
+class Unmount(_UnattendedPhase):
+    """Unmount phase: clear graphics and unload the sample (always runs)."""
+
+    _display_name = "Unmount"
 
 
 class XrayCentring2(TaskNode):
@@ -1446,6 +1510,11 @@ class OpticalCentring(TaskNode):
             self.try_count = 3
         else:
             self.try_count = 1
+        # Optional PX1 zoom level ('zoom1'/'zoom2'). When set, the queue entry
+        # moves the diffractometer zoom before running the automatic centring.
+        self.zoom = None
+        # Optional settle time (s) after the zoom move, before centring.
+        self.zoom_settle = 10
 
     def add_task(self, task_node):
         pass

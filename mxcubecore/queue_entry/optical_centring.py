@@ -17,6 +17,8 @@
 #  along with MXCuBE. If not, see <http://www.gnu.org/licenses/>.
 
 
+import logging
+
 import gevent
 
 from mxcubecore import HardwareRepository as HWR
@@ -37,6 +39,25 @@ class OpticalCentringQueueEntry(BaseQueueEntry):
 
     def execute(self):
         BaseQueueEntry.execute(self)
+
+        # PX1 unattended pipeline: when a zoom level is set, set the zoom and
+        # run the automatic (murko) centring via the xray_centring HO so the
+        # zoom1/zoom2 settling matches the legacy driver. Falls back to the
+        # generic diffractometer centring when no zoom is requested.
+        zoom = getattr(self.get_data_model(), "zoom", None)
+        xc = getattr(HWR.beamline, "xray_centring", None)
+        if zoom and xc is not None and hasattr(xc, "run_optical_centring"):
+            settle = getattr(self.get_data_model(), "zoom_settle", 10)
+            # Robust for the unattended pipeline: a centring fault must not
+            # abort the queue (the later phases skip and Unmount still runs).
+            try:
+                xc.run_optical_centring(zoom, settle=settle)
+            except Exception:
+                logging.getLogger("HWR").exception(
+                    "[UC] optical centring (%s) failed", zoom
+                )
+            return
+
         HWR.beamline.diffractometer.automatic_centring_try_count = (
             self.get_data_model().try_count
         )
