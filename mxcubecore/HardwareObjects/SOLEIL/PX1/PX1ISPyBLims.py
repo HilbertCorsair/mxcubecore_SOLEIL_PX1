@@ -709,13 +709,27 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         self.adapter = self._create_data_adapter()
         self.ldapConnection = self.get_object_by_role("ldapServer")
 
-    def _create_data_adapter(self) -> ISPyBDataAdapter:
+    def _create_data_adapter(self):
         data_adapter  = CustomISPyBDataAdapter(self.ws_root.strip(),
                                                self.ws_username,
                                                self.ws_password,
                                                self.beamline_name,)
         if not data_adapter._shipping :
             data_adapter.initialize_services()
+         # call rest adapter
+        pyispyb_rest_root = self.get_property("pyispyb_rest_root")
+        if pyispyb_rest_root:
+            client = PyISPyBRestClient(
+                    rest_root=pyispyb_rest_root,
+                    keycloak_url=self.get_property("keycloak_url"),
+                    grant_type=self.get_property("grant_type"),
+                    client_id=self.get_property("client_id"),
+                    client_secret=self.get_property("client_secret"),
+                )
+            return PyISPyBDataAdapter(
+                        client,
+                        self.beamline_name
+                )
         return data_adapter
 
     def store_data_collection(self, mx_collection, bl_config=None):

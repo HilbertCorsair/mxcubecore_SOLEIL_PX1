@@ -1,0 +1,60 @@
+<object class="SOLEIL.PX1.PX1ISPyBLims">
+  <!--<object hwrid="/lims_rest" role="lims_rest"/> -->
+  <base_result_url>
+    http://195.221.10.20/ispyb/ispyb-ws/ispybWS/
+  </base_result_url>
+
+  <rest_root>
+   http://195.221.10.20/ispyb/ispyb-ws/ispybWS/
+  </rest_root>
+
+  <site>SOLEIL</site>
+  <beamline_name>Proxima1</beamline_name>
+
+  <exi_root>
+   https://your.exi.org
+  </exi_root>
+
+  <restUserName>abc</restUserName>
+  <restPass>Gb2_wvD7cZ1sxujYDcKBM!zC</restPass>
+
+  <object role="ldapServer" href="/ldapconnection" />
+
+  <authServerType>ldap</authServerType>
+
+  <ispyb_identifiers_location>/nfs/ruche/share-dev/px1dev/MXCuBE/PX1/ispyb_identifiers</ispyb_identifiers_location>
+
+  <!-- configuration for suntest-->
+  <ws_root>http://195.221.10.20/ispyb/ispyb-ws/ispybWS/</ws_root>
+  <!-- ws_root>http://195.221.10.19:8081/ispyb/ispyb-ws/ispybWS/</ws_root-->
+<!--
+  <ws_root>http://suntest.synchrotron-soleil.fr/ispyb/ispyb-ws/ispybWS/</ws_root>
+-->
+  <ws_username>abc</ws_username>
+  <ws_password>1Spy6@Sun0</ws_password>
+  <!-- ws_password>WebSrvSo1!</ws_password-->
+
+  <!-- configuration for production server>
+  <ws_root>http://195.221.0.141/ispyb/ispyb-ws/ispybWS/</ws_root>
+  <ws_username>ab361</ws_username>
+  <ws_password>1Spy6@Sun0</ws_password>
+  <-->
+
+  <ws_collection>ToolsForCollectionWebService</ws_collection>
+  <ws_shipping>ToolsForShippingWebService</ws_shipping>
+  <ws_tools>ToolsForBLSampleWebService</ws_tools>
+
+  <connectionTimeout>360</connectionTimeout>
+
+
+    <!-- Keycloak connection to get token to authorize to call pyispyb backend api-->
+  <pyispyb_rest_root>https://pyispyb.example.org/ispyb/api/v1/</pyispyb_rest_root>
+  <keycloak_url>https://keycloak.example.org/realms/realmName/protocol/openid-connect/token</keycloak_url>
+  <grant_type>client_credentials</grant_type>
+  <client_id>CLIENT_ID</client_id>
+  <client_secret>CLIENT_SECRET</client_secret>
+
+
+  <loginType>proposal</loginType>
+  <object role="session" href="/session"/>
+</object>
