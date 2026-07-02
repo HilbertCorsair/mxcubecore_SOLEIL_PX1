@@ -44,7 +44,7 @@ _objects:
   # - plate_manipulator: plate-manipulator.xml
   - diffractometer: minidiff.xml
   - graphics: Qt4_graphics-manager.xml
-  - lims: dbconnection.xml
+  - lims: lims.xml
   - queue_manager: queue.xml
   - queue_model: queue-model.xml
   # Procedures:
