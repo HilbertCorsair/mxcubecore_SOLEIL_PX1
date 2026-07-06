@@ -38,6 +38,9 @@ class PyISPyBRestClient:
         self._session = Session()
         self._access_token = None
         self._token_expiry = None
+        # Temporary debugging only
+        self._session.trust_env = False
+        self._session.verify = False
 
     def authenticate(self):
         response = self._session.post(
