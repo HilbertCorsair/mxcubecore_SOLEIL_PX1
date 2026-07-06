@@ -16,6 +16,8 @@ from urllib.error import URLError
 from pprint import pformat
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.HardwareObjects.abstract.ISPyBDataAdapter import ISPyBDataAdapter
+from mxcubecore.HardwareObjects.abstract.PyISPyBDataAdapter import PyISPyBDataAdapter
+from mxcubecore.HardwareObjects.abstract.PyISPyBRestClient import PyISPyBRestClient
 from mxcubecore.HardwareObjects.ProposalTypeISPyBLims import ProposalTypeISPyBLims
 from mxcubecore.model.lims_session import LimsSessionManager
 from mxcubecore.model.lims_session import Session as lims_Session
