@@ -804,8 +804,10 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
     def login(self, pid):
         self.user_name = pid
         #self.data_adapter = self._create_data_adapter()
-        proposal = self.adapter.get_proposal(pid)
-        todays_session = self.adapter.get_todays_session(proposal)
+        proposal = self.adapter.get_proposals()
+        import pdb
+        pdb.set_trace()
+        todays_session = self.adapter.find_sessions_by_poposal_and_beamline_for_today(proposal)
         start_datetime_str = self.check_to_string(todays_session["session"]['startDate'])
         # Parse the string into a datetime object
         start_dt_object = datetime.strptime(start_datetime_str, '%Y-%m-%d %H:%M:%S')
@@ -948,6 +950,5 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
                 image_dict[prop] = ispyb_path
             except:
                 pass
-
 
 
