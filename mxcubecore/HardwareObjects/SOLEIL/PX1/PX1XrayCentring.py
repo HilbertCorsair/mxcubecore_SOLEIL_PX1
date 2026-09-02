@@ -247,6 +247,11 @@ class PX1XrayCentring(AbstractXrayCentring):
 
     default_transmission_xray = 25
 
+    # Fallback when ISPyB carries no diffraction plan for the sample. Matches
+    # the Unattended collect form default; applyUserParams() overrides it with
+    # the value entered in the form whenever one is given.
+    default_resolution = 2.0
+
     def unattended_collect_single(self, sample_model, user_params=None):
         """Run the unattended centring + data collection for ONE sample.
 
@@ -557,9 +562,16 @@ class PX1XrayCentring(AbstractXrayCentring):
         SamplesInContainer = [s for s in smp_list if s['containerSampleChangerLocation'] == str(containerSampleChangerLocation)]
         SampleAtLocation = [d for d in SamplesInContainer if d['sampleLocation'] == str(sampleLocation)]
         if not SampleAtLocation:
-            log.error(
-                f"No ISPyB sample found for container {containerSampleChangerLocation}, location {sampleLocation}, position {position}"
+            msg = (
+                f"No ISPyB sample found for container {containerSampleChangerLocation}, "
+                f"location {sampleLocation}, position {position}"
             )
+            log.error(msg)
+            # Bail out rather than falling through to SampleAtLocation[0] and
+            # raising a bare IndexError. The calling queue entry turns this into
+            # found_spots = False, so the pipeline skips to Unmount and the run
+            # advances to the next sample.
+            raise RuntimeError(msg)
         currentSample = SampleAtLocation[0]
         proteinAcronym = currentSample['proteinAcronym']
         sampleName = currentSample['sampleName']
@@ -567,7 +579,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         runNumber = 1
         proposal = HWR.beamline.lims.session_manager.active_session.number
         sessionID =  HWR.beamline.lims.session_manager.active_session.session_id
-        template = samplePrefix + "_" + str(runNumber) + "_%004\d.h5"
+        template = samplePrefix + "_" + str(runNumber) + r"_%004\d.h5"
         motors = self.createMotorDict()
         stringTimestamp = str(datetime.now())
         # TO DO put this in an config file
@@ -575,9 +587,16 @@ class PX1XrayCentring(AbstractXrayCentring):
         try:
             resolution =  smp_list[position -1]["diffractionPlan"]["requiredResolution"]
         except Exception as e:
+            # Unattended runs are headless: never block on input(). Fall back to
+            # the default; the Unattended collect form's resolution field, when
+            # filled in, overrides this in applyUserParams().
+            resolution = self.default_resolution
             log.error(f"Resolution problem: {e}")
-            log.warning(e,f"\nCould not recover a valid resolution value. Check if the folowing makes sense or just input a valid numeric value and hit Enter:\nSample list length si : {len(smp_list)}\nthe index used is : {position -1}")
-            resolution = input("Please enter a valid resolution value to continue! :")
+            log.warning(
+                f"Could not recover a valid resolution value for position {position} "
+                f"(sample list length {len(smp_list)}, index used {position - 1}); "
+                f"falling back to {resolution} A"
+            )
 
         param_list["detector_distance"] = HWR.beamline.resolution.resolution_to_distance(resolution, 0.979)
         param_list["fileinfo"]["prefix"] = samplePrefix

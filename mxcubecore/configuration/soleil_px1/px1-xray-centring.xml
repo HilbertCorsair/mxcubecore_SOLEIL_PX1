@@ -1,0 +1,25 @@
+<object class="SOLEIL.PX1.PX1XrayCentring">
+  <tangoname>i10-c-cx1/ex/collect</tangoname>
+  <sgonaxis>i10-c-cx1/ex/sgonaxis</sgonaxis>
+  <mxcube_createdir_server>http://localhost:9000</mxcube_createdir_server>
+  <omega_increment>120</omega_increment>
+  <testmode>False</testmode>
+  <processing>dials</processing>
+  <user_enable>True</user_enable>
+
+  <channel type="tango" tangoname="i10-c-cx1/ex/collect" name="state">State</channel>
+
+  <object href="/omega" role="omega"/>
+  <object href="/phiz" role="sampx"/>
+  <object href="/uglidey" role="sampy"/>
+  <object href="/uglidey" role="phiz"/>
+  <object href="/uglidex" role="phiy"/>
+  <object href="/chi" role="kappa"/>
+  <object href="/phi" role="kappa_phi"/>
+  <object href="/px1environment" role="px1environment"/>
+  <object href="/lightarm" role="lightarm"/>
+  <object href="/Qt4_graphics-manager" role="graphics_manager"/>
+  <object href="/session" role="session"/>
+  <object href="/smargon" role="smargon"/>
+  <object href="/beam-info" role="beaminfo"/>
+</object>
