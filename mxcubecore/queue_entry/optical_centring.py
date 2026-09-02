@@ -70,7 +70,17 @@ class OpticalCentringQueueEntry(BaseQueueEntry):
         BaseQueueEntry.pre_execute(self)
 
     def post_execute(self):
-        self.get_view().set_checkable(False)
+        # Qt-only view call: in the queue-driven (web) path the view is absent
+        # or a stand-in without this method, and a failure here would abort the
+        # unattended pipeline before it reaches Unmount.
+        view = self.get_view()
+        if hasattr(view, "set_checkable"):
+            try:
+                view.set_checkable(False)
+            except Exception:
+                logging.getLogger("HWR").exception(
+                    "[UC] optical centring: set_checkable failed"
+                )
         BaseQueueEntry.post_execute(self)
 
     def get_type_str(self):
