@@ -2,7 +2,13 @@
 import logging
 import json
 import os
+import copy
+import glob
+import time
+import traceback
 import tempfile
+
+import gevent
 
 from mxcubecore.BaseHardwareObjects import HardwareObject
 import subprocess
@@ -33,8 +39,17 @@ class ProcessingOption(object):
 
 class PX1AutoProcessing(HardwareObject):
 
+   TMPFILE_PREFIX = "mxcube_autoproc_"
+
    def init(self):
        self.exec_program = self.get_property("executable")
+
+       # <blocking>True</blocking> restores the legacy behaviour: the caller's
+       # greenlet waits for the processing program to exit.
+       self.blocking = str(self.get_property("blocking", False)) in ("True", "true")
+       self.tmpdir = self.get_property("tmpdir", "/tmp")
+       self.tmpfile_ttl_days = int(self.get_property("tmpfile_ttl_days", 7))
+       self._sweep_old_tmpfiles()
 
        self.proc_options = collections.OrderedDict()
        self.profiles = {'default': ''}
@@ -129,53 +144,155 @@ class PX1AutoProcessing(HardwareObject):
        return { opt.get_name(): opt.get_value() \
                             for opt in self.proc_options.values() }
 
-   def start_autoprocessing(self, collect_pars):
-       from mxcubecore import HardwareRepository as HWR
-       logging.getLogger("HWR").debug("PX1AutoProcessing / Starting autoprocessing")
-       logging.getLogger("HWR").debug("   - executable: %s" % self.exec_program)
-       logging.getLogger("HWR").debug("   - collect_pars (keys only): %s" % collect_pars.keys())
+   def start_autoprocessing(self, collect_pars, wait=None):
+       """Snapshot the collect parameters and launch the processing pipeline.
 
-       # adapt motors entry to avoid trying json on instance
-       motors = collect_pars['motors']
-       collect_pars["autoproc_options"] = self.get_options_as_dict()
-       HWR.beamline.lims.update_data_collection(collect_pars)
+       The snapshot is taken synchronously in the caller's greenlet, so the
+       background job owns a private copy: collect_pars IS
+       HWR.beamline.collect.current_dc_parameters by reference and keeps being
+       mutated (thumbnails, lims preparation) after collection_finished()
+       returns, and is replaced outright by the next sample.
+
+       The slow half - the LIMS update, the temp file and the processing
+       program itself - runs in a background greenlet so the queue can go on to
+       unmount the sample and load the next one.
+
+       :param collect_pars: the live dc-parameters dict.
+       :param wait: None uses the <blocking> property (default False); True runs
+                    inline and returns the exit code; False always spawns.
+       :returns: the gevent.Greenlet when backgrounded, the exit code otherwise.
+       """
+       log.debug("PX1AutoProcessing / executable: %s" % self.exec_program)
+       payload = self._snapshot_collect_pars(collect_pars)
+       prefix = payload.get("fileinfo", {}).get("prefix", "unknown")
+
+       blocking = self.blocking if wait is None else wait
+
+       if blocking:
+           return self._run_job(payload, prefix)
+
+       log.info("PX1AutoProcessing / launching processing for %s in background", prefix)
+       return gevent.spawn(self._run_job, payload, prefix)
+
+   def _snapshot_collect_pars(self, collect_pars):
+       """Private, JSON-safe deep copy of collect_pars.
+
+       Runs in the caller's greenlet because it reads live hardware objects
+       (motor mnemonics, processing options, beam shape).
+       """
+       from mxcubecore import HardwareRepository as HWR
+
+       motors = collect_pars.get("motors") or {}
+       payload = copy.deepcopy(
+           {ky: val for ky, val in collect_pars.items() if ky != "motors"}
+       )
 
        motors_by_name = {}
        for ky, val in motors.items():
-           if type(ky) is not str:
-               ky = ky.get_motor_mnemonic()
-               ky = ky.replace("/","")
+           if not isinstance(ky, str):
+               ky = ky.get_motor_mnemonic().replace("/", "")
            motors_by_name[ky] = val
-       collect_pars['motors'] = motors_by_name
+       payload["motors"] = motors_by_name
 
-       logging.getLogger("HWR").debug("\n\n   - collect_pars (all): ")
-       for ky,val in collect_pars.items():
-            logging.getLogger("HWR").debug("   - % 12s : %s" % (ky, str(val)))
-       logging.getLogger("HWR").debug("\n")
-
-       from mxcubecore import HardwareRepository as HWR
-       collect_pars["beamShape"] =  HWR.beamline.beam.get_beam_shape().value
-       collect_pars = HWR.beamline.lims.repare_bytes_dict(collect_pars)
-       jsonstr = json.dumps(collect_pars)
-
-       fd, name = tempfile.mkstemp(dir="/tmp")
-       logging.getLogger("HWR").debug("PX1AutoProcessing / saving collect pars to file %s" % name)
-       os.write(fd, jsonstr.encode("utf-8"))
-       os.close(fd)
+       payload["autoproc_options"] = self.get_options_as_dict()
 
        try:
-           cmd = "%s %s" % (self.exec_program, name)
-           logging.getLogger("HWR").error("PX1AutoProcessing /  executing command %s" % cmd)
-           p1 = subprocess.Popen(cmd,  shell=True, stdin=None,stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
-           out,err = p1.communicate()
+           payload["beamShape"] = HWR.beamline.beam.get_beam_shape().value
+       except Exception:
+           log.exception("PX1AutoProcessing / could not read the beam shape")
+
+       payload = HWR.beamline.lims.repare_bytes_dict(payload)
+
+       # Fail here, in context, rather than inside the background greenlet.
+       json.dumps(payload, default=str)
+
+       return payload
+
+   def _run_job(self, payload, prefix):
+       """Update LIMS, write the parameter file and run the processing program."""
+       from mxcubecore import HardwareRepository as HWR
+
+       tmpfile = None
+
+       try:
+           HWR.beamline.lims.update_data_collection(payload)
+           jsonstr = json.dumps(payload, default=str)
+
+           fd, tmpfile = tempfile.mkstemp(
+               dir=self.tmpdir,
+               suffix=".json",
+               prefix="%s%s_" % (self.TMPFILE_PREFIX, prefix),
+           )
+           os.write(fd, jsonstr.encode("utf-8"))
+           os.close(fd)
+
+           log.debug("PX1AutoProcessing / saved collect pars to file %s" % tmpfile)
+
+           if log.isEnabledFor(logging.DEBUG):
+               for ky, val in payload.items():
+                   log.debug("   - % 12s : %s" % (ky, str(val)))
+
+           cmd = "%s %s" % (self.exec_program, tmpfile)
+           log.info("PX1AutoProcessing / executing command %s" % cmd)
+
+           p1 = subprocess.Popen(
+               cmd, shell=True, stdin=None,
+               stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True,
+           )
+           out, err = p1.communicate()
+
            if out:
-                logging.getLogger("HWR").error("PX1AutoProcessing / <output>\n%s" % out)
+               log.info("PX1AutoProcessing / <output>\n%s" % out)
            if err:
-                logging.getLogger("HWR").error("PX1AutoProcessing / <error>\n%s" % err)
-       except:
-           import traceback
-           logging.getLogger("HWR").error("PX1AutoProcessing /  error starting autoprocessing ")
-           logging.getLogger("HWR").error( traceback.format_exc())
+               log.warning("PX1AutoProcessing / <error>\n%s" % err)
+
+           if p1.returncode:
+               log.error(
+                   "PX1AutoProcessing / %s exited with code %s"
+                   % (prefix, p1.returncode)
+               )
+               logging.getLogger("user_level_log").error(
+                   "Autoprocessing failed for %s (see log)" % prefix
+               )
+
+           return p1.returncode
+       except gevent.GreenletExit:
+           # Shutdown or explicit kill. The processing program was started
+           # detached and is deliberately left to finish on its own.
+           log.warning(
+               "PX1AutoProcessing / abandoning %s (parameter file %s)"
+               % (prefix, tmpfile)
+           )
+           raise
+       except Exception:
+           log.error("PX1AutoProcessing / error starting autoprocessing for %s" % prefix)
+           log.error(traceback.format_exc())
+           logging.getLogger("user_level_log").error(
+               "Autoprocessing could not be started for %s (see log)" % prefix
+           )
+
+   def _sweep_old_tmpfiles(self):
+       """Remove parameter files left behind by past runs.
+
+       They are deliberately not deleted when a job finishes: exec_program is a
+       wrapper that may submit a cluster job which re-reads the file after the
+       wrapper exits. Sweeping only at startup guarantees nothing in flight is
+       removed.
+       """
+       cutoff = time.time() - self.tmpfile_ttl_days * 86400
+
+       try:
+           stale = glob.glob(os.path.join(self.tmpdir, self.TMPFILE_PREFIX + "*.json"))
+       except Exception:
+           log.exception("PX1AutoProcessing / could not list old parameter files")
+           return
+
+       for path in stale:
+           try:
+               if os.path.getmtime(path) < cutoff:
+                   os.unlink(path)
+           except OSError:
+               pass
 
 
 def test_hwo(hwo):

@@ -20,7 +20,10 @@ import logging
 
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.model import queue_model_objects
-from mxcubecore.queue_entry.base_queue_entry import BaseQueueEntry
+from mxcubecore.queue_entry.base_queue_entry import (
+    BaseQueueEntry,
+    QueueSkipEntryException,
+)
 from mxcubecore.queue_entry.grid_scan import MAX_SCAN_ATTEMPTS
 
 __credits__ = ["MXCuBE collaboration"]
@@ -36,6 +39,11 @@ class LineScanQueueEntry(BaseQueueEntry):
     runs the helical scan for this entry's index, retrying up to
     MAX_SCAN_ATTEMPTS times when no spots are found. On persistent failure it
     leaves found_spots=False so the remaining phases skip.
+
+    A skip raises QueueSkipEntryException rather than returning quietly, so the
+    entry is marked SKIPPED instead of collected: QueueManager catches it per
+    entry, the remaining phases (Unmount included) still run, and the row is not
+    shown green as if it had done its work.
     """
 
     NAME = "Line scan"
@@ -53,7 +61,10 @@ class LineScanQueueEntry(BaseQueueEntry):
 
         if not getattr(xc, "found_spots", False):
             log.info("[UC] line scan %s skipped (no spots from earlier phase)", index)
-            return
+            raise QueueSkipEntryException(
+                "Line scan %s skipped: no spots from an earlier phase" % index,
+                self,
+            )
 
         try:
             for attempt in range(MAX_SCAN_ATTEMPTS):

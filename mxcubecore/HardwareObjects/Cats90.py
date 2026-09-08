@@ -764,7 +764,10 @@ class Cats90(SampleChanger):
         sample = self._resolve_component(sample)
         self.assert_not_charging()
 
-        self._execute_task(SampleChangerState.Loading, wait, self._do_load, sample)
+        # The return value is the load verdict for callers such as
+        # queue_entry.base_queue_entry.mount_sample(); without it load() reported
+        # None (falsy) after every successful mount.
+        return self._execute_task(SampleChangerState.Loading, wait, self._do_load, sample)
 
     def _do_load(self, sample=None, shifts=None, wash=False):
         """

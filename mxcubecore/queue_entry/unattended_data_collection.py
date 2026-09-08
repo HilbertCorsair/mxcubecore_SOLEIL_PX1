@@ -20,7 +20,10 @@ import logging
 
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.model import queue_model_objects
-from mxcubecore.queue_entry.base_queue_entry import BaseQueueEntry
+from mxcubecore.queue_entry.base_queue_entry import (
+    BaseQueueEntry,
+    QueueSkipEntryException,
+)
 
 __credits__ = ["MXCuBE collaboration"]
 __license__ = "LGPLv3+"
@@ -31,9 +34,13 @@ class UnattendedDataCollectionQueueEntry(BaseQueueEntry):
     """Unattended pipeline phase: snapshots + data collection + autoprocessing.
 
     Runs PX1XrayCentring.collect_with_params() (refresh motors, two diffraction
-    snapshots, do_collect), guarded by found_spots. Autoprocessing is triggered
-    in post_execute, because the PX1Collect OSC/Helical hook does not trigger it
-    itself (only the Characterization branch does).
+    snapshots, do_collect), guarded by found_spots; a skip raises
+    QueueSkipEntryException so the row reads as skipped rather than collected.
+
+    post_execute triggers autoprocessing as a fallback for collections that
+    AbstractCollect.collection_finished() does not cover (fewer than 20 frames).
+    PX1Collect.trigger_auto_processing de-duplicates via _autoproc_launched, so
+    a collection that already triggered itself is not processed twice.
     """
 
     NAME = "Unattended data collection"
@@ -52,7 +59,9 @@ class UnattendedDataCollectionQueueEntry(BaseQueueEntry):
 
         if not getattr(xc, "found_spots", False):
             log.info("[UC] data collection skipped (no spots)")
-            return
+            raise QueueSkipEntryException(
+                "Data collection skipped: no spots found", self
+            )
 
         try:
             xc.collect_with_params()
