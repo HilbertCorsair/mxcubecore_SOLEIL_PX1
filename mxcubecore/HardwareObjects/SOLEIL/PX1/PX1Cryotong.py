@@ -5,7 +5,6 @@ import gevent.event
 import time
 from mxcubecore.HardwareObjects.abstract.sample_changer import Container
 import PyTango
-import math
 
 
 from Cats90 import (
@@ -29,13 +28,14 @@ class PX1Cryotong(Cats90):
     def __init__(self, *args, **kwargs):
 
         super(PX1Cryotong, self).__init__(*args, **kwargs)
-        # Generates a list of baskets
-        self.components = [ Container.Basket(self, i +1, 16) for i in range(16) ]
+        # No baskets are built here. _init_sc_contents() is the single place
+        # that builds them; doing it here as well left the changer holding 22
+        # Basket objects with duplicate sample addresses, which every lookup
+        # then resolved by list order rather than by address.
         self._safeNeeded = None
         self._homeOpened = None
         self.dry_and_soak_needed = False
         self.count_down = None
-        self.no_of_samples_in_basket = 16
         self.soft_auth = None
         self.incoherent_state = None
         # Post-mount souflette (blower) drying settle. Run in the background so
@@ -51,7 +51,6 @@ class PX1Cryotong(Cats90):
 
     def init(self):
         super(PX1Cryotong, self).init()
-        self._num_loaded = self._chnNumLoadedSample.value if self._chnNumLoadedSample.value != -1 else None
         self.environment = self.get_object_by_role("environment")
         self.tangoname = self.get_property("tangoname")
         if self.environment is None:
@@ -110,12 +109,9 @@ class PX1Cryotong(Cats90):
                 }, "ResetError")
 
 
-        for i in range(self.no_of_baskets):
-            basket = Container.Basket(
-                self, i + 1, samples_num = self.no_of_samples_in_basket
-            )
-            self._add_component(basket)
-        self._chnNumLoadedSample.connect_signal("update", self._update_num_loaded)
+        # _chnNumLoadedSample is already connected in Cats90.init(), to
+        # cats_loaded_num_changed -> _update_loaded_sample. A second handler on
+        # the same channel only raced with it.
 
         # <souflette_time>45</souflette_time> / <souflette_blocking>False</...>
         # souflette_blocking restores the legacy behaviour (the queue waits out
@@ -133,7 +129,7 @@ class PX1Cryotong(Cats90):
         self._init_sc_contents()
         self._do_update_state()
         self._update_state()
-        self._update_loaded_list()
+        self._do_update_loaded_sample()
 
     # ## CRYOTONG SPECIFIC METHODS ###
     def is_string_true (self, val):
@@ -144,31 +140,6 @@ class PX1Cryotong(Cats90):
 
     def cats_basket_presence_changed(self, value):
         pass
-
-    def _update_num_loaded(self, value):
-        if self._num_loaded:
-            self._num_loaded = value if not value == -1 else None
-            self._update_loaded_list()
-
-
-    def _update_loaded_list (self):
-        """Upsdates the list of sample objects by changing their loaded property
-        """
-        if self._num_loaded :
-            smp = self._num_loaded % 16
-            comp_no = math.ceil(int(self._num_loaded) / 16) -1
-            smp_no = smp-1 if smp != 0 else 15
-            # reset all previous load
-            for sample in self.components[comp_no].get_sample_list():
-                sample.loaded = False
-            # update loaded for new sample
-            self.components[comp_no].get_sample_list()[smp_no].loaded = True
-
-        else:
-            for puck in range(3):
-                for sample in self.components[puck].get_sample_list():
-                    sample.loaded = False
-
 
     def _do_update_state(self):
         """
@@ -420,26 +391,42 @@ class PX1Cryotong(Cats90):
         #self.videohub_ho.select_camera("Robot", process="mount")
         #self.videohub_ho.start_recording(file_prefix="mount")
 
-        if self.has_loaded_sample() :
-            if selected==self.get_loaded_sample() and not wash:
-                msg = "Load aborted. Reason: \nSample " + str(self.get_loaded_sample().get_address()) + " already loaded"
+        # Chained load (Exchange) vs plain load is decided by the goniometer
+        # detector, not by our own loaded flag. Sending an Exchange to an empty
+        # goniometer is rejected by the CATS and leaves it in Alarm/Disabled,
+        # which then kills the whole queue run - and a stale flag is exactly
+        # what used to put us there. The flag is only used to name the pin.
+        on_diff = self.cats_sample_on_diffr() == 1
+        loaded = self.get_loaded_sample()
+
+        if loaded is not None and not on_diff:
+            logging.getLogger("HWR").warning(
+                "  ==========CATS=== %s is flagged loaded but nothing is detected"
+                " on the goniometer; loading %s:%s as a plain load"
+                % (loaded.get_address(), basketno, sampleno)
+            )
+
+        if on_diff:
+            if loaded is not None and selected == loaded and not wash:
+                msg = "Load aborted. Reason: \nSample " + str(loaded.get_address()) + " already loaded"
                 logging.getLogger("user_level_log").info(msg)
                 self.emit("catsError", msg)
                 self._update_state()
                 raise Exception(msg)
-            else:
-                logging.getLogger("HWR").warning("  ==========CATS=== chained load sample, sending to cats:  %s" % argin)
-                self.environment.wait_ready()
-                self._execute_server_task(self._cmdChainedLoad, argin)
+
+            logging.getLogger("HWR").warning("  ==========CATS=== chained load sample, sending to cats:  %s" % argin)
+            self.environment.wait_ready()
+            self._execute_server_task(self._cmdChainedLoad, argin)
         else:
-            print(f'NO LOADED SAMPLE -- {self.has_loaded_sample()}')
-            if self.cats_sample_on_diffr():
-                logging.getLogger("HWR").warning("  ==========CATS=== trying to load sample, but sample detected on diffr. Exchanging samples")
-                self._update_state() # remove software flags like Loading.
-                self._execute_server_task(self._cmdChainedLoad, argin)
-            else:
-                logging.getLogger("HWR").warning("  ==========CATS=== load sample, sending to cats:  %s" % argin)
-                self._execute_server_task(self._cmdLoad, argin)
+            if self.cats_sample_on_diffr() == -1:
+                # Conflicting loaded-sample info from the CATS. Loading blind
+                # here is how a pin gets crushed; make the operator resolve it.
+                raise Exception(
+                    "CATS reports conflicting loaded-sample information. "
+                    "Please clear it (AckIncoherentGonioSampleState) before loading."
+                )
+            logging.getLogger("HWR").warning("  ==========CATS=== load sample, sending to cats:  %s" % argin)
+            self._execute_server_task(self._cmdLoad, argin)
 
         self.environment.wait_ready()
         HWR.beamline.diffractometer.mount_finished()
@@ -507,14 +494,10 @@ class PX1Cryotong(Cats90):
                 "CATS: Load/Unload Error. Please try again."
             )
             self.emit("loadError", incoherentSample)
-        self._update_loaded_list()
-
-        # Must stay synchronous. _update_loaded_list() above cannot set the
-        # loaded flag when the goniometer was empty, because _update_num_loaded
-        # is guarded by "if self._num_loaded:" which is falsy in exactly that
-        # case. base_queue_entry.mount_sample() gates on has_loaded_sample(), and
-        # AbstractSampleChanger._run's update_info() needs fresh flags to emit
-        # loadedSampleChanged.
+        # Must stay synchronous: base_queue_entry.mount_sample() gates on
+        # has_loaded_sample(), and AbstractSampleChanger._run's update_info()
+        # needs fresh flags to emit loadedSampleChanged. Reads both CATS
+        # attributes with a real read_attribute, not the 1 s poll cache.
         self._do_update_loaded_sample()
 
         # The drying time is not a data-freshness wait: _do_load_operation has
@@ -730,7 +713,6 @@ class PX1Cryotong(Cats90):
             )
 
         self._do_unload_operation(sample)
-        self._update_loaded_list()
         # Symmetric with _do_load: refresh the flags from the CATS attributes so
         # has_loaded_sample() and the loadedSampleChanged signal are correct as
         # soon as the unload returns.
@@ -800,8 +782,23 @@ class PX1Cryotong(Cats90):
             for tag, val in self["test_sample_names"].get_properties().items():
                 named_samples[val] = tag
 
+        # This override shadows Cats90._init_sc_contents, which is where the
+        # baskets and basket_presence are normally set up - so do both here,
+        # and only here. Both counts come from cryotong.xml (<no_of_baskets>,
+        # <samples_per_basket>) and Cats90.init() has already resolved them by
+        # the time it calls us. Without basket_presence, _update_cats_contents
+        # raises AttributeError the first time anything connects to infoChanged.
+        self.basket_presence = [None] * self.number_of_baskets
 
-        for basket_index in range(self.no_of_baskets):
+        self._clear_components()
+        for basket_index in range(self.number_of_baskets):
+            self._add_component(
+                Container.Basket(
+                    self, basket_index + 1, samples_num=self.samples_per_basket
+                )
+            )
+
+        for basket_index in range(self.number_of_baskets):
             basket = self.components[basket_index]
             datamatrix = None
             present = True
@@ -809,8 +806,8 @@ class PX1Cryotong(Cats90):
             basket._set_info(present, datamatrix, scanned)
 
         sample_list = []
-        for basket_index in range(self.no_of_baskets):
-            for sample_index in range(16):
+        for basket_index in range(self.number_of_baskets):
+            for sample_index in range(self.samples_per_basket):
                 sample_list.append(
                     (
                         "",
