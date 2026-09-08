@@ -923,7 +923,16 @@ def mount_sample(data_model, centring_done_cb, async_result):
         robot_action_dict["message"] = "Sample was not loaded"
         robot_action_dict["status"] = "ERROR"
 
-    HWR.beamline.lims.store_robot_action(robot_action_dict)
+    # Bookkeeping, not part of the mount. It sits between load() and the
+    # has_loaded_sample() check below, so anything raised here was reported as
+    # "Error loading sample, please check sample changer:" and, if the changer
+    # happened to look unusable, aborted the whole run.
+    try:
+        HWR.beamline.lims.store_robot_action(robot_action_dict)
+    except Exception:
+        logging.getLogger("HWR").exception(
+            "Could not store the robot action in LIMS"
+        )
 
     if not HWR.beamline.sample_changer.has_loaded_sample():
         HWR.beamline.sample_changer.trigger_progress_message("Sample not loaded")
