@@ -637,6 +637,17 @@ class PX1Cryotong(Cats90):
             # The CATS dry/soak countdown, if one is running.
             self.wait_countdown(timeout)
 
+            # The PX1 supervisor is the other half of "can a transfer start
+            # now": _do_load/_do_unload send it to the transfer phase, and it
+            # refuses that command outright while it is moving. Non-raising, so
+            # a busy supervisor still reaches env_send_transfer and produces the
+            # message that names it.
+            if not self.environment.wait_not_moving(timeout):
+                log.warning(
+                    "PX1Cryotong: environment still busy (%s), continuing anyway",
+                    self.environment._describe(),
+                )
+
             while True:
                 # Nothing else refreshes these synchronously: _do_update_state()
                 # is otherwise only called once at init, and self.state is left
@@ -764,10 +775,9 @@ class PX1Cryotong(Cats90):
                 )
                 break
 
-        if self._chnPowered.get_value():
-            return False
-
-        return True
+        # Inverted until 2026-09-08: a successful PowerOn returned False, i.e.
+        # "cannot be powered", and _do_load/_do_unload both abort on a False.
+        return bool(self._chnPowered.get_value())
 
 
     def _init_sc_contents(self):
@@ -863,7 +873,18 @@ class PX1Cryotong(Cats90):
         logging.getLogger("user_level_log").warning(
             "CRYOTONG: Not ready for transfer. sending it"
         )
-        self.environment.set_phase(EnvironmentPhase.TRANSFER)
+        try:
+            self.environment.set_phase(EnvironmentPhase.TRANSFER)
+        except Exception:
+            # A refused phase command used to propagate out of load() and be
+            # reported as "Error loading sample, please check sample changer",
+            # which named the wrong device. Returning False gets the caller's
+            # "Cryotong cannot get to transfer phase" message instead.
+            logging.getLogger("HWR").exception(
+                "CRYOTONG: could not send the environment to transfer phase (%s)",
+                self.environment._describe(),
+            )
+            return False
         timeout = 10
         t0 = time.time()
         while not self.environment.ready_for_transfer():
