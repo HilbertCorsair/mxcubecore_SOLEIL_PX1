@@ -16,6 +16,7 @@ from mxcubecore.HardwareObjects.GenericDiffractometer import (
 
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.HardwareObjects import sample_centring
+from mxcubecore.model.queue_model_objects import CentredPosition
 import math
 
 log = logging.getLogger("HWR")
@@ -968,9 +969,7 @@ class PX1MiniDiff(GenericDiffractometer):
                             and target values.
         :type motors_dict: dict
         """
-        from queue_model_objects_v1 import CentredPosition
-
-        if isinstance(motor_positions,  CentredPosition):
+        if isinstance(motor_positions, CentredPosition):
             motor_positions = motor_positions.as_dict()
 
         self.wait_device_ready(timeout)
