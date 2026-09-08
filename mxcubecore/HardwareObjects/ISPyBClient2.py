@@ -1502,6 +1502,15 @@ class ISPyBClient2(HardwareObject):
     def _store_data_collection_group(self, group_data):
         """
         """
+        # Same guard every other method in this file carries: without it an
+        # unreachable or disabled web service raises AttributeError on None,
+        # which used to take the whole queue task group down with it.
+        if self.__disabled or self._collection is None:
+            logging.getLogger("ispyb_client").warning(
+                "Not connected to ISPyB, data collection group not stored"
+            )
+            return None
+
         group_id = self._collection.service.\
                    storeOrUpdateDataCollectionGroup(group_data)
 
