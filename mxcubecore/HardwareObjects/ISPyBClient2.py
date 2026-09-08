@@ -1753,8 +1753,13 @@ class ISPyBClient2(HardwareObject):
         """Stores robot action"""
 
         action_id = None
-        if True:
-        #try:
+        if self.__disabled or self._collection is None:
+            logging.getLogger("ispyb_client").warning(
+                "Not connected to ISPyB, robot action not stored"
+            )
+            return None
+
+        try:
             robot_action_vo = self._collection.factory.create('robotActionWS3VO')
 
             robot_action_vo.actionType = robot_action_dict.get("actionType")
@@ -1772,9 +1777,12 @@ class ISPyBClient2(HardwareObject):
             robot_action_vo.xtalSnapshotAfter = robot_action_dict.get("xtalSnapshotAfter")
             robot_action_vo.xtalSnapshotBefore = robot_action_dict.get("xtalSnapshotBefore")
             action_id = self._collection.service.storeRobotAction(robot_action_vo)
-        #except:
-        #    msg = 'Could not store robot action in lims:'
-        #    logging.getLogger("ispyb_client").exception(msg)
+        except Exception:
+            # Called from base_queue_entry.mount_sample(); see the comment
+            # there. Bookkeeping must never fail a mount.
+            logging.getLogger("ispyb_client").exception(
+                "Could not store robot action in lims"
+            )
 
         return action_id
 

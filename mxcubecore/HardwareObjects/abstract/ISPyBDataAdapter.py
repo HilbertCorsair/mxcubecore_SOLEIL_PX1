@@ -382,6 +382,11 @@ class ISPyBDataAdapter():
 
     ############# Legacy methods #####################
     def _store_data_collection_group(self, group_data):
+        if self._collection is None:
+            logging.getLogger("ispyb_client").warning(
+                "Not connected to ISPyB, data collection group not stored"
+            )
+            return None
         return self._collection.service.storeOrUpdateDataCollectionGroup(group_data)
 
     def store_data_collection_group(self, mx_collection):
@@ -478,39 +483,64 @@ class ISPyBDataAdapter():
         return response_samples
 
     def store_robot_action(self, robot_action_dict):
-        """Stores robot action"""
+        """Stores robot action. Best effort: never raises.
+
+        Called by base_queue_entry.mount_sample() between load() and the
+        has_loaded_sample() check, so anything raised here surfaced as
+        "Error loading sample, please check sample changer:" and could take the
+        whole queue run down over a bookkeeping call.
+        """
         logging.getLogger("HWR").debug("Storing robot actions in lims")
 
-        if True:
-            robot_action_vo = self._collection.factory.create("robotActionWS3VO")
+        if self._collection is None:
+            logging.getLogger("ispyb_client").warning(
+                "Not connected to ISPyB, robot action not stored"
+            )
+            return None
 
-            robot_action_vo.actionType = robot_action_dict.get("actionType")
-            robot_action_vo.containerLocation = robot_action_dict.get(
-                "containerLocation"
-            )
-            robot_action_vo.dewarLocation = robot_action_dict.get("dewarLocation")
+        try:
+            payload = {
+                "actionType": robot_action_dict.get("actionType"),
+                "containerLocation": robot_action_dict.get("containerLocation"),
+                "dewarLocation": robot_action_dict.get("dewarLocation"),
+                "message": robot_action_dict.get("message"),
+                "sampleBarcode": robot_action_dict.get("sampleBarcode"),
+                "sessionId": robot_action_dict.get("sessionId"),
+                "blSampleId": robot_action_dict.get("sampleId"),
+                "status": robot_action_dict.get("status"),
+                "xtalSnapshotAfter": robot_action_dict.get("xtalSnapshotAfter"),
+                "xtalSnapshotBefore": robot_action_dict.get("xtalSnapshotBefore"),
+                "startTime": datetime.strptime(
+                    robot_action_dict.get("startTime"), "%Y-%m-%d %H:%M:%S"
+                ),
+                "endTime": datetime.strptime(
+                    robot_action_dict.get("endTime"), "%Y-%m-%d %H:%M:%S"
+                ),
+            }
 
-            # robot_action_vo.endTime = robot_action_dict.get("endTime")
-            robot_action_vo.message = robot_action_dict.get("message")
-            robot_action_vo.sampleBarcode = robot_action_dict.get("sampleBarcode")
-            robot_action_vo.sessionId = robot_action_dict.get("sessionId")
-            robot_action_vo.blSampleId = robot_action_dict.get("sampleId")
-            logging.getLogger("HWR").info(robot_action_vo.blSampleId)
-            robot_action_vo.startTime = datetime.strptime(
-                robot_action_dict.get("startTime"), "%Y-%m-%d %H:%M:%S"
-            )
-            robot_action_vo.endTime = datetime.strptime(
-                robot_action_dict.get("endTime"), "%Y-%m-%d %H:%M:%S"
-            )
-            robot_action_vo.status = robot_action_dict.get("status")
-            robot_action_vo.xtalSnapshotAfter = robot_action_dict.get(
-                "xtalSnapshotAfter"
-            )
-            robot_action_vo.xtalSnapshotBefore = robot_action_dict.get(
-                "xtalSnapshotBefore"
-            )
+            try:
+                # self._collection is a zeep client (see _create_client), so
+                # .factory - the suds API this used to call - raises
+                # AttributeError: 'Client' object has no attribute 'factory'.
+                # type_factory is what the rest of the codebase uses against
+                # this same WSDL; see ISPyBValueFactory.dcg_from_dc_params.
+                robot_action_vo = self._collection.type_factory(
+                    "ns0"
+                ).robotActionWS3VO(**payload)
+            except Exception:
+                # zeep also accepts a plain dict for a complex type; see
+                # _store_data_collection_group above.
+                logging.getLogger("ispyb_client").warning(
+                    "Could not build a robotActionWS3VO, sending a plain dict"
+                )
+                robot_action_vo = payload
+
             return self._collection.service.storeRobotAction(robot_action_vo)
-        return None
+        except Exception:
+            logging.getLogger("ispyb_client").exception(
+                "Could not store robot action in LIMS"
+            )
+            return None
 
     def associate_bl_sample_and_energy_scan(self, entry_dict):
         try:
