@@ -48,6 +48,10 @@ status_list = ["SUCCESS", "WARNING", "FAILED", "SKIPPED", "RUNNING", "NOT_EXECUT
 QueueEntryStatusType = namedtuple("QueueEntryStatusType", status_list)
 QUEUE_ENTRY_STATUS = QueueEntryStatusType(0, 1, 2, 3, 4, 5)
 
+#: Seconds to give the sample changer to report the newly mounted pin before
+#: SampleQueueEntry decides the mount put the wrong sample on the goniometer.
+MOUNT_SETTLE_TIMEOUT = 10
+
 
 class QueueExecutionException(Exception):
     def __init__(self, message, origin):
@@ -433,12 +437,18 @@ class TaskGroupQueueEntry(BaseQueueEntry):
                 gid = HWR.beamline.lims._store_data_collection_group(group_data)
                 self.get_data_model().lims_group_id = gid
             except Exception as ex:
+                # Raising here would be caught by QueueManager.__execute_entry
+                # BEFORE the loop that executes this group's children, so a
+                # single LIMS hiccup silently discards every task under the
+                # group - for the unattended pipeline, all eight phases. A
+                # failed ISPyB group costs the grouping, not the collection.
                 msg = (
                     "Could not create the data collection group"
-                    + " in LIMS. Reason: "
+                    + " in LIMS, continuing without one. Reason: "
                     + str(ex)
                 )
-                raise QueueExecutionException(msg, self)
+                logging.getLogger("user_level_log").error(msg)
+                logging.getLogger("HWR").exception(msg)
 
         self.interleave_items = []
         if init_ref_images:
@@ -667,10 +677,31 @@ class SampleQueueEntry(BaseQueueEntry):
                 mount_device = HWR.beamline.sample_changer
 
             if mount_device is not None:
-                log.info("Loading sample " + str(self._data_model.location))
-                sample_mounted = mount_device.is_mounted_sample(
-                    tuple(self._data_model.location)
+                loc = self._normalised_location()
+                loaded = mount_device.get_loaded_sample()
+                log.info(
+                    "Loading sample %s (loc=%s); changer currently reports %s"
+                    % (
+                        self._data_model.loc_str,
+                        loc,
+                        loaded.get_address() if loaded is not None else None,
+                    )
                 )
+
+                if loc is None:
+                    # Sample.location defaults to (None, None) and only the
+                    # client's add_sample() fills it in; an unset one used to
+                    # read as a silent "not mounted". Mount via loc_str, but
+                    # say so.
+                    logging.getLogger("user_level_log").warning(
+                        "Sample %s has no sample-changer location; mounting by "
+                        "address and skipping the mounted-pin check."
+                        % self._data_model.loc_str
+                    )
+                    sample_mounted = False
+                else:
+                    sample_mounted = mount_device.is_mounted_sample(loc)
+
                 if not sample_mounted:
                     self.sample_centring_result = gevent.event.AsyncResult()
                     try:
@@ -707,6 +738,21 @@ class SampleQueueEntry(BaseQueueEntry):
                             raise QueueAbortedException(msg, self)
 
                         raise QueueExecutionException(str(e), self)
+
+                    # mount_sample() only asserts has_loaded_sample(), i.e.
+                    # that SOME pin is on the goniometer. Without this, a
+                    # mis-mount runs the whole pipeline on the wrong crystal.
+                    if loc is not None and not self._wait_mounted(mount_device, loc):
+                        mounted = mount_device.get_loaded_sample()
+                        raise QueueSkipEntryException(
+                            "Sample %s was requested but the changer reports %s "
+                            "on the goniometer; skipping this sample."
+                            % (
+                                self._data_model.loc_str,
+                                mounted.get_address() if mounted is not None else "nothing",
+                            ),
+                            "",
+                        )
                 else:
                     log.info("Sample already mounted")
             else:
@@ -717,6 +763,44 @@ class SampleQueueEntry(BaseQueueEntry):
                 )
                 log.info(msg)
             self.get_view().setText(1, "")
+
+    @staticmethod
+    def _wait_mounted(mount_device, loc, timeout=MOUNT_SETTLE_TIMEOUT):
+        """True once the changer reports <loc> on the goniometer.
+
+        Give the changer a few seconds to catch up before calling a mount
+        wrong: the flags are refreshed from the hardware at the end of the
+        load, but the cost of being early here is skipping a sample that is in
+        fact correctly mounted.
+        """
+        deadline = time.time() + timeout
+        while True:
+            if mount_device.is_mounted_sample(loc):
+                return True
+            if time.time() >= deadline:
+                return False
+            gevent.sleep(1)
+            for refresh in ("_do_update_loaded_sample", "update_info"):
+                if hasattr(mount_device, refresh):
+                    try:
+                        getattr(mount_device, refresh)()
+                    except Exception:
+                        logging.getLogger("HWR").exception(
+                            "Could not refresh the sample changer state"
+                        )
+                    break
+
+    def _normalised_location(self):
+        """The (basket, pin) pair as ints, or None if the model has no usable one.
+
+        Sample.location is (None, None) until the client's add_sample() fills it
+        in, and nothing else in the model layer sets it.
+        """
+        try:
+            loc = tuple(int(x) for x in self._data_model.location)
+        except (TypeError, ValueError):
+            return None
+        return loc or None
 
     @staticmethod
     def _sample_changer_usable(mount_device):

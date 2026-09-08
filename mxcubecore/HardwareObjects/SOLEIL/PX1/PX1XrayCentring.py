@@ -271,13 +271,15 @@ class PX1XrayCentring(AbstractXrayCentring):
                 these override the paramCollect.xml defaults; per-sample derived
                 fields (file paths, motors, sample identity) are left untouched.
         """
-        basket, pos_in_basket = sample_model.location
-
         start_time = time.perf_counter()
 
-        if not HWR.beamline.sample_changer.is_mounted_sample(
-            (int(basket), int(pos_in_basket))
-        ):
+        try:
+            loc = tuple(int(x) for x in sample_model.location)
+        except (TypeError, ValueError):
+            # Sample.location is (None, None) until the client fills it in.
+            loc = None
+
+        if loc is None or not HWR.beamline.sample_changer.is_mounted_sample(loc):
             log.debug("Sample not mounted, loading.")
             HWR.beamline.sample_changer.load(sample=sample_model.loc_str, wait=True)
 
