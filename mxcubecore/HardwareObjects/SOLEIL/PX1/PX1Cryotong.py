@@ -47,6 +47,7 @@ class PX1Cryotong(Cats90):
         self._souflette_deadline = 0.0
         self.souflette_seconds = 45.0
         self.souflette_blocking = False
+        self.transfer_ready_timeout = 180.0
 
     def init(self):
         super(PX1Cryotong, self).init()
@@ -122,6 +123,11 @@ class PX1Cryotong(Cats90):
         self.souflette_seconds = float(self.get_property("souflette_time", 45))
         self.souflette_blocking = self.is_string_true(
             self.get_property("souflette_blocking", False)
+        )
+        # How long _wait_transfer_ready may wait for the changer to leave its
+        # post-transfer drying cycle before giving up.
+        self.transfer_ready_timeout = float(
+            self.get_property("transfer_ready_timeout", 180)
         )
 
         self._init_sc_contents()
@@ -608,6 +614,81 @@ class PX1Cryotong(Cats90):
         self.cancel_souflette(reason="abort")
         super(PX1Cryotong, self).abort()
 
+    # ## TRANSFER READINESS BARRIER ###
+
+    def _wait_transfer_ready(self, timeout=None):
+        """Block until the CATS can actually accept a transfer command.
+
+        After every Put/Get the pathRunning handler fires do_dry_and_soak() and
+        the CATS reports DevState DISABLE for the whole drying cycle; a command
+        sent in that window is rejected by assert_can_execute_task() with
+        "bad state (Disabled)". Every readiness check this class owns
+        (wait_countdown, check_power_on, check_drysoak, env_send_transfer) lives
+        inside _do_load, i.e. AFTER that assert, so the barrier has to sit here,
+        in front of it.
+
+        The authoritative signal is the CATS state, not our souflette timer: the
+        drying cycle's real length is a hardware property. In a normal queue run
+        this costs nothing - the previous sample's phases take minutes, so the
+        changer is long since idle by the time the next transfer starts.
+        """
+        log = logging.getLogger("HWR")
+        timeout = self.transfer_ready_timeout if timeout is None else timeout
+
+        remaining = self.souflette_remaining()
+        if remaining > 0:
+            log.info(
+                "PX1Cryotong: waiting %.0f s for the post-mount drying to finish",
+                remaining,
+            )
+
+        t0 = time.time()
+        # One budget for the whole barrier, not one per step.
+        with gevent.Timeout(
+            timeout,
+            RuntimeError(
+                "Sample changer not ready for a transfer after %s s" % timeout
+            ),
+        ):
+            self.wait_souflette()
+            # The CATS dry/soak countdown, if one is running.
+            self.wait_countdown(timeout)
+
+            while True:
+                # Nothing else refreshes these synchronously: _do_update_state()
+                # is otherwise only called once at init, and self.state is left
+                # at Loading after a task because _run's _set_state(Ready) is
+                # commented out. Without this the barrier would decide on
+                # whatever the 300 ms poller last cached.
+                self._do_update_state()
+                self._update_state()
+
+                if self.is_ready():
+                    break
+
+                gevent.sleep(0.5)
+
+        waited = time.time() - t0
+        if waited > 1:
+            log.info(
+                "PX1Cryotong: sample changer ready after %.0f s (%s)",
+                waited,
+                SampleChangerState.tostring(self.state),
+            )
+
+        self.check_power_on()
+
+    def load(self, sample=None, wait=True, wash=True):
+        """Load, waiting first for the changer to be able to accept the command.
+
+        Cats90.load() goes straight to _execute_task, whose
+        assert_can_execute_task() rejects anything sent during the post-mount
+        drying cycle. See _wait_transfer_ready.
+        """
+        self._wait_transfer_ready()
+
+        return Cats90.load(self, sample=sample, wait=wait, wash=wash)
+
     def unload(self, sample=None, wait=True, wash=False):
         """Unload through the sample changer state machine.
 
@@ -616,6 +697,7 @@ class PX1Cryotong(Cats90):
         _execute_task is what makes update_info() run and the web client learn
         that the goniometer is empty again.
         """
+        self._wait_transfer_ready()
         self.cancel_souflette(reason="unload")
         self._update_state()
         sample = self._resolve_component(sample)
