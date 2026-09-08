@@ -905,14 +905,27 @@ class PX1Collect(AbstractCollect):
         #if True:  # run it always. relay on 'auto_processing' to decide if really needs to be done
                    # or only file transfer and thumbnail generation
         if runit:
+            if collect_pars.get("_autoproc_launched"):
+                # AbstractCollect.collection_finished() already triggered this
+                # collection (OSC/Helical, overlap 0, more than 19 frames).
+                # Launching a second, identical pipeline used to be masked by
+                # the blocking call; backgrounded, the two race on the same
+                # PROCESSED_DATA directory.
+                log.info("Autoprocessing already launched for this collection")
+                return
+
             try:
                 log.debug("Launching autoprocessing")
                 self.autoprocessing_hwobj.start_autoprocessing(collect_pars)
+                collect_pars["_autoproc_launched"] = True
                 log.debug("Done.")
-            except:
+            except Exception:
                 import traceback
-                logging.getLogger("HWR").debug(" Something went wrong with autoprocessing")
-                logging.getLogger("HWR").debug( traceback.format_exc() )
+                logging.getLogger("HWR").error("Autoprocessing could not be launched")
+                logging.getLogger("HWR").error(traceback.format_exc())
+                logging.getLogger("user_level_log").error(
+                    "Autoprocessing could not be launched (see log)"
+                )
 
     ## generate snapshots and data thumbnails ##
     @task

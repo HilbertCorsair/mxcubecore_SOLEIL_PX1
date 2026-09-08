@@ -744,11 +744,20 @@ class SampleQueueEntry(BaseQueueEntry):
                         }
                     )
 
+        # Grouped processing is best effort: anything raised here escapes
+        # post_execute, escapes QueueManager.__execute_entry's else clause and
+        # lands in __execute_task, which calls stop() and kills the rest of the
+        # queue. A missing or malformed auto_processing configuration must never
+        # cost the remaining samples.
         try:
             programs = HWR.beamline.collect["auto_processing"]
             autoprocessing.start(programs, "end_multicollect", params)
         except KeyError:
             pass
+        except Exception:
+            logging.getLogger("HWR").exception(
+                "Grouped auto processing could not be started"
+            )
 
         self._set_background_color()
         self._view.setText(1, "")
@@ -763,6 +772,12 @@ class SampleQueueEntry(BaseQueueEntry):
 class BasketQueueEntry(BaseQueueEntry):
     def __init__(self, view=None, data_model=None):
         BaseQueueEntry.__init__(self, view, data_model)
+
+
+#: Seconds to wait for a centring to be accepted during mount_sample. The
+#: unattended pipeline centres itself in its own phases, so this only applies
+#: when the operator selects a queue level centring method.
+QUEUE_CENTRING_TIMEOUT = 180
 
 
 def mount_sample(data_model, centring_done_cb, async_result):
@@ -782,8 +797,11 @@ def mount_sample(data_model, centring_done_cb, async_result):
         "startTime": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
-    if not HWR.beamline.sample_changer.load(sample=data_model.loc_str, wait=True):
-        raise QueueSkipEntryException("Sample changer could not load sample", "")
+    # Not every sample changer returns a value from load(): Cats90 historically
+    # returned None even on a perfect mount, which made this a guaranteed skip of
+    # the sample and of every task node under it. has_loaded_sample() below is the
+    # real verification.
+    HWR.beamline.sample_changer.load(sample=data_model.loc_str, wait=True)
 
     robot_action_dict["endTime"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -825,7 +843,16 @@ def mount_sample(data_model, centring_done_cb, async_result):
                     dm.start_centring_method(dm.MANUAL3CLICK_MODE)
 
                 HWR.beamline.sample_changer.trigger_progress_message("Centring !")
-                centring_result = async_result.get()
+                # Bounded: nothing accepts a centring in the queue-driven (web)
+                # path, so an unbounded get() hangs the whole queue for ever.
+                # gevent.Timeout derives from BaseException, so it has to be
+                # caught here rather than by the enclosing except Exception.
+                try:
+                    centring_result = async_result.get(timeout=QUEUE_CENTRING_TIMEOUT)
+                except gevent.Timeout:
+                    raise RuntimeError(
+                        "Centring timed out after %s s" % QUEUE_CENTRING_TIMEOUT
+                    )
 
                 if centring_result["valid"]:
                     HWR.beamline.sample_changer.trigger_progress_message(

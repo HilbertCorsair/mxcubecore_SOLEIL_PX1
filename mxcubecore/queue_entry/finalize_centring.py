@@ -20,7 +20,10 @@ import logging
 
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.model import queue_model_objects
-from mxcubecore.queue_entry.base_queue_entry import BaseQueueEntry
+from mxcubecore.queue_entry.base_queue_entry import (
+    BaseQueueEntry,
+    QueueSkipEntryException,
+)
 
 __credits__ = ["MXCuBE collaboration"]
 __license__ = "LGPLv3+"
@@ -32,7 +35,8 @@ class FinalizeCentringQueueEntry(BaseQueueEntry):
 
     Runs PX1XrayCentring.finalize_centring() (fit over all accumulated mesh +
     helical results, move to the centred position, register the point, save the
-    report). Skips if no spots were found by the scan phases.
+    report). Skips if no spots were found by the scan phases, raising
+    QueueSkipEntryException so the row reads as skipped rather than collected.
     """
 
     NAME = "Finalize centring"
@@ -49,7 +53,9 @@ class FinalizeCentringQueueEntry(BaseQueueEntry):
 
         if not getattr(xc, "found_spots", False):
             log.info("[UC] finalize centring skipped (no spots)")
-            return
+            raise QueueSkipEntryException(
+                "Finalize centring skipped: no spots found", self
+            )
 
         try:
             xc.finalize_centring()

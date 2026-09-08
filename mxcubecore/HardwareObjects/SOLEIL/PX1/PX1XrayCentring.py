@@ -343,6 +343,16 @@ class PX1XrayCentring(AbstractXrayCentring):
         self._uc_user_params = user_params
         self.found_spots = False
 
+        # Clear the shape store here rather than relying on mount_sample's
+        # sample_view.clear_all() and finalize_session's clear having run in the
+        # right order: the grid must never inherit a shape from a previous
+        # sample, whatever the mount/unmount interleaving was.
+        try:
+            self.graphics_manager_hwo.clear_all()
+            self.graphics_manager_hwo._shapes = {}
+        except Exception:
+            log.exception("[UC] could not clear shapes before building the grid")
+
         # ---- build the grid shape from murko analysis (zoom2 centred) ----
         x1, y1, x2, y2 = self.generateGridFromAnalysis(
             self.minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False
@@ -452,8 +462,20 @@ class PX1XrayCentring(AbstractXrayCentring):
             position = (int(basket) - 1) * 16 + (int(pos_in_basket) - 1)
             sample = HWR.beamline.sample_changer.get_sample_list()[position]
         if sample is not None:
+            sc = HWR.beamline.sample_changer
             try:
-                HWR.beamline.sample_changer._do_unload(sample, wash=False)
+                # Go through the public unload() so the changer state machine
+                # runs: assert_can_execute_task, _set_state(Unloading),
+                # update_info() and the loadedSampleChanged signal the web client
+                # needs to see that the goniometer is empty again. Calling
+                # _do_unload() directly bypassed all of it.
+                # PX1Cryotong.unload is the only override that takes wash;
+                # AbstractSampleChanger.unload has a different signature and
+                # raises when nothing is loaded.
+                if hasattr(sc, "cancel_souflette"):
+                    sc.unload(sample, wait=True, wash=False)
+                else:
+                    sc._do_unload(sample, wash=False)
             except Exception:
                 log.exception("Error during unload at end of unattended collect")
 
