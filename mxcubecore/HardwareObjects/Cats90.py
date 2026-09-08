@@ -1264,7 +1264,6 @@ class Cats90(SampleChanger):
         self.cats_loaded_lid = self._chnLidLoadedSample.get_value()
         self.cats_loaded_num = self._chnNumLoadedSample.get_value()
         #self.cats_datamatrix = str(self._chnSampleBarcode.get_value())
-        print("Call 6 Do upd loaded smp")
         self._update_loaded_sample()
 
     def lidsample_to_basketsample(self, lid, num):
@@ -1366,28 +1365,28 @@ class Cats90(SampleChanger):
             "----- Cats90 -----.  Sample has changed. Dealing with it - new_sample = %s / old_sample = %s"
             % (new_sample, old_sample)
         )
-        print (f"Basket = {basket}\nsample = {sample}\nlid = {loadedSampleLid}")
+
+        # Clear the 'loaded' flag from every sample that is not the one the CATS
+        # reports, then set it on that one. Written as a sweep rather than a
+        # single old_sample._set_loaded(False) because get_loaded_sample() only
+        # ever returns the FIRST flagged sample: any flag stranded by an earlier
+        # run would otherwise survive and keep shadowing the real one. The
+        # clear itself is what was missing - without it has_loaded_sample()
+        # stayed True after an unload, which made the queue send a chained load
+        # (Exchange) to an empty goniometer on the next sample.
+        for smp in self.get_sample_list():
+            if smp is not new_sample and smp.is_loaded():
+                smp._set_loaded(False, True)
+
+        if new_sample is not None:
+            new_sample._set_loaded(True, True)
 
         if old_sample != new_sample:
-            print("Old not new sample 1" )
-            # remove 'loaded' flag from old sample but keep all other information
-
-            if old_sample is not None:
-                # there was a sample on the gonio
-                loaded = False
-                has_been_loaded = True
-
-            if new_sample is not None:
-                loaded = True
-                has_been_loaded = True
-                new_sample._set_loaded(loaded, has_been_loaded)
             if (
                 (old_sample is None)
                 or (new_sample is None)
                 or (old_sample.get_address() != new_sample.get_address())
             ):
-
-                print("Final Check -- trigger" )
                 self._trigger_loaded_sample_changed_event(new_sample)
                 self._trigger_info_changed_event()
 
@@ -1472,7 +1471,10 @@ class Cats90(SampleChanger):
                     sample._set_info(present, datamatrix, scanned)
 
                     # forget about any loaded state in newly mounted or removed basket)
-                    loaded = _has_been_loaded = False
+                    # (was "loaded = _has_been_loaded = False" against a
+                    # has_been_loaded that is not defined anywhere in this
+                    # module - a NameError on every basket presence change.)
+                    loaded = has_been_loaded = False
                     sample._set_loaded(loaded, has_been_loaded)
 
         self._trigger_contents_updated_event()
