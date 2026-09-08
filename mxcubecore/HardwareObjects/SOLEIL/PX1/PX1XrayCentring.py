@@ -446,10 +446,14 @@ class PX1XrayCentring(AbstractXrayCentring):
         HWR.beamline.collect.do_collect("mxcube")
         gevent.sleep(10)
 
-    def finalize_session(self, sample_model=None):
-        """Clear graphics and unload the sample. Always run (even after a
-        failed centring) so the changer is left empty for the next sample.
-        Run by UnmountQueueEntry.
+    def finalize_session(self, sample_model=None, unload=True):
+        """Clear graphics and, when asked, unload the sample.
+
+        Always run (even after a failed centring) by UnmountQueueEntry, which
+        passes unload=False while another sample is still to come: the pin then
+        stays on the goniometer and the next sample's mount is a chained load
+        (CATS Exchange) rather than an unload followed by a plain load. The
+        graphics/state teardown happens either way.
         """
         try:
             self.graphics_manager_hwo.clear_all()
@@ -457,6 +461,9 @@ class PX1XrayCentring(AbstractXrayCentring):
         except Exception:
             log.exception("Error clearing graphics at end of unattended collect")
         self.found_spots = False
+
+        if not unload:
+            return
 
         sample = getattr(self, "_uc_sample", None)
         if sample is None and sample_model is not None:
