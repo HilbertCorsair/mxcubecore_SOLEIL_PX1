@@ -688,10 +688,25 @@ class SampleQueueEntry(BaseQueueEntry):
                         )
                         log.error(msg)
                         self.status = QUEUE_ENTRY_STATUS.FAILED
+
                         if isinstance(e, QueueSkipEntryException):
                             raise
-                        else:
-                            raise QueueExecutionException(str(e), self)
+
+                        if not self._sample_changer_usable(mount_device):
+                            # The changer, not this pin: Disabled / Alarm /
+                            # Fault / Unknown. QueueExecutionException is
+                            # swallowed by QueueManager.__execute_entry, so the
+                            # run would walk the rest of the queue emitting one
+                            # identical error per sample and bury the real
+                            # cause. QueueAbortedException is the one it
+                            # re-raises, which stops the run cleanly.
+                            logging.getLogger("user_level_log").error(
+                                "Sample changer is not usable (%s); "
+                                "stopping the queue." % mount_device.get_status()
+                            )
+                            raise QueueAbortedException(msg, self)
+
+                        raise QueueExecutionException(str(e), self)
                 else:
                     log.info("Sample already mounted")
             else:
@@ -702,6 +717,19 @@ class SampleQueueEntry(BaseQueueEntry):
                 )
                 log.info(msg)
             self.get_view().setText(1, "")
+
+    @staticmethod
+    def _sample_changer_usable(mount_device):
+        """True when the changer could still mount a different sample.
+
+        A bad pin should cost one sample; a changer in a fault state will fail
+        every remaining sample the same way.
+        """
+        try:
+            return mount_device.is_normal_state()
+        except Exception:
+            # Not every changer implements it; assume the pin was at fault.
+            return True
 
     def centring_done(self, success, centring_info):
         if not success:
