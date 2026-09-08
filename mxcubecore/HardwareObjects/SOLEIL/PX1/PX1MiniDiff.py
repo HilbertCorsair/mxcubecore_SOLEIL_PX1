@@ -660,10 +660,11 @@ class PX1MiniDiff(GenericDiffractometer):
             self.px1env_ho.ready_event.clear()
 
         else:
-            cmd = self.px1env_ho.cmds.get(translation_to_env[phase])
-            if cmd is not None:
-                logging.debug(f"PX1environment.goto_phase state {self.get_state()}")
-                cmd()
+            # Through goto_phase, not straight into px1env_ho.cmds: the
+            # supervisor refuses a phase command while it is MOVING, and
+            # goto_phase is where that wait lives. The int mapping above is
+            # already EnvironmentPhase's, so this is like for like.
+            self.px1env_ho.goto_phase(translation_to_env[phase])
         self.update_backlight()
 
     def prepare_centring(self, timeout=20):
