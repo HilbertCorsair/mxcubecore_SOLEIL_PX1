@@ -119,9 +119,48 @@ class PX1Environment(HardwareObject):
         state = self.state_chan.get_value().name
         return not state in ['ON', "STANDBY"]
 
-    def wait_ready(self, timeout=None):
-        print('Waiting in PX1ENV . ................')
-        self._wait_state(["ON"], timeout)
+    def wait_ready(self, timeout=60):
+        """True once the supervisor is idle. Bounded, and never raises.
+
+        Called on the mount path (PX1Cryotong._do_load_operation, before a
+        chained load and again after the transfer), where it used to default
+        to timeout=None - a gevent.Timeout(None) never fires, so a supervisor
+        that settled anywhere but ON stalled the queue greenlet for ever.
+
+        STANDBY counts as ready because is_busy() in this class already treats
+        it that way; requiring exactly ON made the two disagree.
+        """
+        if self.device is None or self.state_chan is None:
+            return True
+
+        ready = ("ON", "STANDBY")
+        t0 = time.time()
+        while True:
+            try:
+                value = self.state_chan.get_value()
+            except Exception:
+                logging.getLogger("HWR").exception(
+                    "PX1Environment: cannot read the supervisor state"
+                )
+                return True
+
+            # Tango hands back a DevState enum here, but _update_state() takes
+            # the str() of the same value, so do not assume either shape.
+            state = getattr(value, "name", None) or str(value)
+
+            if state in ready:
+                return True
+
+            if time.time() - t0 > timeout:
+                logging.getLogger("HWR").warning(
+                    "PX1Environment: supervisor still not ready after %s s "
+                    "(state %s, phase %s), continuing anyway",
+                    timeout,
+                    *self._describe()
+                )
+                return False
+
+            gevent.sleep(0.2)
 
     def wait_not_moving(self, timeout=60):
         """True once the supervisor is out of MOVING / RUNNING.

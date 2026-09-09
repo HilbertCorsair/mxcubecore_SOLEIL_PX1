@@ -892,6 +892,25 @@ class BasketQueueEntry(BaseQueueEntry):
 QUEUE_CENTRING_TIMEOUT = 180
 
 
+def _has_unattended_pipeline(sample_model):
+    """True when this sample's queue subtree is an unattended-collect pipeline.
+
+    Such a sample centres itself, in its own OpticalCentring phases, so the
+    queue level centring in mount_sample() would be a second centring
+    competing for the same goniometer - and one that can never finish:
+    nothing on PX1 emits centringAccepted, so its wait always runs to the
+    full QUEUE_CENTRING_TIMEOUT.
+
+    is_unattended is set on the TaskGroup model by mxcubeweb's
+    add_unattended_collect; getattr with a default keeps this safe for every
+    other queue.
+    """
+    for group in sample_model.get_children():
+        if group.is_enabled() and getattr(group, "is_unattended", False):
+            return True
+    return False
+
+
 def mount_sample(data_model, centring_done_cb, async_result):
     HWR.beamline.sample_changer.trigger_progress_message("Loading sample")
     HWR.beamline.sample_view.clear_all()
@@ -941,6 +960,18 @@ def mount_sample(data_model, centring_done_cb, async_result):
         HWR.beamline.sample_changer.trigger_progress_message("Sample loaded")
         dm = HWR.beamline.diffractometer
         centring_method = HWR.beamline.queue_manager.centring_method
+
+        if _has_unattended_pipeline(data_model):
+            # The web client cannot ask for no centring at all: it maps its
+            # checkbox to LOOP or MANUAL, never NONE. So without this the
+            # pipeline would always pay for a duplicate centring it does not
+            # want, and wait out its full timeout for an acceptance that
+            # never comes.
+            log.info(
+                "Unattended pipeline: its OpticalCentring phases centre this "
+                "sample, skipping the queue level centring"
+            )
+            centring_method = CENTRING_METHOD.NONE
 
         if centring_method != CENTRING_METHOD.NONE:
             try:
