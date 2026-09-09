@@ -194,9 +194,19 @@ class QueueManager(HardwareObject, QueueEntryContainer):
         if not entry.is_enabled() or self._is_stopped:
             return
 
-        self.emit("queue_entry_execute_started", (entry,))
+        # Record the entry as the running one before announcing that it
+        # started. A listener reads the entry's state back (mxcubeweb's
+        # get_node_state consults get_current_entry() and entry.status), so
+        # emitting first reported an entry that was about to run as still
+        # pending. That happened to look right for the first child of a task
+        # group only - get_current_entry() was then still the group, which is
+        # the child's own parent container - while every later sibling saw the
+        # None left behind by its predecessor's cleanup.
         self.set_current_entry(entry)
         self._current_queue_entries.append(entry)
+        entry.status = QUEUE_ENTRY_STATUS.RUNNING
+
+        self.emit("queue_entry_execute_started", (entry,))
 
         logging.getLogger("queue_exec").info("Executing: " + str(entry))
 
@@ -209,7 +219,6 @@ class QueueManager(HardwareObject, QueueEntryContainer):
         try:
             # Procedure to be done before main implementation
             # of task.
-            entry.status = QUEUE_ENTRY_STATUS.RUNNING
             entry.pre_execute()
             entry.execute()
 
