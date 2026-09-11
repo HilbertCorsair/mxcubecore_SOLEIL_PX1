@@ -111,17 +111,69 @@ configuration:
 
 ### nginx
 
-The proxy port must be reachable from the browser over TLS:
+MXCuBE is served over https, so the browser refuses a plain `ws://` socket as
+mixed content. nginx has to terminate TLS for the argussight proxy the same way
+it already does for `/video`.
+
+In the `http { }` context, once, next to the other global settings:
 
 ```nginx
-location /argus/ {
-    proxy_pass http://127.0.0.1:7000/ws/;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_read_timeout 3600s;
+# Canonical websocket upgrade mapping: "upgrade" for a websocket handshake,
+# "close" otherwise. A hardcoded `Connection "upgrade"` breaks plain requests
+# that hit the same location.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
 }
 ```
+
+In the `server { }` block that already serves
+`mxcubeweb-px1.synchrotron-soleil.fr` on 443:
+
+```nginx
+# Argussight stream proxy. The trailing slash on BOTH sides is what rewrites
+# /argus/<name> to /ws/<name>, which is the path streamsproxy serves.
+location /argus/ {
+    proxy_pass http://127.0.0.1:7000/ws/;
+
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade    $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # MPEG1 streams are long-lived and must not be buffered: without these the
+    # default 60 s read timeout drops the video roughly every minute, and
+    # buffering adds latency to a stream that is supposed to be live.
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+}
+```
+
+Then `ARGUSSIGHT_PROXY_URL: wss://mxcubeweb-px1.synchrotron-soleil.fr/argus`,
+which discovery turns into `.../argus/oav` per stream.
+
+`127.0.0.1:7000` assumes nginx and argussight share a host. If they do not, use
+argussight's LAN address — `streamsproxy` binds `0.0.0.0`, so it is reachable
+either way.
+
+Reload and check:
+
+```sh
+nginx -t && systemctl reload nginx
+# 101 Switching Protocols = the upgrade reached argussight
+curl -isk -o /dev/null -w '%{http_code}\n' \
+     -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+     -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+     https://mxcubeweb-px1.synchrotron-soleil.fr/argus/oav
+```
+
+Keep the existing `/video` location: it stays the fallback whenever argussight
+is disabled or down.
 
 ## Gotchas
 
