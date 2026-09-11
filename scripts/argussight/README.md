@@ -96,18 +96,34 @@ useful for a first smoke test.
 
 ### The camera hardware object
 
-```yaml
-class: mxcubecore.HardwareObjects.RedisMpegVideo.RedisMpegVideo
-configuration:
-  uri: redis://195.221.8.84:6379   # the camera server, not localhost
-  host: localhost                  # where the streamer binds
-  port: 8000
-  format: MPEG1
-  width: 1360                      # NATIVE size: pixelsPerMm is per native pixel
-  height: 1024
-  quality: 10
-  redis_key: mxcubeweb
+PX1's deployed config is XML, so this is the file already declaring
+`RedisMpegVideo` (the one `minidiff.xml` points at through
+`<object role="camera" hwrid="..."/>`):
+
+```xml
+<object class="RedisMpegVideo">
+  <username>Camera redis</username>
+  <uri>redis://195.221.8.84:6379</uri>   <!-- the camera server, not localhost -->
+  <host>localhost</host>                 <!-- where the streamer binds -->
+  <port>8000</port>
+  <format>MPEG1</format>                 <!-- was MJPEG -->
+  <width>1360</width>                    <!-- NATIVE size: pixelsPerMm is per native pixel -->
+  <height>1024</height>
+  <quality>10</quality>
+  <redis_key>mxcubeweb</redis_key>
+</object>
 ```
+
+Two changes to make when editing an existing PX1 camera file:
+
+- **`<compression>` is now `<quality>`.** The old class read `compression`; this
+  one reads `quality`. Leave the old tag in place and the value is silently
+  ignored in favour of the default 10.
+- **`<tangoname>` is no longer used** and can go. The class is pure Redis now, so
+  it no longer builds a `DeviceProxy` (which is what made it fail off-beamline).
+
+`uri`, `width` and `height` are required — `width`/`height` are passed through
+`int()` with no default and will raise if absent.
 
 ### nginx
 
