@@ -63,6 +63,66 @@ For `http://` sources leave `size` as `"0,0"`; video-streamer detects the real
 resolution. Only the OAV needs a real size, because `RedisCamera` locks ffmpeg's
 source size to it and a wrong value kills ffmpeg with a broken pipe.
 
+## Deployment config (on proxima1, outside this repo)
+
+### `server.yaml`
+
+```yaml
+mxcube:
+  # The argussight proxy is WebSocket/MPEG1 only, so the switcher requires
+  # MPEG1. Set the camera hardware object's `format` to match.
+  VIDEO_FORMAT: MPEG1
+  # Fallback when argussight is off or down; also what the sample view used
+  # before this change, when it was hardcoded in beamline.py.
+  VIDEO_STREAM_URL: https://mxcubeweb-px1.synchrotron-soleil.fr/video
+  VIDEO_STREAM_PORT: 8000
+  # argussight owns every streamer, so MXCuBE must not start one of its own.
+  USE_EXTERNAL_STREAMER: false
+
+  ARGUSSIGHT_ENABLED: true
+  ARGUSSIGHT_GRPC_HOST: localhost
+  ARGUSSIGHT_GRPC_PORT: 50051
+  # Dialled by the BROWSER, so it must be wss:// through nginx (see Gotchas).
+  ARGUSSIGHT_PROXY_URL: wss://mxcubeweb-px1.synchrotron-soleil.fr/argus
+  ARGUSSIGHT_CAMERAS:
+    - { name: oav, label: OAV (centring), width: 1360, height: 1024, oav: true }
+    # Add hutch cameras here once their URLs are known; the names must match
+    # the `name` values in argus_cameras.py's CAMERAS.
+    # - { name: hutch_1, label: Hutch 1, width: 1920, height: 1080 }
+```
+
+Leave `ARGUSSIGHT_CAMERAS` empty to expose every discovered stream unfiltered —
+useful for a first smoke test.
+
+### The camera hardware object
+
+```yaml
+class: mxcubecore.HardwareObjects.RedisMpegVideo.RedisMpegVideo
+configuration:
+  uri: redis://195.221.8.84:6379   # the camera server, not localhost
+  host: localhost                  # where the streamer binds
+  port: 8000
+  format: MPEG1
+  width: 1360                      # NATIVE size: pixelsPerMm is per native pixel
+  height: 1024
+  quality: 10
+  redis_key: mxcubeweb
+```
+
+### nginx
+
+The proxy port must be reachable from the browser over TLS:
+
+```nginx
+location /argus/ {
+    proxy_pass http://127.0.0.1:7000/ws/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600s;
+}
+```
+
 ## Gotchas
 
 - **The MXCuBE web env needs `grpc` + `argussight` importable**, or discovery
