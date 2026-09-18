@@ -166,7 +166,10 @@ def start_streamers():
 
 
 def register_streams():
-    """Register every streamer into the argussight proxy via AddStream gRPC."""
+    """Register every streamer into the argussight proxy via AddStream gRPC.
+
+    Returns the number of cameras registered.
+    """
     import grpc
 
     import argussight.grpc.argus_service_pb2 as pb2
@@ -179,6 +182,7 @@ def register_streams():
         ARGUS_GRPC, options=[("grpc.enable_http_proxy", 0)]
     ) as channel:
         stub = pb2_grpc.SpawnerServiceStub(channel)
+        registered = 0
         for cam in CAMERAS:
             name, port = cam["name"], cam["port"]
             if not _wait_for_port(STREAM_HOST, port, PORT_WAIT_TIMEOUT):
@@ -192,8 +196,17 @@ def register_streams():
                     pb2.AddStreamRequest(name=name, port=str(port), stream_id=name)
                 )
                 logger.info("registered %s -> status=%s", name, resp.status)
+                registered += 1
+            except grpc.RpcError as exc:
+                # UNAVAILABLE here means nothing is listening on ARGUS_GRPC:
+                # argussight is not running. The traceback adds nothing.
+                logger.error(
+                    "failed to register %s: argussight gRPC at %s: %s (%s)",
+                    name, ARGUS_GRPC, exc.code().name, exc.details(),
+                )
             except Exception:
                 logger.exception("failed to register %s", name)
+        return registered
 
 
 def preflight():
@@ -292,6 +305,13 @@ def self_test():
             continue
         proxied = f"ws://127.0.0.1:{ARGUS_PROXY_PORT}/ws/{name}"
         ok, detail = _probe_stream(proxied)
+        if not ok and not _wait_for_port("127.0.0.1", ARGUS_PROXY_PORT, 0.5):
+            logger.error(
+                "SELF-TEST %s: streamer OK but nothing listens on :%s -- argussight "
+                "is not running. Its startup error is earlier in argussight.log.",
+                name, ARGUS_PROXY_PORT,
+            )
+            continue
         if not ok:
             logger.error(
                 "SELF-TEST %s: streamer OK but the argussight proxy gives no video: "
@@ -331,10 +351,17 @@ def main():
 
     preflight()
     start_streamers()
-    register_streams()
+    registered = register_streams()
     self_test()
 
-    logger.info("all cameras registered; supervising streamers (Ctrl-C to stop)")
+    if registered == len(CAMERAS):
+        logger.info("all cameras registered; supervising streamers (Ctrl-C to stop)")
+    else:
+        logger.error(
+            "%d/%d cameras NOT registered (argussight gRPC %s unreachable?); "
+            "they will not appear in MXCuBE. Supervising streamers anyway.",
+            len(CAMERAS) - registered, len(CAMERAS), ARGUS_GRPC,
+        )
     # Supervise: if a streamer dies, log it. The argussight proxy independently
     # retries/drops the upstream, so we only need to surface the failure here.
     while True:

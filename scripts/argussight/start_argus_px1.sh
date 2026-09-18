@@ -70,6 +70,80 @@ export no_proxy="*" NO_PROXY="*"
 
 ARGUSSIGHT_BIN="${ARGUSSIGHT_BIN-argussight}"
 
+# argussight >= 0.3.2 reads <dir>/config.yaml from `-c <dir>`; without it, it
+# looks in the current directory, dies with FileNotFoundError before binding
+# anything, and mxgo.sh then waits out its whole timeout. This is PX1's own
+# config (processes: [], log_dir set -- see config/config.yaml).
+ARGUS_CONFIG_DIR="${ARGUS_CONFIG_DIR-$HERE/config}"
+# Where argussight runs, so where its relative log_dir ("logs") lands. Must be
+# writable, which the NFS mxcubeweb directory mxgo.sh starts from may not be.
+ARGUS_WORKDIR="${ARGUS_WORKDIR-$HOME/MXCuBElogs/argussight}"
+# Seconds to wait for argussight to bind :50051 and :7000.
+ARGUS_BIND_TIMEOUT="${ARGUS_BIND_TIMEOUT-30}"
+# Ports this stack binds: argussight gRPC, argussight proxy, the OAV streamer
+# (argus_cameras.py's CAMERAS).
+STACK_PORTS="50051 7000 9000"
+
+# Is anything LISTENING on this local port? Same test as mxgo.sh's port_open.
+port_open() {
+    if command -v ss > /dev/null 2>&1; then
+        ss -ltn "sport = :$1" 2>/dev/null | grep -q LISTEN
+    else
+        timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null
+    fi
+}
+
+# Stop one pid recorded in $PIDFILE, and only if it is ours. argussight runs in
+# its own session (setsid below) so that its stream-proxy and manager children
+# can be stopped with it: after a crash or kill -9 they are orphaned and the
+# proxy keeps holding :7000. A pid since reused by something else is left alone.
+stop_recorded() {
+    pkill -TERM -s "$1" -f argussight 2>/dev/null || true
+    if ps -o args= -p "$1" 2>/dev/null | grep -qE "argussight|argus_cameras"; then
+        kill "$1" 2>/dev/null || true
+    fi
+}
+
+# argussight's own redis settings (-hs/-p/-ch; its defaults are
+# localhost:6379, channel "video-streamer"). Nothing at PX1 uses them while
+# processes is empty, but they should name the real camera redis rather than
+# one that does not exist. redis://[user:pass@]host[:port][/db]
+redis_hostport="${PX1_REDIS_URI#*://}"
+redis_hostport="${redis_hostport%%/*}"
+redis_hostport="${redis_hostport##*@}"
+REDIS_HOST="${redis_hostport%%:*}"
+REDIS_PORT=6379
+[ "$redis_hostport" != "$REDIS_HOST" ] && REDIS_PORT="${redis_hostport##*:}"
+
+# --- 0. a previous stack ---------------------------------------------------
+# A stack left over from an earlier run (e.g. argussight crashed but the
+# streamers kept running) still holds its ports, and the new one would fail to
+# bind them. Stop whatever the previous run recorded -- only our own processes,
+# so a pid since reused by something else is left alone.
+if [ -s "$PIDFILE" ]; then
+    while read -r pid; do
+        if [ -n "$(pgrep -s "$pid" -f argussight 2>/dev/null)" ] \
+            || ps -o args= -p "$pid" 2>/dev/null | grep -qE "argussight|argus_cameras"; then
+            echo "stopping leftover processes of $pid from a previous run"
+            stop_recorded "$pid"
+        fi
+    done < <(tac "$PIDFILE")
+    # argussight shuts down gracefully (up to ~20 s); wait for the ports.
+    for _ in $(seq 25); do
+        busy=""
+        for port in $STACK_PORTS; do port_open "$port" && busy="$busy $port"; done
+        [ -z "$busy" ] && break
+        sleep 1
+    done
+fi
+for port in $STACK_PORTS; do
+    if port_open "$port"; then
+        echo "ERROR: port $port is already in use; not starting argussight." >&2
+        echo "       Find the owner with: ss -ltnp 'sport = :$port'" >&2
+        exit 1
+    fi
+done
+
 # --- 1. the camera gate ----------------------------------------------------
 # Runs BEFORE anything is started. Exits non-zero if the operator cancels or if
 # frames still are not arriving after they acknowledge the prompt; `set -e` then
@@ -82,26 +156,83 @@ echo "checking that the camera is publishing frames ..."
 
 cleanup() {
     echo "stopping argussight stack ..."
-    # Kill children first (argus_cameras), then argussight. Only processes we
-    # started ourselves are in the pidfile.
+    # Kill children first (argus_cameras), then argussight with its session.
+    # Only processes we started ourselves are in the pidfile.
     while read -r pid; do
-        kill "$pid" 2>/dev/null || true
+        stop_recorded "$pid"
     done < <(tac "$PIDFILE")
     wait 2>/dev/null || true
 }
 trap cleanup INT TERM EXIT
 
 # --- 2. argussight ---------------------------------------------------------
-echo "starting argussight (gRPC :50051, proxy :7000) ..."
-"$ARGUSSIGHT_BIN" &
-echo $! >> "$PIDFILE"
+if [ ! -f "$ARGUS_CONFIG_DIR/config.yaml" ]; then
+    echo "ERROR: argussight config not found: $ARGUS_CONFIG_DIR/config.yaml" >&2
+    exit 1
+fi
+mkdir -p "$ARGUS_WORKDIR"
+echo "starting argussight (gRPC :50051, proxy :7000; config $ARGUS_CONFIG_DIR," \
+     "logs $ARGUS_WORKDIR/logs) ..."
+# exec + setsid: the recorded pid is argussight itself, and it leads its own
+# session, which stop_recorded uses to reach its children (see above). The
+# background subshell is not a process-group leader, so setsid does not fork.
+(cd "$ARGUS_WORKDIR" && exec setsid "$ARGUSSIGHT_BIN" -c "$ARGUS_CONFIG_DIR" \
+    -hs "$REDIS_HOST" -p "$REDIS_PORT" -ch "$PX1_REDIS_CHANNEL") &
+argus_pid=$!
+echo "$argus_pid" >> "$PIDFILE"
 
-# Give the gRPC server + proxy a moment to bind before registering streams.
-sleep 3
+# Wait for BOTH ports: :50051 is how streams are registered and discovered,
+# :7000 is where the browser gets the video; one without the other is useless.
+# If argussight dies instead, stop now with its error rather than leaving the
+# streamers running -- that kept this script alive and made mxgo.sh wait out
+# its whole timeout for a stack that was never coming up.
+waited=0
+until port_open 50051 && port_open 7000; do
+    if ! kill -0 "$argus_pid" 2>/dev/null; then
+        rc=0
+        wait "$argus_pid" || rc=$?
+        echo "ERROR: argussight exited with code $rc before binding its ports" \
+             "(its traceback is above)." >&2
+        if [ -f "$ARGUS_WORKDIR/logs/Shared_logs.log" ]; then
+            echo "--- last lines of $ARGUS_WORKDIR/logs/Shared_logs.log:" >&2
+            tail -n 15 "$ARGUS_WORKDIR/logs/Shared_logs.log" >&2
+        fi
+        exit 1
+    fi
+    if [ "$waited" -ge "$ARGUS_BIND_TIMEOUT" ]; then
+        down=""
+        port_open 50051 || down="$down :50051"
+        port_open 7000 || down="$down :7000"
+        echo "ERROR: argussight still not listening on$down after ${ARGUS_BIND_TIMEOUT}s." >&2
+        echo "       Logs: $ARGUS_WORKDIR/logs/" >&2
+        exit 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+done
+echo "argussight up after ${waited}s"
 
 # --- 3. the streamers ------------------------------------------------------
 echo "starting camera streamers ..."
 "$MXCUBE_PY" "$HERE/argus_cameras.py" &
-echo $! >> "$PIDFILE"
+cameras_pid=$!
+echo "$cameras_pid" >> "$PIDFILE"
 
-wait
+# --- 4. supervise ----------------------------------------------------------
+# The stack is only useful whole. If either half exits, say which and exit;
+# the EXIT trap then stops the other, so no half-up stack is left holding the
+# ports for the next launch.
+# (Polled rather than `wait -n <pids>`, which needs bash >= 5.1.)
+while kill -0 "$argus_pid" 2>/dev/null && kill -0 "$cameras_pid" 2>/dev/null; do
+    sleep 2
+done
+if ! kill -0 "$argus_pid" 2>/dev/null; then
+    rc=0
+    wait "$argus_pid" || rc=$?
+    echo "ERROR: argussight exited (code $rc); stopping the camera streamers." >&2
+else
+    rc=0
+    wait "$cameras_pid" || rc=$?
+    echo "ERROR: argus_cameras.py exited (code $rc); stopping argussight." >&2
+fi
+exit 1
