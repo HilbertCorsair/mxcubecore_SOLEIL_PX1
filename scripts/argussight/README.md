@@ -338,11 +338,21 @@ python scripts/argussight/diagnose_video.py --insecure # if only the TLS certifi
 
 The checks, in order:
 1. the `server.yaml` video keys;
-2. the streamer on `:9000`;
-3. the proxy on `:7000`;
-4. the camera list from `GetProcesses`, filtered by `ARGUSSIGHT_CAMERAS` the same way MXCuBE filters
-   it, and the exact `videoURL` the browser receives;
-5. that URL through nginx.
+2. the page: which UI bundle mxcubeweb serves (see below);
+3. the streamer on `:9000`;
+4. the proxy on `:7000`;
+5. the camera list from `GetProcesses`, filtered by `ARGUSSIGHT_CAMERAS` the same way MXCuBE filters
+   it, and the exact `videoURL`/`videoHash` the browser receives;
+6. the URL the page really opens, through nginx.
+
+**The page is not rebuilt with the code.** `mxcubeweb/server.py` serves
+`mxcubeweb/mxcubeweb/ui` (the `--static-folder` in mxgo.sh is ignored). That folder is not in git,
+and nothing rebuilds it, so the browser can run a bundle from before the camera switcher. Such a
+bundle always opens `${videoURL}/${videoHash}`. mxcubeweb once sent the whole stream URL with an
+empty hash. That gave `…/argus/oav/`, which argussight's `/ws/{name}` route rejects: argussight is
+healthy and the pane is black. mxcubeweb now sends the proxy base as `videoURL` and the stream name
+as `videoHash`, so every bundle opens `…/argus/oav`. The camera selector still needs a fresh
+bundle: `cd ui && pnpm install && pnpm build`, then copy `ui/build/*` into `mxcubeweb/mxcubeweb/ui`.
 
 It also groups the uvicorn tracebacks in `argussight.log`. uvicorn is the web server that runs
 argussight's proxy on :7000. Tracebacks that end in `WebsocketState` or in

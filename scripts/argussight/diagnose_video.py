@@ -10,9 +10,11 @@ The OAV image reaches the browser through five hops:
   5. nginx            wss://<public name>/argus/<name> -> :7000
 
 argus_cameras.py's SELF-TEST only covers hops 1-2, so "SELF-TEST OK" and a black
-pane means hop 3, 4 or 5. This script checks every hop from the MXCuBE host,
-prints PASS/FAIL per hop, the first broken one with what to do, and summarises
-the uvicorn tracebacks in argussight.log.
+pane means hop 3, 4 or 5, or the page itself. This script checks every hop from
+the MXCuBE host, plus which UI bundle mxcubeweb serves (a bundle from before the
+camera switcher builds its own stream URL), prints PASS/FAIL per hop, the first
+broken one with what to do, and summarises the uvicorn tracebacks in
+argussight.log.
 
 Run it on the MXCuBE host in the argussight env (it has grpc, websockets, yaml):
 
@@ -42,6 +44,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG = os.path.normpath(
     os.path.join(HERE, "..", "..", "..", "config", "server.yaml")
 )
+# The mxcubeweb repo, next to mxcubecore.
+DEFAULT_WEBROOT = os.path.normpath(os.path.join(HERE, "..", "..", "..", "mxcubeweb"))
+# An action type of the camera switcher: present in any bundle built from
+# feature/argussight_sampleview, even minified.
+NEW_BUNDLE_MARKER = b"SELECT_CAMERA"
 LOG_DIR = os.path.join(os.path.expanduser("~"), "MXCuBElogs")
 PROBE_TIMEOUT = 5.0
 
@@ -217,6 +224,73 @@ def check_config(path):
     return app
 
 
+# --- the page (what the browser runs) --------------------------------------
+
+
+def _bundle_has_switcher(bundle):
+    for dirpath, _, files in os.walk(bundle):
+        for name in files:
+            if name.endswith(".js"):
+                with open(os.path.join(dirpath, name), "rb") as f:
+                    if NEW_BUNDLE_MARKER in f.read():
+                        return True
+    return False
+
+
+def check_frontend(webroot):
+    """Return (bundle_is_new, backend_splits_url); None where unknown.
+
+    mxcubeweb/server.py serves <webroot>/mxcubeweb/ui whatever --static-folder
+    says, and nothing rebuilds it. A bundle from before the camera switcher
+    opens `${videoURL}/${videoHash}` even when the hash is empty, so with a
+    backend that sends the whole stream URL plus an empty hash the browser asks
+    for ".../oav/", which argussight's /ws/{path} route rejects.
+    """
+    hop = "page"
+    bundle = os.path.join(webroot, "mxcubeweb", "ui")
+    backend = os.path.join(webroot, "mxcubeweb", "core", "components", "beamline.py")
+
+    splits = None
+    try:
+        with open(backend, encoding="utf-8") as f:
+            splits = 'oav_url.rpartition("/")' in f.read()
+    except OSError as exc:
+        report(hop, "SKIP", f"cannot read {backend}: {exc}; pass --webroot")
+
+    index = os.path.join(bundle, "index.html")
+    if not os.path.isfile(index):
+        report(hop, "SKIP", f"no {index}; pass --webroot <mxcubeweb repo>")
+        return None, splits
+    built = time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(index)))
+    real = os.path.realpath(bundle)
+    where = bundle if real == bundle else f"{bundle} -> {real}"
+    is_new = _bundle_has_switcher(bundle)
+    print(f"       served bundle {where}, built {built}")
+
+    if is_new:
+        report(hop, "PASS", "the served UI bundle has the camera switcher")
+    elif splits is False:
+        report(
+            hop,
+            "FAIL",
+            "the served UI bundle predates the camera switcher and appends "
+            "'/<videoHash>' to videoURL; this mxcubeweb sends an empty hash, so "
+            "the browser opens '.../argus/<name>/' and argussight rejects it",
+            "pull mxcubeweb feature/argussight_sampleview (sends base + stream "
+            "name) and restart MXCuBE; no UI rebuild needed",
+        )
+    else:
+        report(
+            hop,
+            "WARN",
+            "the served UI bundle predates the camera switcher: the OAV video "
+            "works, but there is no camera selector",
+            "for the selector: cd ui && pnpm install && pnpm build, then copy "
+            f"ui/build/* into {bundle}",
+        )
+    return is_new, splits
+
+
 # --- hops 1 and 2 ----------------------------------------------------------
 
 
@@ -253,8 +327,8 @@ def check_local_streams():
 # --- hop 3 -----------------------------------------------------------------
 
 
-def check_discovery(app):
-    """Replay MXCuBE's discovery; return the videoURL it would hand the browser."""
+def check_discovery(app, backend_splits):
+    """Replay MXCuBE's discovery; return the OAV stream URL it finds."""
     hop = "3 discovery"
     host = app.get("ARGUSSIGHT_GRPC_HOST") or "localhost"
     port = app.get("ARGUSSIGHT_GRPC_PORT") or 50051
@@ -314,9 +388,17 @@ def check_discovery(app):
     oav = next((n for n in names if meta.get(n, {}).get("oav")), names[0])
     url = f"{base}/{oav}" if base else ""
     report(hop, "PASS", f"streams {streams}; MXCuBE shows {names}; OAV = {oav}")
-    print(
-        f"       videoURL sent to the browser: {url or '<none: ARGUSSIGHT_PROXY_URL empty>'}"
-    )
+    if url:
+        video_url, _, video_hash = url.rpartition("/")
+        if backend_splits is False:  # mxcubeweb before the base + name split
+            video_url, video_hash = url, ""
+        print(f"       OAV stream URL: {url}")
+        print(
+            f"       sent as videoURL={video_url!r} videoHash={video_hash!r} "
+            "(the page opens videoURL/videoHash)"
+        )
+    else:
+        print("       videoURL: <none: ARGUSSIGHT_PROXY_URL empty>")
     return url
 
 
@@ -358,6 +440,13 @@ def _probe_public(url, insecure):
     return False, 101, f"connected but no data in {PROBE_TIMEOUT:.0f}s"
 
 
+def browser_url(url, bundle_is_new, backend_splits):
+    """The URL the page really opens for the OAV stream URL `url`."""
+    if url and bundle_is_new is False and backend_splits is False:
+        return url + "/"  # old bundle appends '/' + the empty hash
+    return url
+
+
 def check_public(url, insecure):
     hop = "5 nginx (browser URL)"
     if not url:
@@ -383,6 +472,11 @@ def check_public(url, insecure):
         )
     elif status in (502, 503, 504):
         fix = "nginx cannot reach :7000: is argussight running? (see hop 2)"
+    elif url.endswith("/"):
+        fix = (
+            "the trailing slash: argussight serves /ws/<name>, not /ws/<name>/ "
+            "(see the 'page' line above)"
+        )
     elif status == 403:
         fix = (
             "argussight refused the stream (unknown or dropped): see 'Removing "
@@ -480,6 +574,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--config", default=DEFAULT_CONFIG, help="server.yaml path")
     parser.add_argument(
+        "--webroot",
+        default=DEFAULT_WEBROOT,
+        help="the mxcubeweb repo MXCuBE runs from (for the served UI bundle)",
+    )
+    parser.add_argument(
         "--insecure",
         action="store_true",
         help="do not verify the TLS certificate of the public URL",
@@ -495,9 +594,10 @@ def main():
     ac._strip_proxy(os.environ)
 
     app = check_config(args.config)
+    bundle_is_new, backend_splits = check_frontend(args.webroot)
     check_local_streams()
-    url = check_discovery(app)
-    check_public(url, args.insecure)
+    url = check_discovery(app, backend_splits)
+    check_public(browser_url(url, bundle_is_new, backend_splits), args.insecure)
     summarize_mxcube_log(args.mxcube_log)
     summarize_argussight_log(args.argussight_log)
 
