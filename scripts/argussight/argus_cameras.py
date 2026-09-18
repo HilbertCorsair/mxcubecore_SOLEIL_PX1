@@ -21,7 +21,6 @@ Prerequisites (started separately, see start_argus_px1.sh):
 Nothing here touches the snapshot path; it is purely additive.
 """
 
-import inspect
 import logging
 import os
 import shutil
@@ -91,6 +90,11 @@ QUALITY = "10"
 PORT_WAIT_TIMEOUT = 15.0  # seconds to wait for a streamer's port to open
 PROBE_TIMEOUT = 10.0  # seconds to wait for the first frame in the self-test
 
+# Interpreter that runs the video-streamers. This script needs grpc, argussight
+# and websockets (argussight env); video-streamer lives in the mxcubeweb env,
+# the same one MXCuBE's own RedisMpegVideo uses. start_argus_px1.sh sets it.
+STREAMER_PY = os.environ.get("ARGUS_STREAMER_PY") or sys.executable
+
 # ARGUS_STREAMER_DEBUG=1 runs the streamers with -d, which stops video-streamer
 # sending ffmpeg's stderr to /dev/null -- the only way to see why ffmpeg died.
 STREAMER_DEBUG = os.environ.get("ARGUS_STREAMER_DEBUG", "") not in ("", "0")
@@ -101,14 +105,12 @@ _processes = []  # (name, Popen)
 
 def _build_command(cam):
     """Build the video-streamer command line for one camera."""
-    # Invoke video-streamer as a module through THIS interpreter rather than the
-    # bare `video-streamer` console script. start_argus_px1.sh launches this
-    # script with the mxcubeweb env's python while another conda env may be
-    # active, so PATH may not have `video-streamer` at all. sys.executable is
-    # the mxcubeweb python, so `-m video_streamer.main` always resolves in the
-    # right env regardless of PATH / active conda env.
+    # Invoke video-streamer as a module through STREAMER_PY rather than the bare
+    # `video-streamer` console script, so it resolves in the env that has
+    # video-streamer regardless of PATH / the active conda env. At PX1 that is
+    # the mxcubeweb env, not the argussight env this script runs in.
     cmd = [
-        sys.executable, "-m", "video_streamer.main",
+        STREAMER_PY, "-m", "video_streamer.main",
         "-uri", cam["uri"],
         "-hs", STREAM_HOST,
         "-p", str(cam["port"]),
@@ -155,9 +157,20 @@ def _strip_proxy(env):
     return env
 
 
+def _streamer_env():
+    """Environment for the streamers: no proxy, and STREAMER_PY's env first on
+    PATH -- as activating that env would -- so the ffmpeg video-streamer runs
+    is found there too, not only in the env this script runs in."""
+    env = _strip_proxy(os.environ.copy())
+    env["PATH"] = os.pathsep.join(
+        [os.path.dirname(STREAMER_PY), env.get("PATH", "")]
+    )
+    return env
+
+
 def start_streamers():
     """Launch one video-streamer per camera."""
-    env = _strip_proxy(os.environ.copy())
+    env = _streamer_env()
     for cam in CAMERAS:
         cmd = _build_command(cam)
         logger.info("starting %s: %s", cam["name"], " ".join(cmd))
@@ -212,36 +225,36 @@ def register_streams():
 def preflight():
     """Fail fast on the MPEG1-only dependencies MJPEG never needed.
 
-    Checked against THIS interpreter and PATH, which is what the streamers
-    inherit (start_streamers uses sys.executable), not the argussight env.
+    Checked against what the streamers get -- STREAMER_PY and _streamer_env()'s
+    PATH -- not against the env this script runs in.
     """
     # video-streamer pipes frames into ffmpeg with stderr to /dev/null; without
     # ffmpeg the streamer's websocket opens and then never sends a byte.
-    if shutil.which("ffmpeg") is None:
+    streamer_path = _streamer_env()["PATH"]
+    if shutil.which("ffmpeg", path=streamer_path) is None:
         logger.error(
-            "ffmpeg not found on PATH (%s); the MPEG1 streamers cannot encode. "
-            "Install it into the %s env.",
-            os.environ.get("PATH", ""), sys.prefix,
+            "ffmpeg not found on the streamers' PATH (%s); the MPEG1 streamers "
+            "cannot encode. Install it into the %s env.",
+            streamer_path, os.path.dirname(os.path.dirname(STREAMER_PY)),
         )
         sys.exit(1)
 
-    if not any(cam.get("in_redis_channel") for cam in CAMERAS):
-        return
-    # The OAV needs the SOLEIL video-streamer fork (px2_video_streamer_v1.9.1):
-    # upstream v1.9.1's RedisCamera sniffs the frame size and ffmpeg dies on a
-    # broken pipe. The fork is recognisable by RedisCamera taking ``size``.
-    try:
-        from video_streamer.core.camera import RedisCamera
-
-        has_size = "size" in inspect.signature(RedisCamera.__init__).parameters
-    except Exception:
-        has_size = False
-    if not has_size:
-        logger.warning(
-            "video_streamer in %s has no RedisCamera(size=...): this is not the "
-            "SOLEIL fork (px2_video_streamer_v1.9.1). The OAV stream will likely "
-            "be black.", sys.prefix,
+    # The streamers run on STREAMER_PY, usually another env than this script's,
+    # so check there. The OAV (Redis input, -irc) also needs RedisCamera.
+    check = "import video_streamer.main"
+    if any(cam.get("in_redis_channel") for cam in CAMERAS):
+        check += "; from video_streamer.core.camera import RedisCamera"
+    result = subprocess.run(
+        [STREAMER_PY, "-c", check], capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        lines = result.stderr.strip().splitlines()
+        logger.error(
+            "video-streamer is not usable with %s (ARGUS_STREAMER_PY): %s",
+            STREAMER_PY, lines[-1] if lines else f"exit {result.returncode}",
         )
+        sys.exit(1)
+    logger.info("video-streamers will run on %s", STREAMER_PY)
 
 
 def _probe_stream(url, timeout=PROBE_TIMEOUT):

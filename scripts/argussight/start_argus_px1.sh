@@ -25,16 +25,19 @@ PIDFILE="${PIDFILE-/tmp/argus.pids}"
 export PX1_REDIS_URI="${PX1_REDIS_URI-redis://195.221.8.84:6379}"
 export PX1_REDIS_CHANNEL="${PX1_REDIS_CHANNEL-mxcubeweb}"
 
-# Activate the conda env holding argussight + video-streamer. Override with
-# CONDA_ACTIVATE=/path/to/activate, or set it empty to skip (e.g. on a dev
-# machine where both are already importable). CONDA_ENV picks the env.
+# Two envs, each with what it needs (their pins cannot share one env):
+#   * argussight env (activated below; CONDA_ENV) -- argussight itself plus the
+#     helpers check_frames.py and argus_cameras.py (redis, grpc, websockets).
+#     It does NOT need video-streamer; argussight never imports it.
+#   * mxcubeweb env (MXCUBE_ENV) -- runs the video-streamer processes, with the
+#     same video-streamer MXCuBE's own RedisMpegVideo uses.
+# Override with CONDA_ACTIVATE=/path/to/activate (empty: use the current
+# environment, e.g. on a dev machine), CONDA_ENV, HELPER_PY, MXCUBE_ENV,
+# MXCUBE_PY.
 CONDA_ACTIVATE="${CONDA_ACTIVATE-$HOME/miniconda3/bin/activate}"
 CONDA_ENV="${CONDA_ENV-base}"
 
-# The python helpers import redis/grpc/video_streamer, which live in the
-# *mxcubeweb* env (same as the MXCuBE app). Launch them with that env's
-# interpreter directly rather than switching the active env, so argussight keeps
-# whatever env it needs. Override with MXCUBE_PY / MXCUBE_ENV.
+# Interpreter for the video-streamers, called directly (no env switch).
 CONDA_ROOT="$(dirname "$(dirname "$CONDA_ACTIVATE")")"
 MXCUBE_ENV="${MXCUBE_ENV-mxcubeweb}"
 MXCUBE_PY="${MXCUBE_PY-$CONDA_ROOT/envs/$MXCUBE_ENV/bin/python}"
@@ -54,6 +57,12 @@ if [ -n "$CONDA_ACTIVATE" ]; then
         echo "conda activate script not found ($CONDA_ACTIVATE); using current environment" >&2
     fi
 fi
+
+# Interpreter for the helpers: the (now active) argussight env's python.
+HELPER_PY="${HELPER_PY-$(command -v python || command -v python3)}"
+# argus_cameras.py starts the streamers with this one.
+export ARGUS_STREAMER_PY="$MXCUBE_PY"
+echo "helpers on $HELPER_PY; video-streamers on $ARGUS_STREAMER_PY"
 
 # No proxy for anything started from here. On the beamline http(s)_proxy
 # point at the SOLEIL site proxy, and websockets >= 15 honours them even for
@@ -149,7 +158,7 @@ done
 # frames still are not arriving after they acknowledge the prompt; `set -e` then
 # stops us here and MXCuBE never comes up with a dead video pane.
 echo "checking that the camera is publishing frames ..."
-"$MXCUBE_PY" "$HERE/check_frames.py" \
+"$HELPER_PY" "$HERE/check_frames.py" \
     --uri "$PX1_REDIS_URI" --channel "$PX1_REDIS_CHANNEL"
 
 : > "$PIDFILE"
@@ -214,7 +223,7 @@ echo "argussight up after ${waited}s"
 
 # --- 3. the streamers ------------------------------------------------------
 echo "starting camera streamers ..."
-"$MXCUBE_PY" "$HERE/argus_cameras.py" &
+"$HELPER_PY" "$HERE/argus_cameras.py" &
 cameras_pid=$!
 echo "$cameras_pid" >> "$PIDFILE"
 
