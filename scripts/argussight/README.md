@@ -40,7 +40,7 @@ In order, the script:
 
 Useful overrides (all environment variables):
 `PX1_REDIS_URI`, `PX1_REDIS_CHANNEL`, `CONDA_ACTIVATE`, `CONDA_ENV`,
-`MXCUBE_ENV`, `MXCUBE_PY`, `ARGUSSIGHT_BIN`, `PIDFILE`,
+`HELPER_PY`, `MXCUBE_ENV`, `MXCUBE_PY`, `ARGUSSIGHT_BIN`, `PIDFILE`,
 `ARGUS_CONFIG_DIR` (default `config/` next to the script),
 `ARGUS_WORKDIR` (default `~/MXCuBElogs/argussight`; argussight's logs go to its
 `logs/`), `ARGUS_BIND_TIMEOUT` (default 30 s), `ARGUS_STREAMER_DEBUG=1`.
@@ -256,15 +256,45 @@ is disabled or down.
   everything it starts. If you launch `argussight` by hand, do the same first.
   The gRPC clients (`argus_cameras.py`, mxcubeweb's discovery) also pass
   `grpc.enable_http_proxy: 0`.
-- **MPEG1 needs `ffmpeg`** on the PATH of the env running `argus_cameras.py`
-  (MJPEG never did). Without it the streamer's websocket opens but sends
-  nothing. `argus_cameras.py` refuses to start if it is missing.
-- **Under `mxgo.sh` everything runs in the `argussight` conda env**, the
-  helpers included (`mxgo.sh` sets `MXCUBE_ENV=argussight`). That env needs
-  argussight 0.3.2 with its dependencies (psutil, colorlog, pydantic, cv2,
-  PIL, fastapi, uvicorn), plus `redis`, `grpc`, `websockets`, the
-  **video-streamer fork** and `ffmpeg`. Quick check:
-  `python -c "import argussight.grpc.server, redis, grpc, websockets, video_streamer"`.
+- **MPEG1 needs `ffmpeg`** (MJPEG never did), in the mxcubeweb env or on the
+  system PATH. Without it the streamer's websocket opens but sends nothing.
+  `argus_cameras.py` refuses to start if the streamers cannot find it.
+- **Two conda envs; the packages cannot share one.** argussight 0.3.2 wants
+  newer pydantic/pillow (and declares video-streamer >= 1.9.1) than
+  mxcubeweb's pins allow, but it never actually imports video-streamer:
+
+  | env | runs | needs |
+  |---|---|---|
+  | `argussight` | argussight, `check_frames.py`, `argus_cameras.py` | argussight 0.3.2 + its deps (incl. `psutil`), `redis`, `grpc`, `websockets`. **No video-streamer.** |
+  | `mxcubeweb` | MXCuBE and the `video-streamer` processes | its existing video-streamer (the one `RedisMpegVideo` uses), `ffmpeg`, and argussight's gRPC stubs for discovery |
+
+  `start_argus_px1.sh` runs the helpers on the activated env's `python`
+  (`HELPER_PY`) and hands `argus_cameras.py` the mxcubeweb python
+  (`MXCUBE_PY`, exported as `ARGUS_STREAMER_PY`) for the streamers.
+
+  Setting up / checking both on proxima1:
+
+  ```sh
+  # argussight env: argussight + helpers, NO video-streamer
+  conda activate argussight
+  pip uninstall -y mxcube-video-streamer    # not used here; its pins are what conflicted
+  pip check                                 # if the failed install downgraded them:
+  #   pip install "pillow>=12.2" "pydantic>=2.13"
+  python -c "import argussight.grpc.server, redis, grpc, websockets; print('argussight env ok')"
+
+  # mxcubeweb env: video-streamer (already there) + gRPC stubs for discovery
+  conda activate mxcubeweb
+  python -m video_streamer.main -h | grep -- -irc   # Redis input supported
+  pip install --no-deps "argussight==0.3.2"
+  pip install "grpcio==1.70.0" "protobuf>=5.29,<6"
+  python -c "import grpc, argussight.grpc.argus_service_pb2; print('discovery ok')"
+  which ffmpeg
+  ```
+
+  `--no-deps` is deliberate: MXCuBE only imports the two stub modules, and
+  argussight's own dependencies would upgrade pydantic past what mxcubeweb
+  allows. pip then prints "argussight requires … which is not installed /
+  incompatible"; that is expected and harmless here.
 - **Only `ARGUSSIGHT_PROXY_URL` uses the public name.** `STREAM_HOST` and
   `ARGUS_GRPC` in `argus_cameras.py` stay `localhost`; argussight dials its
   upstreams at `ws://localhost:<port>` regardless.
@@ -281,8 +311,8 @@ directly on its streamer and then through the argussight proxy, and logs one
 | `streamer ... gives no video` | Streamer not running, or ffmpeg produces nothing | Restart with `ARGUS_STREAMER_DEBUG=1` to get ffmpeg's stderr; check the camera size and `check_frames.py` |
 | `streamer OK but nothing listens on :7000 -- argussight is not running` | argussight crashed or never started | Its error is earlier in the log (see the startup rows below) |
 | `streamer OK but the argussight proxy gives no video` | argussight dropped the stream | Look for the two lines below; check the proxy env of the argussight process |
-| `ffmpeg not found on PATH` (exit 1) | ffmpeg missing | Install it into the env running `argus_cameras.py` (`argussight` under `mxgo.sh`) |
-| `has no RedisCamera(size=...)` | Upstream video-streamer installed | Install the fork `px2_video_streamer_v1.9.1` into that same env |
+| `ffmpeg not found on the streamers' PATH` (exit 1) | ffmpeg missing | Install it into the mxcubeweb env (or the system) |
+| `video-streamer is not usable with <python>` (exit 1) | That interpreter has no (Redis-capable) video-streamer | Check `MXCUBE_ENV`/`MXCUBE_PY` point at the mxcubeweb env |
 
 Startup messages from `start_argus_px1.sh` (`mxgo.sh` prints the log tail when
 the script exits):
