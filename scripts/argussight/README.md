@@ -90,7 +90,25 @@ disconnects. It is noise; the stream keeps working.
 
 The prompt is a zenity dialog, falling back to tkinter, then to a stdin prompt.
 With neither a tty nor a `DISPLAY` it treats the situation as Cancel rather than
-hanging a detached startup.
+hanging a detached startup. zenity is the system's GTK dialog tool
+(`/usr/bin/zenity`), not part of MXCuBE or argussight. Only its Cancel button
+counts as Cancel: if zenity itself fails, the next way to ask is tried.
+
+`--uri` must keep the scheme (`redis://host:port`): `redis.from_url()` rejects a
+bare `host:port`. video-streamer accepts both forms.
+
+If the gate reports `no frames published on channel 'mxcubeweb'`, Redis was
+reached (an unreachable server gives a connection error instead), but nothing
+was published on that channel. Watch it by hand:
+
+```sh
+redis-cli -u redis://195.221.8.84:6379 subscribe mxcubeweb   # Ctrl-C to stop
+```
+
+A running camera prints a steady stream of messages. Silence means the camera
+(`redis_camera2.py` on the camera server) is not running, or publishes on another
+channel. In that case set `PX1_REDIS_CHANNEL`. A `Theme parser error` line
+from zenity/GTK about the desktop theme is harmless.
 
 Test it without hardware:
 
