@@ -21,8 +21,10 @@ Prerequisites (started separately, see start_argus_px1.sh):
 Nothing here touches the snapshot path; it is purely additive.
 """
 
+import inspect
 import logging
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -38,10 +40,20 @@ logger = logging.getLogger("argus_cameras")
 # --- Configuration ---------------------------------------------------------
 # Host the video-streamers bind to. Must be reachable by the argussight proxy,
 # which always dials the upstream at ``localhost`` (see streamsproxy.add_stream).
+#
+# Both STREAM_HOST and ARGUS_GRPC stay ``localhost``: they are only ever dialled
+# on this host (streamers, argussight and this script all run here). Do NOT put
+# the public name (mxcubeweb-px1.synchrotron-soleil.fr) here -- that routes
+# local traffic through DNS/nginx and the site proxy. The public name belongs
+# only in the browser-facing ARGUSSIGHT_PROXY_URL (wss://.../argus) in
+# server.yaml.
 STREAM_HOST = "localhost"
 
 # argussight gRPC endpoint (see argussight/grpc/server.py -> "[::]:50051").
 ARGUS_GRPC = "localhost:50051"
+
+# argussight stream proxy; clients connect to ws://<host>:7000/ws/<name>.
+ARGUS_PROXY_PORT = 7000
 
 # Redis endpoint carrying the OAV frames. At PX1 this is the camera server, NOT
 # localhost -- redis_camera2.py publishes to its own local redis. Must match the
@@ -77,6 +89,11 @@ CAMERAS = [
 
 QUALITY = "10"
 PORT_WAIT_TIMEOUT = 15.0  # seconds to wait for a streamer's port to open
+PROBE_TIMEOUT = 10.0  # seconds to wait for the first frame in the self-test
+
+# ARGUS_STREAMER_DEBUG=1 runs the streamers with -d, which stops video-streamer
+# sending ffmpeg's stderr to /dev/null -- the only way to see why ffmpeg died.
+STREAMER_DEBUG = os.environ.get("ARGUS_STREAMER_DEBUG", "") not in ("", "0")
 # ---------------------------------------------------------------------------
 
 _processes = []  # (name, Popen)
@@ -103,6 +120,8 @@ def _build_command(cam):
     # RedisCamera input (OAV): tell the streamer which pubsub channel to read.
     if cam.get("in_redis_channel"):
         cmd += ["-irc", cam["in_redis_channel"]]
+    if STREAMER_DEBUG:
+        cmd.append("-d")
     return cmd
 
 
@@ -177,6 +196,113 @@ def register_streams():
                 logger.exception("failed to register %s", name)
 
 
+def preflight():
+    """Fail fast on the MPEG1-only dependencies MJPEG never needed.
+
+    Checked against THIS interpreter and PATH, which is what the streamers
+    inherit (start_streamers uses sys.executable), not the argussight env.
+    """
+    # video-streamer pipes frames into ffmpeg with stderr to /dev/null; without
+    # ffmpeg the streamer's websocket opens and then never sends a byte.
+    if shutil.which("ffmpeg") is None:
+        logger.error(
+            "ffmpeg not found on PATH (%s); the MPEG1 streamers cannot encode. "
+            "Install it into the %s env.",
+            os.environ.get("PATH", ""), sys.prefix,
+        )
+        sys.exit(1)
+
+    if not any(cam.get("in_redis_channel") for cam in CAMERAS):
+        return
+    # The OAV needs the SOLEIL video-streamer fork (px2_video_streamer_v1.9.1):
+    # upstream v1.9.1's RedisCamera sniffs the frame size and ffmpeg dies on a
+    # broken pipe. The fork is recognisable by RedisCamera taking ``size``.
+    try:
+        from video_streamer.core.camera import RedisCamera
+
+        has_size = "size" in inspect.signature(RedisCamera.__init__).parameters
+    except Exception:
+        has_size = False
+    if not has_size:
+        logger.warning(
+            "video_streamer in %s has no RedisCamera(size=...): this is not the "
+            "SOLEIL fork (px2_video_streamer_v1.9.1). The OAV stream will likely "
+            "be black.", sys.prefix,
+        )
+
+
+def _probe_stream(url, timeout=PROBE_TIMEOUT):
+    """Wait for the first binary frame on ``url``; return (ok, detail)."""
+    from websockets.exceptions import ConnectionClosed
+    from websockets.sync.client import connect
+
+    try:
+        try:
+            # websockets >= 15 would otherwise honour http(s)_proxy.
+            ws = connect(url, open_timeout=timeout, proxy=None)
+        except TypeError:  # websockets < 15: no proxy support, no kwarg
+            ws = connect(url, open_timeout=timeout)
+    except Exception as exc:
+        return False, f"cannot connect ({exc})"
+
+    deadline = time.monotonic() + timeout
+    try:
+        with ws:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False, f"connected but no data in {timeout:.0f}s"
+                try:
+                    msg = ws.recv(timeout=remaining)
+                except TimeoutError:
+                    continue
+                if isinstance(msg, bytes):
+                    return True, f"{len(msg)} bytes"
+    except ConnectionClosed as exc:
+        rcvd = exc.rcvd
+        if rcvd is None:
+            return False, "closed without a close frame"
+        return False, f"closed with code {rcvd.code} ({rcvd.reason or 'no reason'})"
+    except Exception as exc:
+        return False, f"error ({exc})"
+
+
+def self_test():
+    """Probe each camera direct and through the proxy; log one verdict each.
+
+    Diagnostic only: never exits, so a slow first frame cannot take the
+    stack down.
+    """
+    try:
+        import websockets.sync.client  # noqa: F401  (websockets >= 11)
+    except ImportError:
+        logger.warning("SELF-TEST skipped: websockets.sync not importable here")
+        return
+    for cam in CAMERAS:
+        name, port = cam["name"], cam["port"]
+        direct = f"ws://127.0.0.1:{port}/ws/{name}"
+        ok, detail = _probe_stream(direct)
+        if not ok:
+            logger.error(
+                "SELF-TEST %s: streamer %s gives no video: %s. The streamer is not "
+                "running or ffmpeg produces nothing (died / no frames from the camera). "
+                "Rerun with ARGUS_STREAMER_DEBUG=1 to see ffmpeg's stderr.",
+                name, direct, detail,
+            )
+            continue
+        proxied = f"ws://127.0.0.1:{ARGUS_PROXY_PORT}/ws/{name}"
+        ok, detail = _probe_stream(proxied)
+        if not ok:
+            logger.error(
+                "SELF-TEST %s: streamer OK but the argussight proxy gives no video: "
+                "%s at %s. argussight dropped the stream -- look for 'Upstream "
+                "worker for %s failed' in argussight.log (proxy env vars?).",
+                name, detail, proxied, name,
+            )
+            continue
+        logger.info("SELF-TEST %s: streaming OK (direct and via proxy)", name)
+
+
 def shutdown(*_):
     """Terminate all streamers (and their ffmpeg children) and exit."""
     logger.info("shutting down streamers ...")
@@ -203,8 +329,10 @@ def main():
     # localhost:50051 through the SOLEIL proxy. Children inherit this clean env.
     _strip_proxy(os.environ)
 
+    preflight()
     start_streamers()
     register_streams()
+    self_test()
 
     logger.info("all cameras registered; supervising streamers (Ctrl-C to stop)")
     # Supervise: if a streamer dies, log it. The argussight proxy independently

@@ -198,5 +198,34 @@ is disabled or down.
 - The browser dials the proxy directly. MXCuBE at PX1 is served over **HTTPS**,
   so `ARGUSSIGHT_PROXY_URL` must be `wss://` through nginx — an HTTPS page
   cannot open a plain `ws://` socket.
-- The SOLEIL site proxy cannot route to localhost; both scripts strip
-  `http_proxy`/`https_proxy` and pass `grpc.enable_http_proxy: 0`.
+- **No process in this stack may see the SOLEIL site proxy**, and that includes
+  `argussight` itself. websockets ≥ 15 honours `http(s)_proxy` even for
+  `ws://localhost`, so argussight's upstream worker would dial the streamer
+  through the site proxy, fail three times, drop the stream, and the browser
+  would have its websocket refused with HTTP 403 (streamsproxy's pre-accept
+  close 4404), a black pane while MJPEG still works.
+  `start_argus_px1.sh` unsets the proxy vars and sets `no_proxy=*` for
+  everything it starts. If you launch `argussight` by hand, do the same first.
+  The gRPC clients (`argus_cameras.py`, mxcubeweb's discovery) also pass
+  `grpc.enable_http_proxy: 0`.
+- **MPEG1 needs `ffmpeg`** on the PATH of the env running `argus_cameras.py`
+  (MJPEG never did). Without it the streamer's websocket opens but sends
+  nothing. `argus_cameras.py` refuses to start if it is missing.
+- **Only `ARGUSSIGHT_PROXY_URL` uses the public name.** `STREAM_HOST` and
+  `ARGUS_GRPC` in `argus_cameras.py` stay `localhost`; argussight dials its
+  upstreams at `ws://localhost:<port>` regardless.
+
+## Troubleshooting a black sample view
+
+After registering the streams, `argus_cameras.py` probes each camera, first
+directly on its streamer and then through the argussight proxy, and logs one
+`SELF-TEST <name>:` line per camera to `~/MXCuBElogs/argussight.log`:
+
+| Log line | Meaning | Next step |
+|---|---|---|
+| `SELF-TEST oav: streaming OK` | Frames reach the proxy | Problem is browser-side: nginx `/argus/`, `ARGUSSIGHT_PROXY_URL`, discovery |
+| `streamer ... gives no video` | Streamer not running, or ffmpeg produces nothing | Restart with `ARGUS_STREAMER_DEBUG=1` to get ffmpeg's stderr; check the camera size and `check_frames.py` |
+| `streamer OK but the argussight proxy gives no video` | argussight dropped the stream | Look for the two lines below; check the proxy env of the argussight process |
+| `ffmpeg not found on PATH` (exit 1) | ffmpeg missing | Install it into the mxcubeweb env |
+| `has no RedisCamera(size=...)` | Upstream video-streamer installed | Install the fork `px2_video_streamer_v1.9.1` |
+| argussight: `Upstream worker for oav failed` then `Removing stream at path /oav due to upstream failure` | Proxy could not reach the streamer | Almost always proxy env vars; see Gotchas |

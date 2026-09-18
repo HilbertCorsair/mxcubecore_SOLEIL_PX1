@@ -55,6 +55,19 @@ if [ -n "$CONDA_ACTIVATE" ]; then
     fi
 fi
 
+# No proxy for anything started from here. On the beamline http(s)_proxy
+# point at the SOLEIL site proxy, and websockets >= 15 honours them even for
+# ws://localhost: argussight's upstream worker then dials the streamer
+# (ws://localhost:9000/ws/oav) through the site proxy, fails three times, drops
+# the stream, and the browser's websocket is refused (HTTP 403) -- a black
+# sample view.
+# grpc honours them too. Everything this stack talks to (redis on the camera
+# server, argussight, the streamer ports) is LAN/localhost. Done after the
+# conda activation so an env's activate hook cannot put them back.
+# argus_cameras.py strips them for itself as well (_strip_proxy).
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
+export no_proxy="*" NO_PROXY="*"
+
 ARGUSSIGHT_BIN="${ARGUSSIGHT_BIN-argussight}"
 
 # --- 1. the camera gate ----------------------------------------------------
