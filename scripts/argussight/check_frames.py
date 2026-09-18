@@ -96,6 +96,12 @@ def wait_for_frames(uri, channel, timeout):
 
 
 def _ask_zenity():
+    """OK -> True, Cancel -> False, zenity unusable -> None (try the next way).
+
+    Only exit 1 is a real Cancel. Anything else (5 on timeout, -1/255 on a GTK
+    or display error) means nobody answered; treating that as Cancel would stop
+    MXCuBE without the operator pressing anything.
+    """
     zenity = shutil.which("zenity")
     if not zenity or not os.environ.get("DISPLAY"):
         return None
@@ -111,11 +117,28 @@ def _ask_zenity():
                 "--width", "420",
             ],
             check=False,
+            stderr=subprocess.PIPE,
+            text=True,
         )
     except OSError:
         logger.debug("zenity failed", exc_info=True)
         return None
-    return completed.returncode == 0
+    if completed.returncode == 0:
+        return True
+    if completed.returncode == 1:
+        return False
+    # GTK prints "Theme parser error" warnings about the desktop theme. They are
+    # harmless, so keep them out of the log and report the real error, if any.
+    errors = [
+        line for line in (completed.stderr or "").splitlines()
+        if line.strip() and "Theme parser error" not in line
+    ]
+    logger.warning(
+        "zenity dialog failed (exit %s%s); trying another way to ask",
+        completed.returncode,
+        ": " + errors[-1] if errors else "",
+    )
+    return None
 
 
 def _ask_tkinter():
@@ -178,7 +201,14 @@ def main(argv=None):
         logger.info("frames are arriving; continuing")
         return EXIT_OK
 
-    logger.warning("no frames on %r -- asking the operator to start the camera", args.channel)
+    logger.warning(
+        "no frames published on channel %r at %s in %ss -- asking the operator "
+        "to start the camera", args.channel, args.uri, args.timeout,
+    )
+    logger.warning(
+        "check by hand with: redis-cli -u %s subscribe %s "
+        "(a running camera prints a steady stream of messages)", args.uri, args.channel,
+    )
     if not ask_operator():
         logger.error("cancelled by the operator; MXCuBE will not start")
         return EXIT_CANCELLED
