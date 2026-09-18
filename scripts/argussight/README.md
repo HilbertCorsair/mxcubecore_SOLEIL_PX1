@@ -25,9 +25,57 @@ cannot start the camera, so we check for frames and prompt the operator.
 
 Stop with Ctrl-C, or `kill $(cat /tmp/argus.pids)`.
 
+In order, the script:
+
+1. stops a stack left over from a previous run and checks that :50051, :7000
+   and :9000 are free;
+2. runs the camera gate (`check_frames.py`, below);
+3. starts argussight with `-c config/` from `ARGUS_WORKDIR`, then waits for
+   **both** its ports. If argussight dies first, the script exits 1 with its
+   error within seconds, rather than leaving `mxgo.sh` to wait out its timeout;
+4. starts `argus_cameras.py`, which runs the streamers, registers them and
+   logs a `SELF-TEST` verdict per camera;
+5. supervises: if argussight or `argus_cameras.py` exits, it stops the rest
+   and exits, so no half-up stack blocks the next launch.
+
 Useful overrides (all environment variables):
 `PX1_REDIS_URI`, `PX1_REDIS_CHANNEL`, `CONDA_ACTIVATE`, `CONDA_ENV`,
-`MXCUBE_ENV`, `MXCUBE_PY`, `ARGUSSIGHT_BIN`, `PIDFILE`.
+`MXCUBE_ENV`, `MXCUBE_PY`, `ARGUSSIGHT_BIN`, `PIDFILE`,
+`ARGUS_CONFIG_DIR` (default `config/` next to the script),
+`ARGUS_WORKDIR` (default `~/MXCuBElogs/argussight`; argussight's logs go to its
+`logs/`), `ARGUS_BIND_TIMEOUT` (default 30 s), `ARGUS_STREAMER_DEBUG=1`.
+
+## Why two ports
+
+| Port | What | Used by | For |
+|---|---|---|---|
+| :50051 | gRPC control server | `argus_cameras.py`, the mxcubeweb backend | `AddStream` (register a streamer), `GetProcesses` (discovery) |
+| :7000 | websocket stream proxy | the browser, via nginx `/argus/` | the MPEG1 video |
+
+The proxy only serves streams registered through :50051, so :7000 alone is an
+empty proxy. Both come from the same startup (`Spawner.__init__` starts the
+proxy, then `serve()` binds :50051), so if that startup fails, neither opens.
+
+## argussight version and `config/config.yaml`
+
+proxima1 runs argussight **0.3.2** (upstream master). Since 0.3.2:
+
+- `argussight -c <dir>` names a **directory** holding `config.yaml`. Without
+  `-c` it reads `./config.yaml` from the current directory and dies with
+  `FileNotFoundError: 'config.yaml'` before binding either port.
+- The root config must define `log_dir`. **The `config.yaml` shipped inside the
+  package does not**, so pointing `-c` at it fails with `KeyError: 'log_dir'`.
+
+`config/config.yaml` in this directory is PX1's own copy of the upstream file,
+with `log_dir: logs` and `processes: []` (no Saver/Recorder: PX1's cameras are
+external streamers registered via `AddStream`). It replaces the old
+uncommitted edit to argussight's own config. Older argussight (0.3.0) accepts
+`-c` and ignores it.
+
+Known upstream bug, still in 0.3.2: `streamsproxy.py` closes a viewer's
+websocket twice, logging `Exception in ASGI application` / "Cannot call send
+once a close message has been sent" whenever a viewer (or the self-test)
+disconnects. It is noise; the stream keeps working.
 
 ## The startup gate
 
@@ -211,6 +259,12 @@ is disabled or down.
 - **MPEG1 needs `ffmpeg`** on the PATH of the env running `argus_cameras.py`
   (MJPEG never did). Without it the streamer's websocket opens but sends
   nothing. `argus_cameras.py` refuses to start if it is missing.
+- **Under `mxgo.sh` everything runs in the `argussight` conda env**, the
+  helpers included (`mxgo.sh` sets `MXCUBE_ENV=argussight`). That env needs
+  argussight 0.3.2 with its dependencies (psutil, colorlog, pydantic, cv2,
+  PIL, fastapi, uvicorn), plus `redis`, `grpc`, `websockets`, the
+  **video-streamer fork** and `ffmpeg`. Quick check:
+  `python -c "import argussight.grpc.server, redis, grpc, websockets, video_streamer"`.
 - **Only `ARGUSSIGHT_PROXY_URL` uses the public name.** `STREAM_HOST` and
   `ARGUS_GRPC` in `argus_cameras.py` stay `localhost`; argussight dials its
   upstreams at `ws://localhost:<port>` regardless.
@@ -225,7 +279,21 @@ directly on its streamer and then through the argussight proxy, and logs one
 |---|---|---|
 | `SELF-TEST oav: streaming OK` | Frames reach the proxy | Problem is browser-side: nginx `/argus/`, `ARGUSSIGHT_PROXY_URL`, discovery |
 | `streamer ... gives no video` | Streamer not running, or ffmpeg produces nothing | Restart with `ARGUS_STREAMER_DEBUG=1` to get ffmpeg's stderr; check the camera size and `check_frames.py` |
+| `streamer OK but nothing listens on :7000 -- argussight is not running` | argussight crashed or never started | Its error is earlier in the log (see the startup rows below) |
 | `streamer OK but the argussight proxy gives no video` | argussight dropped the stream | Look for the two lines below; check the proxy env of the argussight process |
-| `ffmpeg not found on PATH` (exit 1) | ffmpeg missing | Install it into the mxcubeweb env |
-| `has no RedisCamera(size=...)` | Upstream video-streamer installed | Install the fork `px2_video_streamer_v1.9.1` |
+| `ffmpeg not found on PATH` (exit 1) | ffmpeg missing | Install it into the env running `argus_cameras.py` (`argussight` under `mxgo.sh`) |
+| `has no RedisCamera(size=...)` | Upstream video-streamer installed | Install the fork `px2_video_streamer_v1.9.1` into that same env |
+
+Startup messages from `start_argus_px1.sh` (`mxgo.sh` prints the log tail when
+the script exits):
+
+| Log line | Meaning | Next step |
+|---|---|---|
+| `FileNotFoundError: ... 'config.yaml'` | argussight ≥ 0.3.2 started without `-c` | You are running an older `start_argus_px1.sh`; update it |
+| `KeyError: 'log_dir'` | `-c` points at a config without `log_dir` (e.g. the one shipped in the package) | Point `ARGUS_CONFIG_DIR` at `config/` |
+| `argussight exited with code N before binding its ports` | argussight crashed at startup | The traceback is just above; missing packages show as `ModuleNotFoundError` |
+| `argussight still not listening on :50051 :7000 after 30s` | argussight is alive but stuck | `$ARGUS_WORKDIR/logs/Shared_logs.log`, and `ps` for its children |
+| `port N is already in use` | Something else holds a stack port | `ss -ltnp 'sport = :N'` names it |
+| `N/M cameras NOT registered` | `AddStream` failed: :50051 unreachable | argussight is down; see its error above |
+| `argussight exited (code N); stopping the camera streamers` | argussight died while running | Its log; then relaunch (`mxgo.sh` or the script) |
 | argussight: `Upstream worker for oav failed` then `Removing stream at path /oav due to upstream failure` | Proxy could not reach the streamer | Almost always proxy env vars; see Gotchas |
