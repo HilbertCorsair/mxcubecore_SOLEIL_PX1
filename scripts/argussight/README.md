@@ -284,7 +284,7 @@ is disabled or down.
   | env | runs | needs |
   |---|---|---|
   | `argussight` | argussight, `check_frames.py`, `argus_cameras.py` | argussight 0.3.2 + its deps (incl. `psutil`), `redis`, `grpc`, `websockets`. **No video-streamer.** |
-  | `mxcubeweb` | MXCuBE and the `video-streamer` processes | its existing video-streamer (the one `RedisMpegVideo` uses), `ffmpeg`, and argussight's gRPC stubs for discovery |
+  | `mxcubeweb` | MXCuBE and the `video-streamer` processes | its existing video-streamer (the one `RedisMpegVideo` uses), `ffmpeg`, and `grpcio` + `protobuf` for discovery. **No argussight.** |
 
   `start_argus_px1.sh` runs the helpers on the activated env's `python`
   (`HELPER_PY`) and hands `argus_cameras.py` the mxcubeweb python
@@ -300,19 +300,22 @@ is disabled or down.
   #   pip install "pillow>=12.2" "pydantic>=2.13"
   python -c "import argussight.grpc.server, redis, grpc, websockets; print('argussight env ok')"
 
-  # mxcubeweb env: video-streamer (already there) + gRPC stubs for discovery
+  # mxcubeweb env: video-streamer (already there) + gRPC for discovery
   conda activate mxcubeweb
   python -m video_streamer.main -h | grep -- -irc   # Redis input supported
-  pip install --no-deps "argussight==0.3.2"
   pip install "grpcio==1.70.0" "protobuf>=5.29,<6"
-  python -c "import grpc, argussight.grpc.argus_service_pb2; print('discovery ok')"
+  cd /nfs/ruche/share-dev/px1dev/MXCuBE/WebApp/mxcubeweb
+  python -c "import sys; sys.path.insert(0, 'mxcubeweb/core/util'); import argussight_grpc.argus_service_pb2_grpc; print('discovery ok')"
   which ffmpeg
   ```
 
-  `--no-deps` is deliberate: MXCuBE only imports the two stub modules, and
-  argussight's own dependencies would upgrade pydantic past what mxcubeweb
-  allows. pip then prints "argussight requires … which is not installed /
-  incompatible"; that is expected and harmless here.
+  Do **not** install argussight into the mxcubeweb env: its dependencies
+  would upgrade pydantic past what mxcubeweb allows. Discovery only needs
+  argussight's two generated gRPC stub modules, and mxcubeweb carries a copy
+  of them (`mxcubeweb/core/util/argussight_grpc/`, from argussight 0.3.2).
+  An argussight already installed there with `pip install --no-deps` is
+  harmless and takes precedence over that copy. `mxgo.sh` runs the check
+  above at startup and prints the exact `pip install` line if it fails.
 - **Only `ARGUSSIGHT_PROXY_URL` uses the public name.** `STREAM_HOST` and
   `ARGUS_GRPC` in `argus_cameras.py` stay `localhost`; argussight dials its
   upstreams at `ws://localhost:<port>` regardless.
