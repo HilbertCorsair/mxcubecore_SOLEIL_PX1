@@ -327,6 +327,34 @@ is disabled or down.
 
 ## Troubleshooting a black sample view
 
+**Start with the diagnostic.** It checks the whole chain from the MXCuBE host
+and names the first broken hop:
+
+```sh
+conda activate argussight
+python scripts/argussight/diagnose_video.py            # --config <.../config/server.yaml> if not ../../../config
+python scripts/argussight/diagnose_video.py --insecure # if only the TLS certificate check fails
+```
+
+The checks, in order:
+1. the `server.yaml` video keys;
+2. the streamer on `:9000`;
+3. the proxy on `:7000`;
+4. the camera list from `GetProcesses`, filtered by `ARGUSSIGHT_CAMERAS` the same way MXCuBE filters
+   it, and the exact `videoURL` the browser receives;
+5. that URL through nginx.
+
+It also groups the uvicorn tracebacks in `argussight.log`. uvicorn is the web server that runs
+argussight's proxy on :7000. Tracebacks that end in `WebsocketState` or in
+`Cannot call "send" once a close message has been sent` fire when a viewer disconnects. They are
+harmless.
+
+If every hop passes, the problem is in the browser: check devtools → Network → WS `oav`.
+
+`localhost` is correct for the server-side connections: argussight always connects to its
+streamers at `ws://localhost:<port>`. Only the browser-facing `ARGUSSIGHT_PROXY_URL` must be the
+public `wss://` name.
+
 After registering the streams, `argus_cameras.py` probes each camera, first
 directly on its streamer and then through the argussight proxy, and logs one
 `SELF-TEST <name>:` line per camera to `~/MXCuBElogs/argussight.log`:
