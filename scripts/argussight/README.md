@@ -45,16 +45,106 @@ Useful overrides (all environment variables):
 `ARGUS_WORKDIR` (default `~/MXCuBElogs/argussight`; argussight's logs go to its
 `logs/`), `ARGUS_BIND_TIMEOUT` (default 30 s), `ARGUS_STREAMER_DEBUG=1`.
 
-## Why two ports
+## How the pieces fit together
 
-| Port | What | Used by | For |
+```
+camera server                         MXCuBE host                        operator PC
+┌──────────────┐  frames   ┌─────────────────────────────────┐   TLS   ┌──────────┐
+│ redis_camera2│──────────►│ video-streamer :9000  (per cam) │         │          │
+│  + Redis:6379│           │        │ MPEG1 (localhost only)  │         │ browser  │
+└──────────────┘           │        ▼                        │         │ (JSMpeg) │
+                           │ argussight proxy :7000 ─────────┼────────►│  canvas  │
+                           │ argussight gRPC  :50051         │  nginx  │          │
+                           │        ▲ GetProcesses           │  :443   │          │
+                           │ mxcubeweb :8081 ────────────────┼────────►│  the app │
+                           │ vite :5173 (the page) ──────────┼────────►│          │
+                           └─────────────────────────────────┘         └──────────┘
+```
+
+**No video ever passes through mxcubeweb.** It makes one gRPC call to list the
+streams and hands the browser a `wss://…/argus/<name>` address; the frames go
+browser ⇄ nginx ⇄ argussight only.
+
+| Port | Who listens | Who connects | For |
 |---|---|---|---|
-| :50051 | gRPC control server | `argus_cameras.py`, the mxcubeweb backend | `AddStream` (register a streamer), `GetProcesses` (discovery) |
-| :7000 | websocket stream proxy | the browser, via nginx `/argus/` | the MPEG1 video |
+| 6379 | Redis, on the **camera server** (`195.221.8.84`) | the streamers, `check_frames.py` | the raw frames |
+| 9000, 9001, … | one `video-streamer` per camera | argussight only, over `localhost` | MPEG1 |
+| 7000 | argussight's stream proxy | the **browser**, through nginx `/argus/` | MPEG1, one path per camera |
+| 50051 | argussight's gRPC server | `argus_cameras.py` (`AddStream`), mxcubeweb (`GetProcesses`) | control and discovery, never video |
+| 8000 | MXCuBE's own streamer, only with `USE_EXTERNAL_STREAMER: true` | nginx `/video` | the pre-argussight fallback; **nothing listens here in this setup** |
+| 8081 | mxcubeweb (hardcoded in `mxcubeweb/server.py`'s `run()`) | nginx `/mxcube/api`, `/socket.io` | the application |
+| 5173 | the Vite dev server (`ui/vite.config.js`) | nginx `/` | the page, served from `ui/src` |
+| 443 | nginx | the browser | all of the above, over TLS |
 
 The proxy only serves streams registered through :50051, so :7000 alone is an
 empty proxy. Both come from the same startup (`Spawner.__init__` starts the
 proxy, then `serve()` binds :50051), so if that startup fails, neither opens.
+
+### Where the page comes from
+
+Two deployments exist, and they differ in what a `git pull` changes:
+
+- **Production: the built UI, served by mxcubeweb itself on :8081.**
+  `mxcubeweb-server --static-folder <repo>/ui/build` (what mxgo.sh passes) serves
+  `ui/build`, and the backend answers the page, the API and socket.io on one
+  port. A `git pull` reaches the browser only after `pnpm build`.
+- **A dev server** (`pnpm start`, vite on `:5173` per `ui/vite.config.js`), which
+  serves `ui/src` and transforms it on the fly, and **proxies `/mxcube/api` and
+  `/socket.io` to mxcubeweb**. Convenient while editing the frontend, but its
+  proxy target must name the scheme :8081 really speaks (see the 502 row in
+  "The app itself does not load"), and it is easy to forget: on proxima1 one ran
+  unnoticed from 2026-09-09, because mxgo.sh knows nothing about it.
+
+**Which one the browser gets is a question of fact, not of intent** — check it:
+
+```sh
+ps -ef | grep -E 'vite|pnpm'   # a dev server, started by anyone, in any shell
+ss -ltnp 'sport = :5173'       # ... and whether it is still listening
+ls -l <repo>/ui/build/index.html    # the built page mxcubeweb serves, and its date
+curl -sk https://mxcubeweb-px1.synchrotron-soleil.fr/ | grep -E 'src="/(src|assets)/|@vite'
+#  src="/src/index.jsx" or /@vite/client  -> served from source by a dev server
+#  src="/assets/index-<hash>.js"          -> the built UI
+```
+
+`diagnose_video.py` reports which of the two answers, and warns when it is the
+dev server.
+
+### Switching to the production build
+
+```sh
+cd <repo>/ui && pnpm install && pnpm build     # writes ui/build (vite outDir)
+kill <pid of "pnpm start" and of node .../vite.js>   # from the ps above
+# restart MXCuBE so it picks the build up
+./mxgo.sh
+curl -sk https://mxcubeweb-px1.synchrotron-soleil.fr/ | grep -o 'src="/assets/[^"]*"'
+```
+
+nginx must then send everything to mxcubeweb instead of :5173 — the page, the
+API and socket.io — using the scheme :8081 speaks (`http` unless
+`server: CERT:` is `SIGNED`/`ADHOC`):
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8081;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# socket.io is a websocket: it needs the upgrade headers, like /argus/ below.
+location /socket.io/ {
+    proxy_pass http://127.0.0.1:8081;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade    $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header Host       $host;
+    proxy_read_timeout 3600s;
+}
+```
+
+`/mxcube/api` needs no block of its own once `location /` points at :8081.
+Keep `location /argus/` as it is.
 
 ## argussight version and `config/config.yaml`
 
@@ -132,6 +222,12 @@ source size to it and a wrong value kills ffmpeg with a broken pipe.
 ## Deployment config (on proxima1, outside this repo)
 
 ### `server.yaml`
+
+**Which file:** mxcubeweb reads `<hwr dir>/mxcube-web/server.yaml`, where `<hwr dir>` is what
+mxgo.sh passes to `-r` (`find_in_repository("mxcube-web")` in `mxcubeweb/__init__.py`, then
+`Config.load_config`). With mxgo.sh's `-r ../config` that is
+`WebApp/config/mxcube-web/server.yaml` — editing `WebApp/config/server.yaml` changes nothing.
+`ui.yaml` sits next to it in the same directory.
 
 ```yaml
 mxcube:
@@ -257,13 +353,13 @@ curl -isk -o /dev/null -w '%{http_code}\n' \
 Keep the existing `/video` location: it stays the fallback whenever argussight
 is disabled or down.
 
+**No login layer may guard `/argus/`.** A browser cannot authenticate during a
+websocket handshake: if an SSO/auth proxy sits in front of that location, the
+handshake gets a 302 to the login server instead of a 101 and the pane stays
+black. `diagnose_video.py` reports a redirect there as its own failure.
+
 ## Gotchas
 
-- **The MXCuBE web env needs `grpc` + `argussight` importable**, or discovery
-  logs a warning and returns `[]` (app still runs, no switcher).
-- The browser dials the proxy directly. MXCuBE at PX1 is served over **HTTPS**,
-  so `ARGUSSIGHT_PROXY_URL` must be `wss://` through nginx — an HTTPS page
-  cannot open a plain `ws://` socket.
 - **No process in this stack may see the SOLEIL site proxy**, and that includes
   `argussight` itself. websockets ≥ 15 honours `http(s)_proxy` even for
   `ws://localhost`, so argussight's upstream worker would dial the streamer
@@ -321,9 +417,27 @@ is disabled or down.
   `pip install --no-deps` is harmless: it is used when its stubs load, and
   skipped for the vendored copy when they do not. `mxgo.sh` runs the check
   above at startup and prints the `pip install` line if it fails.
-- **Only `ARGUSSIGHT_PROXY_URL` uses the public name.** `STREAM_HOST` and
+- **Only `ARGUSSIGHT_PROXY_URL` uses the public name**, and it must be `wss://`,
+  because the browser opens it from an HTTPS page. `STREAM_HOST` and
   `ARGUS_GRPC` in `argus_cameras.py` stay `localhost`; argussight dials its
   upstreams at `ws://localhost:<port>` regardless.
+- **argussight serves `/ws/<name>`, never `/ws/<name>/`**: a trailing slash is
+  refused before the handshake completes.
+
+## The app itself does not load
+
+A black sample view inside a **broken page** is not a video problem: without the
+backend there is no camera data at all. Check the browser console first.
+
+| Console line | What it means | Check |
+|---|---|---|
+| `…/login/login_info` **502 Bad Gateway**, `nginx/…`, and **nothing listens on :8081** | mxcubeweb is not running | start it with mxgo.sh; the startup error is at the end of `~/MXCuBElogs/mxcube.log` |
+| the same 502 **while :8081 is listening** | whoever proxies to it uses the wrong scheme | `curl -i http://127.0.0.1:8081/mxcube/api/v0.1/login/login_info` and the same with `-k https://`: exactly one answers. That scheme is what `ui/vite.config.js`'s `/mxcube/api` target and nginx's `proxy_pass` must use. `server: CERT:` in `server.yaml` decides it: `NONE` (the default) means plain `http://`, `SIGNED`/`ADHOC` mean `https://` |
+| `Expected JSON response but got text/html` | the same 502 (or a login page) reaching the UI as HTML | `curl -isk https://<host>/mxcube/api/v0.1/login/login_info \| head -3` |
+| `…/manifest.json` redirected to `iam.synchrotron-soleil.fr`, blocked by CORS | the manifest is fetched without credentials and an SSO layer redirects it | harmless on its own; it goes away once you are logged in and the API answers |
+| a 302 to the login server on `/argus/<name>` | the auth layer also guards the video | exclude `location /argus/` from it (see nginx above) |
+
+`diagnose_video.py` checks all of this first, as hop 0.
 
 ## Troubleshooting a black sample view
 
@@ -332,38 +446,17 @@ and names the first broken hop:
 
 ```sh
 conda activate argussight
-python scripts/argussight/diagnose_video.py            # --config <.../config/server.yaml> if not ../../../config
+python scripts/argussight/diagnose_video.py            # --config <file> if it is not ../../../config[/mxcube-web]/server.yaml
 python scripts/argussight/diagnose_video.py --insecure # if only the TLS certificate check fails
 ```
 
-The checks, in order:
-1. the `server.yaml` video keys;
-2. the page: which UI bundle mxcubeweb serves (see below);
-3. the streamer on `:9000`;
-4. the proxy on `:7000`;
-5. the camera list from `GetProcesses`, filtered by `ARGUSSIGHT_CAMERAS` the same way MXCuBE filters
-   it, and the exact `videoURL`/`videoHash` the browser receives;
-6. the URL the page really opens, through nginx.
-
-**The page is not rebuilt with the code.** `mxcubeweb/server.py` serves
-`mxcubeweb/mxcubeweb/ui` (the `--static-folder` in mxgo.sh is ignored). That folder is not in git,
-and nothing rebuilds it, so the browser can run a bundle from before the camera switcher. Such a
-bundle always opens `${videoURL}/${videoHash}`. mxcubeweb once sent the whole stream URL with an
-empty hash. That gave `…/argus/oav/`, which argussight's `/ws/{name}` route rejects: argussight is
-healthy and the pane is black. mxcubeweb now sends the proxy base as `videoURL` and the stream name
-as `videoHash`, so every bundle opens `…/argus/oav`. The camera selector still needs a fresh
-bundle: `cd ui && pnpm install && pnpm build`, then copy `ui/build/*` into `mxcubeweb/mxcubeweb/ui`.
-
-It also groups the uvicorn tracebacks in `argussight.log`. uvicorn is the web server that runs
-argussight's proxy on :7000. Tracebacks that end in `WebsocketState` or in
-`Cannot call "send" once a close message has been sent` fire when a viewer disconnects. They are
-harmless.
+The checks, in order: the `server.yaml` video keys; mxcubeweb on `:8081`; which frontend answers;
+the streamer on `:9000`; the proxy on `:7000`; `GetProcesses` and the stream URL it yields; that URL
+through nginx. It then groups the uvicorn tracebacks in `argussight.log` — uvicorn is the web server
+running argussight's proxy, and its `WebsocketState` and `Cannot call "send"` tracebacks fire when a
+viewer disconnects and are harmless.
 
 If every hop passes, the problem is in the browser: check devtools → Network → WS `oav`.
-
-`localhost` is correct for the server-side connections: argussight always connects to its
-streamers at `ws://localhost:<port>`. Only the browser-facing `ARGUSSIGHT_PROXY_URL` must be the
-public `wss://` name.
 
 After registering the streams, `argus_cameras.py` probes each camera, first
 directly on its streamer and then through the argussight proxy, and logs one
