@@ -80,6 +80,46 @@ The proxy only serves streams registered through :50051, so :7000 alone is an
 empty proxy. Both come from the same startup (`Spawner.__init__` starts the
 proxy, then `serve()` binds :50051), so if that startup fails, neither opens.
 
+### What travels at each hop
+
+**Nothing on the server side hands out decoded frames.** The camera's raw images
+are compressed into a video stream on the way out, and only the browser
+decompresses it:
+
+| Hop | Receives | Does | Sends |
+|---|---|---|---|
+| Redis on the camera server | the camera | publishes each image as raw pixels (1360×1024 for the OAV) | raw frames |
+| video-streamer :9000 | raw frames | **encodes** them with ffmpeg (`-of MPEG1`) | MPEG-1 video in an MPEG-TS container, over a websocket |
+| argussight proxy :7000 | those bytes | **relays them unchanged**: one entry point per camera, and switching between cameras. It does no image processing. | the same bytes |
+| nginx :443 | those bytes | forwards them over `wss://` | the same bytes |
+| browser | those bytes | **decodes** them with JSMpeg and paints the canvas | the image |
+
+So the frames `check_frames` waits for are the raw ones in Redis, and a
+`BINARY 47 41 00 …` line in argussight's debug log is compressed video (`0x47`
+is the MPEG-TS sync byte), not a picture.
+
+**JSMpeg** (`jsmpeg.min.js`) is a third-party MPEG-1 decoder written in
+JavaScript with an embedded WebAssembly core (phoboslab/jsmpeg, MIT). Browsers
+cannot play MPEG-1 from a websocket natively; JSMpeg splits the MPEG-TS stream,
+decodes each frame and draws it with WebGL. Nothing generates the file: it is
+copied by hand into the mxcubeweb source at
+`ui/src/components/SampleView/jsmpeg.min.js`, edited into an ES module
+(`export const JSMpeg`). `SampleImage.jsx` imports it and runs
+`new JSMpeg.Player(<videoURL>/<videoHash>, { canvas: #sample-img })`.
+
+It exists as a separate file **only in `ui/src`**: `pnpm build` folds it into
+`ui/build/assets/index-<hash>.js`, so the served site and `ui/build` never
+contain a `jsmpeg.min.js`. When searching a checkout for it, remember that `find`
+does not descend into symlinked directories unless given `-L`.
+
+What follows from this:
+- **A black sample view with no error on the canvas means JSMpeg received no
+  bytes.** The fault is on the path to the browser (nginx's 404/502, a blocked
+  `wss://`), not in the picture itself.
+- **To look at argussight's output directly, something has to decode it:**
+  JSMpeg in a page, or ffmpeg (`ffmpeg -f mpegts -i <capture>.ts -frames:v 1
+  out.png`). Looking at the raw bytes proves only that data flows.
+
 ### Where the page comes from
 
 Two deployments exist, and they differ in what a `git pull` changes:
