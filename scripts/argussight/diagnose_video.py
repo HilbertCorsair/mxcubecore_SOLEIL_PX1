@@ -520,16 +520,33 @@ def check_discovery(app):
 # --- hop 5 ------------------------------------------------------------------
 
 
+# What a 5xx means depends on hop 2. If the proxy answered there, :7000 is up
+# on this host and nginx is connecting to some other :7000 -- it runs on
+# another host, or in a container, where 127.0.0.1 is the container itself.
+UPSTREAM_DOWN = "nginx cannot reach :7000: is argussight running? (hop 2)"
+UPSTREAM_ELSEWHERE = (
+    "hop 2 proved :7000 answers here, so nginx is reaching a different one: it "
+    "runs on another host or in a container (127.0.0.1 is then the container "
+    "itself). Give proxy_pass argussight's LAN address instead of 127.0.0.1"
+)
+
 PUBLIC_FIXES = [
     (404, "nginx has no such location: check 'location /argus/' and its proxy_pass"),
-    (502, "nginx cannot reach :7000: is argussight running? (hop 2)"),
-    (503, "nginx cannot reach :7000: is argussight running? (hop 2)"),
-    (504, "nginx cannot reach :7000: is argussight running? (hop 2)"),
+    (502, UPSTREAM_DOWN),
+    (503, UPSTREAM_DOWN),
+    (504, UPSTREAM_DOWN),
     (403, "argussight refused the stream: grep 'Removing stream' in argussight.log"),
     (400, "nginx is not forwarding the websocket upgrade headers"),
     (426, "nginx is not forwarding the websocket upgrade headers"),
     (101, "the handshake works but no video arrives: compare with hop 2"),
 ]
+
+
+def proxy_hop_passed():
+    """True when hop 2 reached argussight's stream proxy on this host."""
+    return any(
+        hop.startswith("2 proxy") and status == "PASS" for hop, status, _, _ in results
+    )
 
 
 def check_public(url, insecure):
@@ -549,6 +566,8 @@ def check_public(url, insecure):
         fix = dict(PUBLIC_FIXES).get(
             status, "unreachable: check DNS, firewall and nginx"
         )
+        if fix == UPSTREAM_DOWN and proxy_hop_passed():
+            fix = UPSTREAM_ELSEWHERE
     report(hop, "FAIL", f"{url}: HTTP {status or '-'}: {detail}", fix)
 
 
