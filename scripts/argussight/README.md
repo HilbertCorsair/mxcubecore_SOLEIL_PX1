@@ -68,7 +68,7 @@ browser ⇄ nginx ⇄ argussight only.
 | Port | Who listens | Who connects | For |
 |---|---|---|---|
 | 6379 | Redis, on the **camera server** (`195.221.8.84`) | the streamers, `check_frames.py` | the raw frames |
-| 9000, 9001, … | one `video-streamer` per camera | argussight only, over `localhost` | MPEG1 |
+| 9000, 9001, … | one `video-streamer` per camera | argussight only, over `localhost` | MPEG1. Its `/ui` page works **only from the streamer's own host**: it hardcodes `ws://localhost:9000/ws/<hash>` (`video_streamer/server.py`), and the *browser* resolves that `localhost`. From anywhere else the page loads, the canvas renders black and the socket fails — that is the page, not the stream. Probe `ws://<host>:9000/ws/<hash>` directly instead |
 | 7000 | argussight's stream proxy | the **browser**, through nginx `/argus/` | MPEG1, one path per camera |
 | 50051 | argussight's gRPC server | `argus_cameras.py` (`AddStream`), mxcubeweb (`GetProcesses`) | control and discovery, never video |
 | 8000 | MXCuBE's own streamer, only with `USE_EXTERNAL_STREAMER: true` | nginx `/video` | the pre-argussight fallback; **nothing listens here in this setup** |
@@ -352,6 +352,9 @@ In the `server { }` block that already serves
 # Argussight stream proxy. The trailing slash on BOTH sides is what rewrites
 # /argus/<name> to /ws/<name>, which is the path streamsproxy serves.
 location /argus/ {
+    # 127.0.0.1 is right only when nginx and argussight share a host. nginx in
+    # a container has its own loopback, so this would address the container
+    # itself and be refused; use argussight's LAN address there.
     proxy_pass http://127.0.0.1:7000/ws/;
 
     proxy_http_version 1.1;
@@ -375,14 +378,22 @@ location /argus/ {
 Then `ARGUSSIGHT_PROXY_URL: wss://mxcubeweb-px1.synchrotron-soleil.fr/argus`,
 which discovery turns into `.../argus/oav` per stream.
 
-`127.0.0.1:7000` assumes nginx and argussight share a host. If they do not, use
-argussight's LAN address — `streamsproxy` binds `0.0.0.0`, so it is reachable
-either way.
+`127.0.0.1:7000` assumes nginx and argussight share a host. If they do not —
+in particular if nginx runs in a container — use argussight's LAN address;
+`streamsproxy` binds `0.0.0.0`, so it is reachable either way. Three signs that
+nginx is somewhere else: its log lines carry a `nginx            | ` prefix
+(docker compose output), its worker PIDs are two-digit (a fresh PID namespace),
+and a neighbouring `location` already proxies to a LAN IP instead of
+`127.0.0.1` — whoever wrote that one had to.
 
-Reload and check:
+Reload and check. A containerised nginx reads a bind-mounted file, so find the
+one it actually reads (`docker compose config | grep -A5 volumes`) before
+editing: a copy it does not mount changes nothing.
 
 ```sh
-nginx -t && systemctl reload nginx
+nginx -t && systemctl reload nginx                         # nginx on this host
+docker compose exec nginx nginx -t \
+    && docker compose exec nginx nginx -s reload           # nginx in a container
 # 101 Switching Protocols = the upgrade reached argussight
 curl -isk -o /dev/null -w '%{http_code}\n' \
      -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
@@ -497,6 +508,13 @@ running argussight's proxy, and its `WebsocketState` and `Cannot call "send"` tr
 viewer disconnects and are harmless.
 
 If every hop passes, the problem is in the browser: check devtools → Network → WS `oav`.
+
+Two results that look like a contradiction, and are not:
+
+| What you see | What it means | Fix |
+|---|---|---|
+| `/argus/<name>` gives 502 through nginx, while `curl` on the beamline host gets `101` from `127.0.0.1:7000/ws/<name>` | Both are true, of two different machines: nginx is on another host or in a container, so its `127.0.0.1` is not this one. `connect() failed (111: Connection refused)` in its log is an instant RST — nothing is listening, as opposed to a timeout (110) or SELinux (13) | give `proxy_pass` argussight's LAN address (see nginx above) |
+| `nginx -T` fails with `unknown "connection_upgrade" variable` | the `map` is missing from `http{}`. It is also proof that **every reload since has been rejected, so none of your edits to the config has taken effect** | add the `map` at `http{}` level, then retest every hypothesis you ruled out while it was failing |
 
 After registering the streams, `argus_cameras.py` probes each camera, first
 directly on its streamer and then through the argussight proxy, and logs one
