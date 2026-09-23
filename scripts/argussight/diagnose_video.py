@@ -106,6 +106,30 @@ def port_open(port, host="127.0.0.1"):
         return False
 
 
+def ws_connect(connect, url, kwargs):
+    """connect() across websockets versions, or raise the last TypeError.
+
+    Two arguments moved: `proxy` exists only from 15 (we pass None, since the
+    site proxy cannot reach the beamline), and the TLS context is `ssl` from 14
+    but `ssl_context` before it. One `except TypeError` retry cannot tell the
+    two apart -- on websockets 12 both spellings fail and the second TypeError
+    escapes, which hop 5 then reports as if nginx had refused the connection.
+    So drop or rename one argument at a time, newest spelling first.
+    """
+    attempts = [dict(kwargs, proxy=None), dict(kwargs)]
+    if "ssl" in kwargs:  # websockets < 14 calls it ssl_context
+        legacy = {k: v for k, v in kwargs.items() if k != "ssl"}
+        legacy["ssl_context"] = kwargs["ssl"]
+        attempts += [dict(legacy, proxy=None), legacy]
+    last = None
+    for attempt in attempts:
+        try:
+            return connect(url, **attempt)
+        except TypeError as exc:
+            last = exc
+    raise last
+
+
 def ws_probe(url, insecure=False):
     """Wait for one binary frame; return (ok, http_status, detail)."""
     from websockets.exceptions import ConnectionClosed
@@ -115,10 +139,7 @@ def ws_probe(url, insecure=False):
     if url.startswith("wss://"):
         kwargs["ssl"] = ssl_context(insecure)
     try:
-        try:
-            ws = connect(url, proxy=None, **kwargs)  # never the site proxy
-        except TypeError:  # websockets < 15 has no proxy argument
-            ws = connect(url, **kwargs)
+        ws = ws_connect(connect, url, kwargs)
     except Exception as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)
         return False, status or getattr(exc, "status_code", None), exc
