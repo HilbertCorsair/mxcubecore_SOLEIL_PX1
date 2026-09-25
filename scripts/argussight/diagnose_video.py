@@ -233,13 +233,15 @@ def resolve_public(url, origin):
 
 
 def handshake(url, insecure, origin=""):
-    """One websocket handshake by hand; return (status, reason, location, body).
+    """A websocket handshake by hand: (status, reason, location, body, server).
 
-    websockets' client throws the response body away, and for socket.io that
-    body is the whole answer: engineio replies 400 with the reason inside it
-    ("Origin not allowed", "WebSocket transport not available"). So write the
-    request and read the reply, exactly like the curl in README.md. `status` is
-    None when the connection itself failed, and `reason` then carries the error.
+    websockets' client throws the response body away, and the body is often the
+    whole answer: engineio replies 400 with the reason inside it ("Origin not
+    allowed", "Invalid websocket upgrade"), and a 404 body says whether
+    argussight or nginx wrote it. The `Server` header settles the same question.
+    So write the request and read the reply, exactly like the curl in README.md.
+    `status` is None when the connection itself failed, and `reason` then
+    carries the error.
     """
     parts = urlparse(url)
     secure = parts.scheme in ("wss", "https")
@@ -263,7 +265,7 @@ def handshake(url, insecure, origin=""):
             (parts.hostname, parts.port or (443 if secure else 80)), timeout=TIMEOUT
         )
     except Exception as exc:
-        return None, str(exc), "", ""
+        return None, str(exc), "", "", ""
     try:
         sock = (
             ssl_context(insecure).wrap_socket(raw, server_hostname=parts.hostname)
@@ -287,7 +289,7 @@ def handshake(url, insecure, origin=""):
             if sep and (b" 101 " in head.split(b"\r\n")[0] or body):
                 break
     except Exception as exc:
-        return None, str(exc), "", ""
+        return None, str(exc), "", "", ""
     finally:
         raw.close()
 
@@ -297,17 +299,27 @@ def handshake(url, insecure, origin=""):
     try:
         status = int(fields[1])
     except (IndexError, ValueError):
-        return None, f"no HTTP status in {head[:1]}", "", ""
-    location = next(
-        (
-            line.split(":", 1)[1].strip()
-            for line in head[1:]
-            if line.lower().startswith("location:")
-        ),
-        "",
-    )
+        return None, f"no HTTP status in {head[:1]}", "", "", ""
+
+    def field(name):
+        prefix = f"{name}:".lower()
+        return next(
+            (
+                line.split(":", 1)[1].strip()
+                for line in head[1:]
+                if line.lower().startswith(prefix)
+            ),
+            "",
+        )
+
     reason = fields[2] if len(fields) > 2 else ""
-    return status, reason, location, body.decode("utf-8", "replace")[:200]
+    return (
+        status,
+        reason,
+        field("location"),
+        body.decode("utf-8", "replace")[:200],
+        field("server"),
+    )
 
 
 # --- hop 4: server.yaml -----------------------------------------------------
@@ -453,7 +465,22 @@ def check_config(path, origin):
         "ARGUSSIGHT_GRPC_PORT",
     ):
         note(f"  {key}: {app.get(key, '<unset>')!r}")
-    names = [c.get("name") for c in app.get("ARGUSSIGHT_CAMERAS") or []]
+    # A list of mappings, each with a `name` (configmodels.ARGUSSIGHT_CAMERAS is
+    # list[_ArgussightCameraModel]). Written as a `{name: {...}}` mapping instead
+    # -- an easy slip, since discover_streams() takes that shape internally --
+    # pydantic rejects it at startup, so say so here rather than raise.
+    cameras = app.get("ARGUSSIGHT_CAMERAS") or []
+    if isinstance(cameras, dict) or not all(isinstance(c, dict) for c in cameras):
+        report(
+            hop,
+            "FAIL",
+            f"ARGUSSIGHT_CAMERAS is {type(cameras).__name__}, not a list of entries",
+            "each camera is a list item with a name: key, e.g."
+            ' "- name: oav\n  label: OAV\n  oav: true"',
+        )
+        names = []
+    else:
+        names = [c.get("name") for c in cameras]
     note(f"  ARGUSSIGHT_CAMERAS names: {names or '<unset: all streams>'}")
     # ALLOWED_CORS_ORIGINS lives in the `server:` section (config.py maps it to
     # cfg.flask), and server.py hands it straight to SocketIO.
@@ -701,8 +728,53 @@ UPSTREAM_ELSEWHERE = (
     "itself). Give proxy_pass argussight's LAN address instead of 127.0.0.1"
 )
 
+# argussight serves exactly one route, @app.websocket("/ws/{path}"), and no HTTP
+# route at all -- so a plain HTTP request to /ws/<name> is answered 404 by
+# uvicorn. That is precisely what nginx sends when it proxies the request but
+# drops the upgrade headers, and it is the single most confusing failure here,
+# because the number says "not found" while the path is perfectly correct.
+NGINX_STRIPPED_UPGRADE = (
+    "nginx forwarded the request but not the upgrade, so argussight answered as"
+    " if it were plain HTTP: 'location /argus/' needs proxy_http_version 1.1,"
+    " Upgrade $http_upgrade and Connection $connection_upgrade. Mind that ANY"
+    " proxy_set_header inside a location discards the ones inherited from"
+    " server{}, and that an absent 'map $http_upgrade $connection_upgrade' in"
+    " http{} makes nginx -t fail, so no reload has taken effect since"
+)
+
+# Who wrote the response. argussight is FastAPI behind uvicorn, whose 404 body is
+# JSON; nginx's own error pages are HTML and it names itself in Server.
+RESPONDERS = [
+    ("argussight", ("uvicorn", '"detail"')),
+    ("nginx", ("nginx",)),
+]
+
+# Statuses that argussight only ever returns to a non-upgraded request, and that
+# nginx also returns for quite different reasons. Worth asking who answered.
+AMBIGUOUS = (400, 404, 426)
+
+
+def responder(url, insecure, origin):
+    """(who, body, status): who answered, what they said, and the status.
+
+    `ws_probe` uses the websockets client, which discards the response body --
+    and the body plus the Server header are the only things that distinguish
+    "argussight said 404 to a plain GET" from "nginx matched no location". That
+    client also reports no status at all when it cannot parse the response
+    (a short body, an abrupt close), where a hand-rolled handshake still reads
+    the status line. So ask once more by hand and use whichever we learn.
+    """
+    status, _, _, body, server = handshake(url, insecure, origin=origin)
+    haystack = f"{server} {body}".lower()
+    who = next(
+        (name for name, marks in RESPONDERS if any(m in haystack for m in marks)),
+        "",
+    )
+    return who, body.strip(), status
+
+
 PUBLIC_FIXES = [
-    (404, "nginx has no such location: check 'location /argus/' and its proxy_pass"),
+    (404, "nginx matched no location: check 'location /argus/' and its proxy_pass"),
     (502, UPSTREAM_DOWN),
     (503, UPSTREAM_DOWN),
     (504, UPSTREAM_DOWN),
@@ -735,6 +807,20 @@ def check_public(url, insecure, origin):
     elif status in REDIRECTS:
         fix = "an SSO layer guards /argus/: a websocket handshake cannot log in"
     else:
+        who, body, hs_status = responder(url, insecure, origin)
+        if status is None and hs_status is not None:
+            # ws_probe could not parse the reply but the raw handshake could.
+            status = hs_status
+            detail = f"{detail} (raw handshake read HTTP {status})"
+        if status in AMBIGUOUS and who == "argussight":
+            # The request reached argussight, which only speaks websocket.
+            report(
+                hop,
+                "FAIL",
+                f"{url}: HTTP {status} from argussight itself: {body[:60]!r}",
+                NGINX_STRIPPED_UPGRADE,
+            )
+            return
         fix = dict(PUBLIC_FIXES).get(
             status,
             "unreachable: check DNS, the firewall, and the port nginx publishes"
@@ -742,11 +828,19 @@ def check_public(url, insecure, origin):
         )
         if fix == UPSTREAM_DOWN and proxy_hop_passed():
             fix = UPSTREAM_ELSEWHERE
+        if who == "nginx":
+            detail = f"{detail} (answered by nginx, not argussight)"
     report(hop, "FAIL", f"{url}: HTTP {status or '-'}: {detail}", fix)
 
 
 # --- hop 6 ------------------------------------------------------------------
 
+
+NGINX_NO_UPGRADE = (
+    "nginx is not forwarding the upgrade: location /socket.io/ needs"
+    " proxy_http_version 1.1, Upgrade $http_upgrade and Connection"
+    " $connection_upgrade (see README.md), and Host $http_host to keep the port"
+)
 
 # engineio answers 400 to several quite different faults, and only the body it
 # returns tells them apart. Matched against that body, lowercased, in order.
@@ -769,13 +863,11 @@ SOCKETIO_BODY_FIXES = [
         "Engine.IO protocol mismatch: rebuild the UI (cd ui && pnpm build)"
         " against the installed Flask-SocketIO",
     ),
+    # engineio's own words when the Upgrade header never arrived: it requires
+    # transport == upgrade_header == "websocket" and answers 400 otherwise. Last,
+    # so the more specific reasons above win.
+    ("upgrade", NGINX_NO_UPGRADE),
 ]
-
-NGINX_NO_UPGRADE = (
-    "nginx is not forwarding the upgrade: location /socket.io/ needs"
-    " proxy_http_version 1.1, Upgrade $http_upgrade and Connection"
-    " $connection_upgrade (see README.md), and Host $http_host to keep the port"
-)
 
 
 def check_socketio(origin, insecure):
@@ -788,7 +880,7 @@ def check_socketio(origin, insecure):
     """
     hop = "6 socket.io"
     public = ws_url(origin, SOCKETIO_PATH)
-    status, reason, location, _ = handshake(public, insecure, origin=origin)
+    status, reason, location, body, _ = handshake(public, insecure, origin=origin)
     if status == 101:
         report(hop, "PASS", f"{public}: 101 Switching Protocols")
         return
@@ -809,10 +901,24 @@ def check_socketio(origin, insecure):
         )
         return
 
+    # engineio sometimes names the cause in the body nginx passed back, and then
+    # there is nothing left to work out.
+    public_fix = next(
+        (f for pat, f in SOCKETIO_BODY_FIXES if pat in (body or "").lower()), ""
+    )
+    if public_fix:
+        report(
+            hop,
+            "FAIL",
+            f"{public}: HTTP {status} {body.strip()[:80]!r}",
+            public_fix,
+        )
+        return
+
     # The same handshake straight at :8081 decides who answered the 400.
     scheme = getattr(check_mxcube_server, "scheme", "http")
     direct = ws_url(f"{scheme}://127.0.0.1:{MXCUBE_PORT}", SOCKETIO_PATH)
-    d_status, d_reason, _, d_body = handshake(direct, insecure=True, origin=origin)
+    d_status, d_reason, _, d_body, _ = handshake(direct, insecure=True, origin=origin)
     if d_status == 101:
         report(
             hop,
@@ -861,9 +967,10 @@ def summarize_mxcube_log(path):
                 if "Argussight discovery" in line
                 or "Argussight camera discovery disabled" in line
                 or "Argussight GetProcesses" in line
-                # engineio says both of these out loud, once per refusal.
+                # engineio says all of these out loud, once per refusal.
                 or "is not allowed" in line
                 or "WebSocket transport not available" in line
+                or "Invalid websocket upgrade" in line
             ]
     except OSError as exc:
         print(f"    cannot read: {exc}")
@@ -905,11 +1012,19 @@ def summarize_argussight_log(path):
         verdict = next((v for pat, v in KNOWN_TRACEBACKS if pat in final), None)
         print(f"    {count:4}x {final}")
         print(f"          {verdict or 'UNKNOWN: paste this traceback'}")
+    # A plain-HTTP request to /ws/<name> is uvicorn's access line, not a
+    # traceback, and it is the tell that nginx dropped the upgrade headers.
+    plain_http = [line for line in lines if 'HTTP/1.1" 404' in line]
+    if plain_http:
+        print(f"    {len(plain_http)}x plain HTTP GET on /ws/<name> answered 404")
+        print(f"          {NGINX_STRIPPED_UPGRADE}")
+        print(f"    {plain_http[-1]}")
     for line in [
         line
         for line in lines
         if "Removing stream" in line
         or "Upstream worker" in line
+        or "Max reconnection attempts" in line
         or "SELF-TEST" in line
         or "exited with code" in line
     ][-6:]:

@@ -204,7 +204,9 @@ below so its `FIRST BROKEN HOP` line points straight at one section.
   | 502 + `connect() failed (111: Connection refused)` | instant RST: nothing listens at the `proxy_pass` address. With hop `2 proxy` passing, that address is wrong — typically `127.0.0.1` from inside a container |
   | 504, or a hang with no status | the connect is being dropped: a firewall between nginx and `:7000`, or the public VIP is unreachable from where you are testing |
   | 403 | the handshake reached argussight and it closed first: trailing slash, or an unregistered stream |
-  | 404 | nginx matched no location — `/argus/` is missing or spelled differently |
+  | 404 **from nginx** (HTML body, `Server: nginx`) | nginx matched no location — `/argus/` is missing or spelled differently |
+  | 404 **from argussight** (`{"detail":"Not Found"}`, `Server: uvicorn`) | the request arrived without the upgrade headers, so it was handled as plain HTTP. See "argussight logs `GET /ws/<name> … 404`" |
+  | 400 or 426 | the same thing seen one layer up: nginx itself rejected a request it would not upgrade |
   | 302 to `iam.synchrotron-soleil.fr` | the SSO layer is guarding the video; exclude `location /argus/` from it |
 
 - **Test:** the same `curl` as the hop above, against
@@ -509,6 +511,11 @@ location /argus/ {
     # itself and be refused; use argussight's LAN address there.
     proxy_pass http://127.0.0.1:7000/ws/;
 
+    # These three lines must live INSIDE this location. A location that sets any
+    # proxy_set_header of its own discards every proxy_set_header inherited from
+    # server{} / http{} -- so an upgrade pair defined once at server level
+    # silently disappears here, and argussight answers the un-upgraded request
+    # with 404. Same for location /socket.io/.
     proxy_http_version 1.1;
     proxy_set_header Upgrade    $http_upgrade;
     proxy_set_header Connection $connection_upgrade;
@@ -740,6 +747,60 @@ viewer disconnects and are harmless.
 
 If every hop passes, the problem is in the browser: check devtools → Network → WS `oav`.
 
+### argussight logs `GET /ws/<name> HTTP/1.1 404`
+
+This one reads as "wrong path" and never is. `streamsproxy.py` declares exactly
+one route, `@app.websocket("/ws/{path}")`, and **no HTTP route at all**, so:
+
+- a **websocket** handshake for an unknown stream is closed with 4404 before
+  `accept()`, which the browser sees as **403** — never 404;
+- a **plain HTTP** request to the very same, correct path can only be answered
+  **404**, by Starlette's fallback, with `{"detail":"Not Found"}` and
+  `Server: uvicorn`.
+
+So a 404 in argussight's log means the request reached it **stripped of its
+`Upgrade` / `Connection` headers** — nginx proxied it but did not upgrade it. The
+browser gets that 404 as a failed handshake, and JSMpeg's `WSSource` retries
+every 5 s, which is why the 404s arrive in a steady stream.
+
+`/socket.io/` fails the same way for the same reason, and that is worth knowing
+because it looks like a second, unrelated bug: engineio requires
+`transport == upgrade_header == "websocket"` and otherwise answers
+**400 "Invalid websocket upgrade"** (`engineio/server.py`). One missing pair of
+headers, two console errors, and a black pane.
+
+Which side dropped them:
+
+```sh
+# through nginx -- 404 here while the line below gives 101 is the signature
+curl -isk \
+     -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+     -H 'Sec-WebSocket-Version: 13' \
+     -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+     'https://mxcubeweb-px1.synchrotron-soleil.fr:7443/argus/oav' | head -12
+
+# straight at argussight -- must be 101
+curl -is \
+     -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+     -H 'Sec-WebSocket-Version: 13' \
+     -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+     'http://127.0.0.1:7000/ws/oav' | head -12
+```
+
+Read the `Server:` header and the body, not just the number: `uvicorn` with
+`{"detail":"Not Found"}` is argussight answering a plain request, `nginx` with an
+HTML error page is nginx answering for itself. `diagnose_video.py`'s hop
+`5 nginx` now makes exactly this distinction and names the cause.
+
+Then, in nginx, in this order:
+
+| Check | What it catches |
+|---|---|
+| `nginx -t` | a missing `map $http_upgrade $connection_upgrade` in `http{}`. It fails the whole config, so **no reload since has taken effect** |
+| `nginx -T \| grep -B2 -A12 'location /argus/'` | the upgrade lines absent, or a different file in force than the one you edited |
+| the same, for every `proxy_set_header` in that block | **the inheritance trap: a `location` that sets any `proxy_set_header` of its own discards every one inherited from `server{}` / `http{}`.** Add the upgrade pair *inside* each location that needs it — `/argus/` and `/socket.io/` both do |
+| `docker compose config \| grep -A5 volumes` | a containerized nginx reading a config from a different path than you think |
+
 Two results that look like a contradiction, and are not:
 
 | What you see | What it means | Fix |
@@ -773,3 +834,5 @@ the script exits):
 | `N/M cameras NOT registered` | `AddStream` failed: :50051 unreachable | argussight is down; see its error above |
 | `argussight exited (code N); stopping the camera streamers` | argussight died while running | Its log; then relaunch (`mxgo.sh` or the script) |
 | argussight: `Upstream worker for oav failed` then `Removing stream at path /oav due to upstream failure` | Proxy could not reach the streamer | Almost always proxy env vars; see Gotchas |
+| argussight: `"GET /ws/oav HTTP/1.1" 404`, repeating | The request reached argussight without its upgrade headers | nginx is not upgrading — see "argussight logs `GET /ws/<name> HTTP/1.1 404`" |
+| argussight: `Max reconnection attempts reached for oav` | Four consecutive upstream failures retired the stream, and nothing re-adds it: every later client now gets 403 | restart the stack. Up to argussight 0.3.2 this also triggered after a *single* failure whenever no client was connected |
