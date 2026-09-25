@@ -68,35 +68,186 @@ browser ⇄ nginx ⇄ argussight only.
 | Port | Who listens | Who connects | For |
 |---|---|---|---|
 | 6379 | Redis, on the **camera server** (`195.221.8.84`) | the streamers, `check_frames.py` | the raw frames |
-| 9000, 9001, … | one `video-streamer` per camera | argussight only, over `localhost` | MPEG1. Its `/ui` page works **only from the streamer's own host**: it hardcodes `ws://localhost:9000/ws/<hash>` (`video_streamer/server.py`), and the *browser* resolves that `localhost`. From anywhere else the page loads, the canvas renders black and the socket fails — that is the page, not the stream. Probe `ws://<host>:9000/ws/<hash>` directly instead |
+| 9000, 9001, … | one `video-streamer` per camera | argussight only, over `localhost` | MPEG1. Its `/ui` page works **only from the streamer's own host** — see the video-streamer stage below |
 | 7000 | argussight's stream proxy | the **browser**, through nginx `/argus/` | MPEG1, one path per camera |
 | 50051 | argussight's gRPC server | `argus_cameras.py` (`AddStream`), mxcubeweb (`GetProcesses`) | control and discovery, never video |
 | 8000 | MXCuBE's own streamer, only with `USE_EXTERNAL_STREAMER: true` | nginx `/video` | the pre-argussight fallback; **nothing listens here in this setup** |
 | 8081 | mxcubeweb (hardcoded in `mxcubeweb/server.py`'s `run()`) | nginx `/mxcube/api`, `/socket.io` | the application |
 | 5173 | the Vite dev server (`ui/vite.config.js`) | nginx `/` | the page, served from `ui/src` |
-| 443 | nginx | the browser | all of the above, over TLS |
+| 443, **or whatever nginx publishes** (7443 on proxima1) | nginx | the browser | all of the above, over TLS. Every URL the page opens must carry this port — see "The port nginx publishes" |
 
 The proxy only serves streams registered through :50051, so :7000 alone is an
 empty proxy. Both come from the same startup (`Spawner.__init__` starts the
 proxy, then `serve()` binds :50051), so if that startup fails, neither opens.
 
-### What travels at each hop
+### The video path, hop by hop
 
 **Nothing on the server side hands out decoded frames.** The camera's raw images
 are compressed into a video stream on the way out, and only the browser
-decompresses it:
+decompresses it.
 
-| Hop | Receives | Does | Sends |
+Five stages carry the picture. A sixth path carries no video at all but decides
+the address the browser will open, so it breaks the view just as effectively.
+Three of the five are what `diagnose_video.py` calls hops `1`, `2` and `5`, named
+below so its `FIRST BROKEN HOP` line points straight at one section.
+
+```
+        camera
+          |   raw pixels
+          v
+  +------------------+
+  | Redis :6379      |   camera server 195.221.8.84
+  +------------------+
+          |   raw pixels, 1360x1024 for the OAV
+          v
+  +------------------+
+  | video-streamer   |   MXCuBE host, one process per camera, :9000 :9001 ...
+  | ffmpeg -of MPEG1 |   >>> diagnose hop `1 streamer <name>`
+  +------------------+
+          |   MPEG-1 in MPEG-TS, over ws://<mxcube host>:9000/ws/<hash>
+          v
+  +------------------+
+  | argussight       |   MXCuBE host, :7000 proxy + :50051 gRPC
+  | stream proxy     |   >>> diagnose hop `2 proxy <name>`
+  +------------------+
+          |   the same bytes, over ws://<mxcube host>:7000/ws/<name>
+          v
+  +------------------+
+  | nginx :443       |   may be a container, and may be on another host
+  |                  |   >>> diagnose hop `5 nginx`
+  +------------------+
+          |   the same bytes, over wss://<public host>[:port]/argus/<name>
+          v
+  +------------------+
+  | browser: JSMpeg  |   decodes and paints the canvas
+  +------------------+
+
+  side-channel, no video:  browser -> mxcubeweb :8081 -> argussight :50051
+                           returns videoURL + videoHash, i.e. the address
+                           the browser then opens on nginx
+```
+
+| Stage | Sends | To | `diagnose_video.py` |
 |---|---|---|---|
-| Redis on the camera server | the camera | publishes each image as raw pixels (1360×1024 for the OAV) | raw frames |
-| video-streamer :9000 | raw frames | **encodes** them with ffmpeg (`-of MPEG1`) | MPEG-1 video in an MPEG-TS container, over a websocket |
-| argussight proxy :7000 | those bytes | **relays them unchanged**: one entry point per camera, and switching between cameras. It does no image processing. | the same bytes |
-| nginx :443 | those bytes | forwards them over `wss://` | the same bytes |
-| browser | those bytes | **decodes** them with JSMpeg and paints the canvas | the image |
+| Redis | raw pixels | the streamers | none — use `check_frames.py` |
+| video-streamer | MPEG-1 in MPEG-TS | `ws://<mxcube>:9000/ws/<hash>` | `1 streamer <name>` |
+| argussight proxy | the same bytes | `ws://<mxcube>:7000/ws/<name>` | `2 proxy <name>` |
+| nginx | the same bytes, over TLS | `wss://<public>[:port]/argus/<name>` | `5 nginx` |
+| browser | pixels, at last | the canvas | none — devtools → Network → WS |
+| discovery | JSON and gRPC | `:8081` → `:50051` | `0 mxcubeweb`, `3 discovery`, `4 config`, `page` |
 
-So the frames `check_frames` waits for are the raw ones in Redis, and a
-`BINARY 47 41 00 …` line in argussight's debug log is compressed video (`0x47`
-is the MPEG-TS sync byte), not a picture.
+#### camera → Redis
+
+- **Does:** `redis_camera2.py` publishes every image as raw pixels.
+- **Runs:** on the camera server, **started by hand** — nothing in this repo
+  starts or restarts it.
+- **Broken looks like:** every streamer produces nothing at once. The startup
+  gate in `argus_cameras.py` catches it and refuses to start the stack (exit 3).
+- **Test:** `python scripts/argussight/check_frames.py`. The frames it waits for
+  are these raw ones — the only place in the chain where a frame is a picture.
+
+#### Redis → video-streamer `:9000` — hop `1 streamer`
+
+- **Does:** **encodes.** ffmpeg (`-of MPEG1`) turns the raw frames into MPEG-1
+  video inside an MPEG-TS container and serves it over a websocket.
+- **Runs:** one process per camera on the MXCuBE host, started by
+  `argus_cameras.py`, in the **mxcubeweb** env (it needs ffmpeg on `PATH` and a
+  Redis-capable video-streamer).
+- **Broken looks like:** `streamer ... gives no video` in the self-test.
+- **Test:** restart with `ARGUS_STREAMER_DEBUG=1` to get ffmpeg's stderr. Do
+  **not** judge it by `http://<host>:9000/ui` from another machine: that page
+  hardcodes `ws://localhost:9000/ws/<hash>` and the *browser* resolves the
+  `localhost`, so it renders black everywhere except the streamer's own host.
+  Probe `ws://<host>:9000/ws/<hash>` directly instead.
+
+#### video-streamer → argussight proxy `:7000` — hop `2 proxy`
+
+- **Does:** **relays the bytes unchanged.** One entry point per camera, plus
+  switching between cameras. No image processing whatsoever.
+- **Runs:** on the MXCuBE host, bound to `0.0.0.0` (`streamsproxy.py`), so it is
+  reachable from other hosts without any change.
+- **Registration:** a stream exists here only once `AddStream` has been called on
+  `:50051`. The proxy and the gRPC server come from the same startup, so if that
+  fails neither port opens, and `:7000` alone is an empty proxy.
+- **The route is `@app.websocket("/ws/{path}")`, and nothing else.** Three
+  consequences worth knowing before reading any error:
+  - `{path}` is `[^/]+`, so `/ws/`, `/ws/oav/` and `/ws//oav` all miss the route
+    → closed before accept → the client sees **403**.
+  - An unregistered name closes with **4404** → also surfaces as 403.
+  - There are **no HTTP routes at all**, so any plain GET — including opening
+    `http://localhost:7000` in a browser — returns 404 by design. A real
+    websocket handshake never returns 404.
+- **Test:** a handshake by hand — `101 Switching Protocols` means the bytes are
+  flowing, and this is the same command to aim at nginx one hop later:
+
+  ```sh
+  curl -i -N -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+       -H 'Sec-WebSocket-Version: 13' \
+       -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+       http://127.0.0.1:7000/ws/oav
+  ```
+
+#### argussight proxy → nginx `:443` (`:7443` on proxima1) — hop `5 nginx`
+
+- **Does:** forwards the same bytes over TLS. `location /argus/` with a trailing
+  slash on **both** sides rewrites `/argus/<name>` to `/ws/<name>`.
+- **Runs:** possibly in a container, possibly on another host. This matters more
+  than anything else in this file — see the nginx section and the caveats there.
+- **Needs:** the upgrade headers *and* the `map $http_upgrade $connection_upgrade`
+  at `http{}` level. Without the `map`, `nginx -t` fails and **no reload since
+  has taken effect**.
+- **Broken looks like:**
+
+  | Status | Cause |
+  |---|---|
+  | **nothing at all in nginx's log**, and a failed handshake in the browser | the browser is dialling another port: `ARGUSSIGHT_PROXY_URL` is absolute and names :443 while nginx publishes something else. See "The port nginx publishes" |
+  | 502 + `connect() failed (111: Connection refused)` | instant RST: nothing listens at the `proxy_pass` address. With hop `2 proxy` passing, that address is wrong — typically `127.0.0.1` from inside a container |
+  | 504, or a hang with no status | the connect is being dropped: a firewall between nginx and `:7000`, or the public VIP is unreachable from where you are testing |
+  | 403 | the handshake reached argussight and it closed first: trailing slash, or an unregistered stream |
+  | 404 | nginx matched no location — `/argus/` is missing or spelled differently |
+  | 302 to `iam.synchrotron-soleil.fr` | the SSO layer is guarding the video; exclude `location /argus/` from it |
+
+- **Test:** the same `curl` as the hop above, against
+  `https://<public host>[:port]/argus/oav`, and `nginx -T | grep -A4 'location /argus/'`
+  to see the address actually in force rather than the one in the file you
+  edited. On a containerized nginx that is
+  `docker compose exec nginx nginx -T`, and the reachability of the upstream is
+  `docker compose exec nginx sh -c 'nc -zvw3 <mxcube host> 7000'`.
+
+#### nginx → browser
+
+- **Does:** **decodes.** This is the only place in the chain where the bytes
+  become a picture again; JSMpeg is described just below.
+- **Broken looks like:** a black canvas with no error on it means JSMpeg received
+  no bytes — the fault is on the path to the browser, not in the picture.
+- **Test:** devtools → Network → WS → `oav`. This is the authoritative test, and
+  the only one that is valid when the beamline host cannot reach its own public
+  address (no NAT hairpinning, which makes hop `5 nginx` untestable from there).
+
+#### discovery: how the browser learns the address
+
+No video passes here, but it produces the URL hop `5 nginx` is judged on.
+
+- mxcubeweb (`:8081`) makes **one** gRPC `GetProcesses` call to `:50051` and
+  hands the page `videoURL` + `videoHash`.
+- `beamline.py` splits the discovered URL at the last `/`, so `videoURL` is the
+  proxy base and `videoHash` the stream name. That is deliberate: every frontend
+  opens `${videoURL}/${videoHash}`, and bundles built before the camera switcher
+  do so even when the hash is empty — which would give `.../oav/` and the proxy's
+  403. A root-relative base survives the split unchanged (`/argus` + `oav`), and
+  `initJSMpeg` resolves it against the page's origin.
+- If argussight cannot be asked, discovery returns the cameras configured in
+  `server.yaml` unchecked; that guessed URL is the only one that can work, since
+  the direct streamer is not exposed.
+- **Broken looks like:** the page opens a plausible-looking URL that nothing
+  serves. Compare what devtools shows JSMpeg opening against what
+  `diagnose_video.py` reports at `3 discovery`.
+
+A `BINARY 47 41 00 ...` line in argussight's debug log is compressed video
+(`0x47` is the MPEG-TS sync byte), not a picture. To look at the proxy's output
+directly, something has to decode it: JSMpeg in a page, or ffmpeg
+(`ffmpeg -f mpegts -i <capture>.ts -frames:v 1 out.png`). Looking at the raw
+bytes proves only that data flows.
 
 **JSMpeg** (`jsmpeg.min.js`) is a third-party MPEG-1 decoder written in
 JavaScript with an embedded WebAssembly core (phoboslab/jsmpeg, MIT). Browsers
@@ -111,14 +262,6 @@ It exists as a separate file **only in `ui/src`**: `pnpm build` folds it into
 `ui/build/assets/index-<hash>.js`, so the served site and `ui/build` never
 contain a `jsmpeg.min.js`. When searching a checkout for it, remember that `find`
 does not descend into symlinked directories unless given `-L`.
-
-What follows from this:
-- **A black sample view with no error on the canvas means JSMpeg received no
-  bytes.** The fault is on the path to the browser (nginx's 404/502, a blocked
-  `wss://`), not in the picture itself.
-- **To look at argussight's output directly, something has to decode it:**
-  JSMpeg in a page, or ffmpeg (`ffmpeg -f mpegts -i <capture>.ts -frames:v 1
-  out.png`). Looking at the raw bytes proves only that data flows.
 
 ### Where the page comes from
 
@@ -141,7 +284,7 @@ Two deployments exist, and they differ in what a `git pull` changes:
 ps -ef | grep -E 'vite|pnpm'   # a dev server, started by anyone, in any shell
 ss -ltnp 'sport = :5173'       # ... and whether it is still listening
 ls -l <repo>/ui/build/index.html    # the built page mxcubeweb serves, and its date
-curl -sk https://mxcubeweb-px1.synchrotron-soleil.fr/ | grep -E 'src="/(src|assets)/|@vite'
+curl -sk https://mxcubeweb-px1.synchrotron-soleil.fr:7443/ | grep -E 'src="/(src|assets)/|@vite'
 #  src="/src/index.jsx" or /@vite/client  -> served from source by a dev server
 #  src="/assets/index-<hash>.js"          -> the built UI
 ```
@@ -156,7 +299,7 @@ cd <repo>/ui && pnpm install && pnpm build     # writes ui/build (vite outDir)
 kill <pid of "pnpm start" and of node .../vite.js>   # from the ps above
 # restart MXCuBE so it picks the build up
 ./mxgo.sh
-curl -sk https://mxcubeweb-px1.synchrotron-soleil.fr/ | grep -o 'src="/assets/[^"]*"'
+curl -sk https://mxcubeweb-px1.synchrotron-soleil.fr:7443/ | grep -o 'src="/assets/[^"]*"'
 ```
 
 nginx must then send everything to mxcubeweb instead of :5173 — the page, the
@@ -166,7 +309,9 @@ API and socket.io — using the scheme :8081 speaks (`http` unless
 ```nginx
 location / {
     proxy_pass http://127.0.0.1:8081;
-    proxy_set_header Host              $host;
+    # $http_host, not $host: $host drops the port, and mxcubeweb compares the
+    # page's Origin against it. See "The port nginx publishes".
+    proxy_set_header Host              $http_host;
     proxy_set_header X-Real-IP         $remote_addr;
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -178,10 +323,13 @@ location /socket.io/ {
     proxy_http_version 1.1;
     proxy_set_header Upgrade    $http_upgrade;
     proxy_set_header Connection $connection_upgrade;
-    proxy_set_header Host       $host;
+    proxy_set_header Host       $http_host;
     proxy_read_timeout 3600s;
 }
 ```
+
+Without that `location /socket.io/` the app's own websocket gets a **400** and
+the console repeats the failure — see "socket.io fails with 400" below.
 
 `/mxcube/api` needs no block of its own once `location /` points at :8081.
 Keep `location /argus/` as it is.
@@ -284,8 +432,12 @@ mxcube:
   ARGUSSIGHT_ENABLED: true
   ARGUSSIGHT_GRPC_HOST: localhost
   ARGUSSIGHT_GRPC_PORT: 50051
-  # Dialled by the BROWSER, so it must be wss:// through nginx (see Gotchas).
-  ARGUSSIGHT_PROXY_URL: wss://mxcubeweb-px1.synchrotron-soleil.fr/argus
+  # Dialled by the BROWSER. Root-relative on purpose: the page resolves it
+  # against its own origin, so the stream always uses the host, port and TLS
+  # the page itself was served on. An absolute wss://... works too, but then
+  # its port has to be kept in step with nginx by hand — see "The port nginx
+  # publishes".
+  ARGUSSIGHT_PROXY_URL: /argus
   ARGUSSIGHT_CAMERAS:
     - { name: oav, label: OAV (centring), width: 1360, height: 1024, oav: true }
     # Add hutch cameras here once their URLs are known; the names must match
@@ -361,7 +513,7 @@ location /argus/ {
     proxy_set_header Upgrade    $http_upgrade;
     proxy_set_header Connection $connection_upgrade;
 
-    proxy_set_header Host              $host;
+    proxy_set_header Host              $http_host;   # $host drops the port
     proxy_set_header X-Real-IP         $remote_addr;
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -375,8 +527,8 @@ location /argus/ {
 }
 ```
 
-Then `ARGUSSIGHT_PROXY_URL: wss://mxcubeweb-px1.synchrotron-soleil.fr/argus`,
-which discovery turns into `.../argus/oav` per stream.
+Then `ARGUSSIGHT_PROXY_URL: /argus`, which discovery turns into `/argus/oav`
+per stream and the page resolves against its own origin.
 
 `127.0.0.1:7000` assumes nginx and argussight share a host. If they do not —
 in particular if nginx runs in a container — use argussight's LAN address;
@@ -398,7 +550,7 @@ docker compose exec nginx nginx -t \
 curl -isk -o /dev/null -w '%{http_code}\n' \
      -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
      -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
-     https://mxcubeweb-px1.synchrotron-soleil.fr/argus/oav
+     https://mxcubeweb-px1.synchrotron-soleil.fr:7443/argus/oav
 ```
 
 Keep the existing `/video` location: it stays the fallback whenever argussight
@@ -408,6 +560,38 @@ is disabled or down.
 websocket handshake: if an SSO/auth proxy sits in front of that location, the
 handshake gets a 302 to the login server instead of a 101 and the pane stays
 black. `diagnose_video.py` reports a redirect there as its own failure.
+
+### The port nginx publishes
+
+nginx does not have to be on :443, and on proxima1 it is not: the container
+publishes **:7443**, so the page is
+`https://mxcubeweb-px1.synchrotron-soleil.fr:7443/`. Everything the browser
+dials must then carry that port, and two things lose it by default:
+
+- **The video URL.** `ARGUSSIGHT_PROXY_URL` is handed to the page verbatim —
+  it is the one address discovery does not derive from anything — so an
+  absolute `wss://mxcubeweb-px1.synchrotron-soleil.fr/argus` sends the browser
+  to **:443** while nginx listens on :7443. The handshake fails, JSMpeg gets no
+  bytes, and the pane is black **with nothing in nginx's log**: the request
+  never reached it. That silence is the signature, because a fault at nginx
+  logs something. Write it root-relative, `/argus`, and the page resolves it
+  against its own origin. socket.io never had this problem: `serverIO.js`
+  builds its URL from `window.location.origin`.
+- **The `Host` header.** `proxy_set_header Host $host` drops the port;
+  `$http_host` keeps it. mxcubeweb compares the page's `Origin` against the
+  address it believes is its own, so a portless `Host` makes every socket.io
+  handshake look cross-origin. Use `$http_host` in every block.
+
+`diagnose_video.py` cannot guess the port, so tell it:
+
+```sh
+python scripts/argussight/diagnose_video.py \
+       --public-origin https://mxcubeweb-px1.synchrotron-soleil.fr:7443
+```
+
+It then checks the page, the health endpoint, `/argus/<name>` and socket.io on
+that origin, and hop `4 config` fails outright when `ARGUSSIGHT_PROXY_URL`
+names a different port.
 
 ## Gotchas
 
@@ -468,10 +652,13 @@ black. `diagnose_video.py` reports a redirect there as its own failure.
   `pip install --no-deps` is harmless: it is used when its stubs load, and
   skipped for the vendored copy when they do not. `mxgo.sh` runs the check
   above at startup and prints the `pip install` line if it fails.
-- **Only `ARGUSSIGHT_PROXY_URL` uses the public name**, and it must be `wss://`,
-  because the browser opens it from an HTTPS page. `STREAM_HOST` and
-  `ARGUS_GRPC` in `argus_cameras.py` stay `localhost`; argussight dials its
-  upstreams at `ws://localhost:<port>` regardless.
+- **Only `ARGUSSIGHT_PROXY_URL` is dialled by the browser.** Written
+  root-relative (`/argus`) it needs nothing else: the page supplies the scheme,
+  host and port, and `wss://` follows from the page being HTTPS. Written
+  absolutely it must be `wss://` **and carry nginx's published port**, or the
+  browser opens a port nothing serves. `STREAM_HOST` and `ARGUS_GRPC` in
+  `argus_cameras.py` stay `localhost`; argussight dials its upstreams at
+  `ws://localhost:<port>` regardless.
 - **argussight serves `/ws/<name>`, never `/ws/<name>/`**: a trailing slash is
   refused before the handshake completes.
 
@@ -487,8 +674,48 @@ backend there is no camera data at all. Check the browser console first.
 | `Expected JSON response but got text/html` | the same 502 (or a login page) reaching the UI as HTML | `curl -isk https://<host>/mxcube/api/v0.1/login/login_info \| head -3` |
 | `…/manifest.json` redirected to `iam.synchrotron-soleil.fr`, blocked by CORS | the manifest is fetched without credentials and an SSO layer redirects it | harmless on its own; it goes away once you are logged in and the API answers |
 | a 302 to the login server on `/argus/<name>` | the auth layer also guards the video | exclude `location /argus/` from it (see nginx above) |
+| `WebSocket connection to 'wss://…/socket.io/?EIO=4&transport=websocket' failed`, on repeat, with **400** in nginx's log | the app's own websocket is refused. The app still runs, by polling, and this does **not** blank the video | "socket.io fails with 400", below |
 
 `diagnose_video.py` checks all of this first, as hop 0.
+
+### socket.io fails with 400
+
+socket.io is the app's own websocket — two of them, the `/hwr` and `/logging`
+namespaces, so the console shows the failure twice. It carries no video, and
+the sample view does not depend on it: the camera list and the stream URL
+arrive over REST, and `transports: ['websocket', 'polling']` falls back to
+polling. **A black pane is never explained by this.** What it costs is the live
+updates: motor positions, the log stream, queue state.
+
+A `400` is an answer rather than a mystery, because python-engineio puts the
+reason in the response body. The command that separates nginx from mxcubeweb is
+the same handshake aimed straight at :8081:
+
+```sh
+curl -i -N -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+     -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+     -H 'Origin: https://mxcubeweb-px1.synchrotron-soleil.fr:7443' \
+     'http://127.0.0.1:8081/socket.io/?EIO=4&transport=websocket'
+```
+
+| Result | Cause | Fix |
+|---|---|---|
+| `101` here, 400 through nginx | nginx is not forwarding the upgrade | add `location /socket.io/` with `proxy_http_version 1.1` and the upgrade headers (see "Switching to the production build") |
+| `400 "Origin not allowed"` | `server: ALLOWED_CORS_ORIGINS` does not list the page's origin. `server.py` hands that list straight to `SocketIO(cors_allowed_origins=…)`, and engineio skips the check only while it is **empty** | add the origin **with its port**, or empty the list; and use `Host $http_host` |
+| `400`, no reason given, but `101` once the `Origin:` header is dropped | the same thing, unstated | as above |
+| `400 "WebSocket transport not available"` | this mxcubeweb env cannot serve websockets | install `gevent-websocket` (or `simple-websocket`) into it, restart |
+| 502, or no answer at all | mxcubeweb is not answering on :8081 | hop 0, above |
+
+Two candidates worth ruling out explicitly, because they look plausible and are
+not it here: an **Engine.IO version mismatch** (`Flask-SocketIO ^5.3.6` and
+`socket.io-client ^4.8.1` are both EIO 4) and **sticky sessions** (one process
+listens on :8081, and a URL failing without a `sid` never reached a session).
+
+A third: if nginx sends `/` to the **vite dev server**, vite proxies
+`/socket.io/` onward to whatever `ui/vite.config.js` names — currently a
+different hostname, over `wss://`. Check which frontend answers first.
+
+`diagnose_video.py` runs this whole matrix as hop `6 socket.io`.
 
 ## Troubleshooting a black sample view
 
@@ -497,13 +724,17 @@ and names the first broken hop:
 
 ```sh
 conda activate argussight
-python scripts/argussight/diagnose_video.py            # --config <file> if it is not ../../../config[/mxcube-web]/server.yaml
-python scripts/argussight/diagnose_video.py --insecure # if only the TLS certificate check fails
+# --public-origin whenever nginx does not publish :443 (it publishes 7443 here)
+python scripts/argussight/diagnose_video.py \
+       --public-origin https://mxcubeweb-px1.synchrotron-soleil.fr:7443
+# add --config PATH if server.yaml is not at ../../../config[/mxcube-web]/server.yaml,
+# and --insecure if only the TLS certificate check fails
 ```
 
 The checks, in order: the `server.yaml` video keys; mxcubeweb on `:8081`; which frontend answers;
 the streamer on `:9000`; the proxy on `:7000`; `GetProcesses` and the stream URL it yields; that URL
-through nginx. It then groups the uvicorn tracebacks in `argussight.log` — uvicorn is the web server
+through nginx; and socket.io, through nginx and then straight at `:8081`.
+It then groups the uvicorn tracebacks in `argussight.log` — uvicorn is the web server
 running argussight's proxy, and its `WebsocketState` and `Cannot call "send"` tracebacks fire when a
 viewer disconnects and are harmless.
 

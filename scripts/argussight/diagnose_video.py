@@ -10,6 +10,10 @@ The OAV image reaches the browser through five hops, below mxcubeweb itself:
   4. server.yaml      ARGUSSIGHT_* and VIDEO_FORMAT
   5. nginx            wss://<public name>/argus/<name> -> :7000
 
+A sixth check carries no video: socket.io, the app's own websocket, on :8081
+through the same nginx. It shares the upgrade path with hop 5, and the 400s it
+returns name a configuration fault precisely, so it is checked here too.
+
 argus_cameras.py's SELF-TEST covers hops 1-2 only, so "SELF-TEST OK" with a
 black pane means 0, 3, 4 or 5. Run this on the MXCuBE host, in the argussight
 env (it has grpc, websockets and yaml):
@@ -22,6 +26,12 @@ it suggests are explained in README.md.
 Server-side hops use localhost on purpose: argussight always dials the
 streamers at ws://localhost:<port>. Only ARGUSSIGHT_PROXY_URL, which the
 browser opens, must be the public wss:// name.
+
+The public origin is a question of deployment, not of the video chain, so pass
+--public-origin whenever the page is not on :443 -- nginx in a container
+usually publishes another port. Every URL the browser dials must carry that
+port, which is why ARGUSSIGHT_PROXY_URL is best written root-relative
+("/argus"): the page then resolves it against its own origin.
 """
 
 import argparse
@@ -55,7 +65,16 @@ TIMEOUT = 5.0
 MXCUBE_PORT = 8081  # hardcoded in mxcubeweb/server.py's run()
 HEALTH_PATH = "/mxcube/api/v0.1/login/login_info"
 VITE_PORT = 5173
-PUBLIC_URL = "wss://mxcubeweb-px1.synchrotron-soleil.fr/argus"
+# The origin the BROWSER uses -- not necessarily :443. A containerized nginx
+# usually publishes some other port, and then every URL the page opens must
+# carry it. --public-origin overrides this.
+PUBLIC_ORIGIN = "https://mxcubeweb-px1.synchrotron-soleil.fr"
+# The recommended ARGUSSIGHT_PROXY_URL: root-relative, so the page resolves it
+# against its own origin and its port can never drift from nginx's.
+RELATIVE_PROXY_URL = "/argus"
+# engineio's direct-websocket handshake, exactly as the socket.io client opens
+# it. No `sid`: the client does not poll first (transports: ['websocket', ...]).
+SOCKETIO_PATH = "/socket.io/?EIO=4&transport=websocket"
 # A browser cannot run raw .jsx, so these mean a dev server serves ui/src.
 SOURCE_MARKERS = ("/@vite/client", 'src="/src/', "/node_modules/.vite/")
 BUILT_MARKERS = ('src="/assets/', "/static/js/", "assets/index-")
@@ -196,6 +215,101 @@ def http_get(url, insecure):
         return None, str(exc), "", ""
 
 
+def ws_url(origin, path):
+    """`path` on `origin`, as a websocket URL: https -> wss, http -> ws."""
+    parts = urlparse(origin)
+    scheme = "wss" if parts.scheme == "https" else "ws"
+    return f"{scheme}://{parts.netloc}{path}"
+
+
+def resolve_public(url, origin):
+    """The URL the browser really opens.
+
+    A root-relative ARGUSSIGHT_PROXY_URL ("/argus") is resolved by the page
+    against its own origin, so resolve it the same way here. An absolute
+    ws(s):// URL is taken as it stands.
+    """
+    return ws_url(origin, url) if url.startswith("/") else url
+
+
+def handshake(url, insecure, origin=""):
+    """One websocket handshake by hand; return (status, reason, location, body).
+
+    websockets' client throws the response body away, and for socket.io that
+    body is the whole answer: engineio replies 400 with the reason inside it
+    ("Origin not allowed", "WebSocket transport not available"). So write the
+    request and read the reply, exactly like the curl in README.md. `status` is
+    None when the connection itself failed, and `reason` then carries the error.
+    """
+    parts = urlparse(url)
+    secure = parts.scheme in ("wss", "https")
+    target = parts.path or "/"
+    if parts.query:
+        target += f"?{parts.query}"
+    lines = [
+        f"GET {target} HTTP/1.1",
+        f"Host: {parts.netloc}",
+        "Connection: Upgrade",
+        "Upgrade: websocket",
+        "Sec-WebSocket-Version: 13",
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+    ]
+    if origin:
+        lines.append(f"Origin: {origin}")
+    request = ("\r\n".join(lines) + "\r\n\r\n").encode()
+
+    try:
+        raw = socket.create_connection(
+            (parts.hostname, parts.port or (443 if secure else 80)), timeout=TIMEOUT
+        )
+    except Exception as exc:
+        return None, str(exc), "", ""
+    try:
+        sock = (
+            ssl_context(insecure).wrap_socket(raw, server_hostname=parts.hostname)
+            if secure
+            else raw
+        )
+        sock.sendall(request)
+        reply = b""
+        while len(reply) < 8192:
+            try:
+                chunk = sock.recv(1024)
+            except (TimeoutError, socket.timeout):
+                break
+            if not chunk:  # the server answered and hung up
+                break
+            reply += chunk
+            head, sep, body = reply.partition(b"\r\n\r\n")
+            # Stop at the headers on an upgrade (no body follows, and the
+            # connection stays open), but wait for the body otherwise: that is
+            # where engineio puts its reason.
+            if sep and (b" 101 " in head.split(b"\r\n")[0] or body):
+                break
+    except Exception as exc:
+        return None, str(exc), "", ""
+    finally:
+        raw.close()
+
+    head, _, body = reply.partition(b"\r\n\r\n")
+    head = head.decode("utf-8", "replace").splitlines()
+    fields = (head[0] if head else "").split(None, 2)
+    try:
+        status = int(fields[1])
+    except (IndexError, ValueError):
+        return None, f"no HTTP status in {head[:1]}", "", ""
+    location = next(
+        (
+            line.split(":", 1)[1].strip()
+            for line in head[1:]
+            if line.lower().startswith("location:")
+        ),
+        "",
+    )
+    reason = fields[2] if len(fields) > 2 else ""
+    return status, reason, location, body.decode("utf-8", "replace")[:200]
+
+
 # --- hop 4: server.yaml -----------------------------------------------------
 
 
@@ -232,13 +346,21 @@ def host_kind(host):
     return "loopback" if ip.is_loopback or ip.is_unspecified else "ip"
 
 
-def config_rules(app):
+def config_rules(app, origin):
     """(status, message, fix) for every setting that can blank the sample view."""
     url = app.get("ARGUSSIGHT_PROXY_URL") or ""
-    scheme = urlparse(url).scheme
-    kind = host_kind(urlparse(url).hostname)
+    parts = urlparse(url)
+    # A root-relative value is the recommended form: the page resolves it, so
+    # none of the scheme/host/port rules below can apply to it.
+    relative = url.startswith("/")
+    scheme = parts.scheme
+    kind = host_kind(parts.hostname)
     fmt = str(app.get("VIDEO_FORMAT", "MPEG1")).upper()
-    use_public = f"set ARGUSSIGHT_PROXY_URL: {PUBLIC_URL}"
+    use_relative = (
+        f"set ARGUSSIGHT_PROXY_URL: {RELATIVE_PROXY_URL} -- the page resolves it"
+        " against its own origin, so its port cannot drift from nginx's"
+    )
+    page_port = urlparse(origin).port or 443
     return [
         (
             app.get("ARGUSSIGHT_ENABLED") is not True,
@@ -258,35 +380,47 @@ def config_rules(app):
             "USE_EXTERNAL_STREAMER is true: MXCuBE starts a streamer of its own",
             "set USE_EXTERNAL_STREAMER: false",
         ),
-        (not url, "FAIL", "ARGUSSIGHT_PROXY_URL is empty", use_public),
+        (not url, "FAIL", "ARGUSSIGHT_PROXY_URL is empty", use_relative),
         (
-            bool(url) and kind == "loopback",
+            not relative and kind == "loopback",
             "FAIL",
             f"ARGUSSIGHT_PROXY_URL {url} is localhost, but the browser opens it",
-            use_public,
+            use_relative,
         ),
         (
-            bool(url) and scheme == "ws",
+            not relative and scheme == "ws",
             "FAIL",
             f"ARGUSSIGHT_PROXY_URL {url} is ws://: an https page blocks it",
-            use_public,
+            use_relative,
         ),
         (
-            bool(url) and scheme not in ("ws", "wss"),
+            bool(url) and not relative and scheme not in ("ws", "wss"),
             "FAIL",
-            f"ARGUSSIGHT_PROXY_URL {url} is not a websocket URL",
-            use_public,
+            f"ARGUSSIGHT_PROXY_URL {url} is neither a websocket URL nor a"
+            " root-relative path",
+            use_relative,
         ),
         (
-            kind == "ip",
+            not relative and kind == "ip",
             "WARN",
             f"ARGUSSIGHT_PROXY_URL {url} is a bare IP, not the certificate's name",
-            use_public,
+            use_relative,
+        ),
+        (
+            # The fault that blanks the pane while every server-side hop passes:
+            # the page is on one port and the video is dialled on another, so
+            # nginx never even logs the request.
+            not relative and bool(url) and (parts.port or 443) != page_port,
+            "FAIL",
+            f"ARGUSSIGHT_PROXY_URL is on port {parts.port or 443}, but the page"
+            f" is served on {page_port}: the browser opens the video on the wrong"
+            " port, where this nginx never sees it",
+            use_relative,
         ),
     ]
 
 
-def check_config(path):
+def check_config(path, origin):
     """Return the `mxcube:` section; the whole file stays on check_config.raw."""
     hop = "4 config"
     try:
@@ -321,12 +455,28 @@ def check_config(path):
         note(f"  {key}: {app.get(key, '<unset>')!r}")
     names = [c.get("name") for c in app.get("ARGUSSIGHT_CAMERAS") or []]
     note(f"  ARGUSSIGHT_CAMERAS names: {names or '<unset: all streams>'}")
+    # ALLOWED_CORS_ORIGINS lives in the `server:` section (config.py maps it to
+    # cfg.flask), and server.py hands it straight to SocketIO.
+    cors = (cfg.get("server") or {}).get("ALLOWED_CORS_ORIGINS") or []
+    note(f"  server.ALLOWED_CORS_ORIGINS: {cors or '<unset: origins not checked>'}")
 
     broken = False
-    for failed, status, message, fix in config_rules(app):
+    for failed, status, message, fix in config_rules(app, origin):
         if failed:
             broken = broken or status == "FAIL"
             report(hop, status, message, fix)
+    if cors and origin not in cors:
+        # engineio skips the origin check only while the list is empty; with a
+        # non-empty one, an unlisted origin gets 400 on every socket.io request.
+        broken = True
+        report(
+            hop,
+            "FAIL",
+            f"ALLOWED_CORS_ORIGINS does not list {origin}, so socket.io is"
+            " answered 400 'Origin not allowed'",
+            f"add {origin} to server: ALLOWED_CORS_ORIGINS (or empty the list,"
+            " which turns the check off), then restart MXCuBE",
+        )
     if not broken:
         report(hop, "PASS", "the video settings in server.yaml look right")
     return app
@@ -369,7 +519,7 @@ def spoken_scheme(insecure):
     return None, None
 
 
-def check_mxcube_server(app, insecure):
+def check_mxcube_server(insecure, origin):
     hop = "0 mxcubeweb"
     if not port_open(MXCUBE_PORT):
         report(
@@ -384,6 +534,9 @@ def check_mxcube_server(app, insecure):
     direct = health_verdict("direct", local, *(answer or http_get(local, insecure)))
     report(hop, *direct)
 
+    # hop 6 needs it too, and probing :8081 twice for it would be wasteful.
+    check_mxcube_server.scheme = scheme or "http"
+
     cert = str(
         (getattr(check_config, "raw", {}).get("server") or {}).get("CERT", "NONE")
     )
@@ -396,10 +549,7 @@ def check_mxcube_server(app, insecure):
                 f"server.CERT is {cert} but :{MXCUBE_PORT} answers {scheme}://",
             )
 
-    host = urlparse(app.get("ARGUSSIGHT_PROXY_URL") or "").netloc
-    if not host:
-        return
-    public = f"https://{host}{HEALTH_PATH}"
+    public = f"{origin}{HEALTH_PATH}"
     answer = http_get(public, insecure)
     status, message, fix = health_verdict("via nginx", public, *answer)
     if answer[0] is None and direct[0] == "PASS":
@@ -411,7 +561,7 @@ def check_mxcube_server(app, insecure):
 # --- the page ---------------------------------------------------------------
 
 
-def check_page(webroot, host, insecure):
+def check_page(webroot, origin, insecure):
     """Which frontend answers: mxcubeweb's built UI, or a dev server."""
     hop = "page"
     builds = [
@@ -425,7 +575,7 @@ def check_page(webroot, host, insecure):
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(build)))
         note(f"built UI in {build}, from {when}")
 
-    body = http_get(f"https://{host}/", insecure)[3] if host else ""
+    body = http_get(f"{origin}/", insecure)[3] if origin else ""
     if any(marker in body for marker in SOURCE_MARKERS):
         report(
             hop,
@@ -570,11 +720,12 @@ def proxy_hop_passed():
     )
 
 
-def check_public(url, insecure):
+def check_public(url, insecure, origin):
     hop = "5 nginx"
     if not url:
         report(hop, "SKIP", "no browser URL to test; fix the failures above first")
         return
+    url = resolve_public(url, origin)
     ok, status, detail = ws_probe(url, insecure)
     if ok:
         report(hop, "PASS", f"{url}: {detail}")
@@ -585,18 +736,123 @@ def check_public(url, insecure):
         fix = "an SSO layer guards /argus/: a websocket handshake cannot log in"
     else:
         fix = dict(PUBLIC_FIXES).get(
-            status, "unreachable: check DNS, firewall and nginx"
+            status,
+            "unreachable: check DNS, the firewall, and the port nginx publishes"
+            " (--public-origin)",
         )
         if fix == UPSTREAM_DOWN and proxy_hop_passed():
             fix = UPSTREAM_ELSEWHERE
     report(hop, "FAIL", f"{url}: HTTP {status or '-'}: {detail}", fix)
 
 
+# --- hop 6 ------------------------------------------------------------------
+
+
+# engineio answers 400 to several quite different faults, and only the body it
+# returns tells them apart. Matched against that body, lowercased, in order.
+SOCKETIO_BODY_FIXES = [
+    (
+        "not allowed",
+        "engineio rejected the page's Origin: add it to ALLOWED_CORS_ORIGINS"
+        " under server: in server.yaml (or empty the list to turn the check off)"
+        " and restart MXCuBE. Also give nginx Host $http_host, not $host, which"
+        " drops the port",
+    ),
+    (
+        "transport",
+        "this mxcubeweb env cannot serve websockets: install gevent-websocket"
+        " (or simple-websocket) into it and restart. Until then socket.io falls"
+        " back to polling and the console repeats the failure",
+    ),
+    (
+        "version",
+        "Engine.IO protocol mismatch: rebuild the UI (cd ui && pnpm build)"
+        " against the installed Flask-SocketIO",
+    ),
+]
+
+NGINX_NO_UPGRADE = (
+    "nginx is not forwarding the upgrade: location /socket.io/ needs"
+    " proxy_http_version 1.1, Upgrade $http_upgrade and Connection"
+    " $connection_upgrade (see README.md), and Host $http_host to keep the port"
+)
+
+
+def check_socketio(origin, insecure):
+    """The app's own websocket: no video, but its 400s are precise answers.
+
+    A 400 here does not blank the canvas -- the camera list and the stream URL
+    reach the page over REST, and the client falls back to polling -- but it
+    costs every live update, and it is the one fault whose cause the server
+    states out loud.
+    """
+    hop = "6 socket.io"
+    public = ws_url(origin, SOCKETIO_PATH)
+    status, reason, location, _ = handshake(public, insecure, origin=origin)
+    if status == 101:
+        report(hop, "PASS", f"{public}: 101 Switching Protocols")
+        return
+    if status is None:
+        report(
+            hop,
+            "FAIL",
+            f"{public}: unreachable: {reason}",
+            "check --public-origin, DNS, and the port nginx publishes",
+        )
+        return
+    if status in REDIRECTS:
+        report(
+            hop,
+            "FAIL",
+            f"{public}: HTTP {status} to {location[:50]}",
+            "an SSO layer guards /socket.io/: a handshake cannot log in",
+        )
+        return
+
+    # The same handshake straight at :8081 decides who answered the 400.
+    scheme = getattr(check_mxcube_server, "scheme", "http")
+    direct = ws_url(f"{scheme}://127.0.0.1:{MXCUBE_PORT}", SOCKETIO_PATH)
+    d_status, d_reason, _, d_body = handshake(direct, insecure=True, origin=origin)
+    if d_status == 101:
+        report(
+            hop,
+            "FAIL",
+            f"{public}: HTTP {status}, but {direct}: 101",
+            NGINX_NO_UPGRADE,
+        )
+        return
+    if d_status is None:
+        report(
+            hop,
+            "FAIL",
+            f"{direct}: unreachable: {d_reason}",
+            f"MXCuBE is not answering on :{MXCUBE_PORT} (see hop 0)",
+        )
+        return
+
+    body = (d_body or "").strip()
+    fix = next((f for pat, f in SOCKETIO_BODY_FIXES if pat in body.lower()), "")
+    if not fix and d_status == 400:
+        # engineio did not say why. Retrying without the Origin header does: if
+        # that one is accepted, the origin was the whole problem.
+        fix = (
+            SOCKETIO_BODY_FIXES[0][1]
+            if handshake(direct, insecure=True)[0] == 101
+            else SOCKETIO_BODY_FIXES[1][1]
+        )
+    report(
+        hop,
+        "FAIL",
+        f"{direct}: HTTP {d_status} {body[:80]!r} (nginx passed it on as {status})",
+        fix or "mxcubeweb refused the handshake: see the body above",
+    )
+
+
 # --- logs -------------------------------------------------------------------
 
 
 def summarize_mxcube_log(path):
-    print(f"\n--- {path}: last discovery lines")
+    print(f"\n--- {path}: last discovery and socket.io lines")
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
             hits = [
@@ -605,11 +861,14 @@ def summarize_mxcube_log(path):
                 if "Argussight discovery" in line
                 or "Argussight camera discovery disabled" in line
                 or "Argussight GetProcesses" in line
+                # engineio says both of these out loud, once per refusal.
+                or "is not allowed" in line
+                or "WebSocket transport not available" in line
             ]
     except OSError as exc:
         print(f"    cannot read: {exc}")
         return
-    for line in hits[-3:] or ["    (none: discovery never ran)"]:
+    for line in hits[-5:] or ["    (none: discovery never ran)"]:
         print(f"    {line}")
 
 
@@ -664,6 +923,11 @@ def main():
     parser.add_argument(
         "--insecure", action="store_true", help="do not verify TLS certificates"
     )
+    parser.add_argument(
+        "--public-origin",
+        default=PUBLIC_ORIGIN,
+        help="the origin the browser uses, WITH its port (default: %(default)s)",
+    )
     parser.add_argument("--mxcube-log", default=MXCUBE_LOG)
     parser.add_argument(
         "--argussight-log", default=os.path.join(LOG_DIR, "argussight.log")
@@ -672,15 +936,13 @@ def main():
 
     ac._strip_proxy(os.environ)  # localhost and our own nginx only
 
-    app = check_config(resolve_config(args.config))
-    check_mxcube_server(app, args.insecure)
-    check_page(
-        args.webroot,
-        urlparse(app.get("ARGUSSIGHT_PROXY_URL") or "").netloc,
-        args.insecure,
-    )
+    origin = args.public_origin.rstrip("/")
+    app = check_config(resolve_config(args.config), origin)
+    check_mxcube_server(args.insecure, origin)
+    check_page(args.webroot, origin, args.insecure)
     check_local_streams()
-    check_public(check_discovery(app), args.insecure)
+    check_public(check_discovery(app), args.insecure, origin)
+    check_socketio(origin, args.insecure)
     summarize_mxcube_log(args.mxcube_log)
     summarize_argussight_log(args.argussight_log)
 
