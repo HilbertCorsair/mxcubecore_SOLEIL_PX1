@@ -499,6 +499,13 @@ map $http_upgrade $connection_upgrade {
 }
 ```
 
+At the top level (outside `http { }`), give nginx descriptors to spare —
+`worker_rlimit_nofile 65536;` — and raise the container's own limit to match
+(`ulimits: nofile: {soft: 65536, hard: 65536}`). Video streams are long-lived
+and each holds its descriptors for as long as `proxy_read_timeout` allows, and
+running out of them produces the `Too many references: cannot splice` alerts
+described at the end of this file.
+
 In the `server { }` block that already serves
 `mxcubeweb-px1.synchrotron-soleil.fr` on 443:
 
@@ -738,6 +745,11 @@ python scripts/argussight/diagnose_video.py \
 # and --insecure if only the TLS certificate check fails
 ```
 
+Two more flags matter when nginx is not the only thing in the way, which on
+proxima1 it is not: `--via-nginx` (nginx's own address, to tell nginx from the
+load balancer in front of it) and `--nginx-log` (nginx's error log, where the
+faults that never reach a client are recorded). Both are explained below.
+
 The checks, in order: the `server.yaml` video keys; mxcubeweb on `:8081`; which frontend answers;
 the streamer on `:9000`; the proxy on `:7000`; `GetProcesses` and the stream URL it yields; that URL
 through nginx; and socket.io, through nginx and then straight at `:8081`.
@@ -800,6 +812,7 @@ Then, in nginx, in this order:
 | `nginx -T \| grep -B2 -A12 'location /argus/'` | the upgrade lines absent, or a different file in force than the one you edited |
 | the same, for every `proxy_set_header` in that block | **the inheritance trap: a `location` that sets any `proxy_set_header` of its own discards every one inherited from `server{}` / `http{}`.** Add the upgrade pair *inside* each location that needs it — `/argus/` and `/socket.io/` both do |
 | `docker compose config \| grep -A5 volumes` | a containerized nginx reading a config from a different path than you think |
+| the same handshake at nginx's **own** published port (`--via-nginx`) | whether nginx is even the hop that dropped the upgrade — see "Two proxies, one symptom" below |
 
 Two results that look like a contradiction, and are not:
 
@@ -807,6 +820,118 @@ Two results that look like a contradiction, and are not:
 |---|---|---|
 | `/argus/<name>` gives 502 through nginx, while `curl` on the beamline host gets `101` from `127.0.0.1:7000/ws/<name>` | Both are true, of two different machines: nginx is on another host or in a container, so its `127.0.0.1` is not this one. `connect() failed (111: Connection refused)` in its log is an instant RST — nothing is listening, as opposed to a timeout (110) or SELinux (13) | give `proxy_pass` argussight's LAN address (see nginx above) |
 | `nginx -T` fails with `unknown "connection_upgrade" variable` | the `map` is missing from `http{}`. It is also proof that **every reload since has been rejected, so none of your edits to the config has taken effect** | add the `map` at `http{}` level, then retest every hypothesis you ruled out while it was failing |
+
+### Two proxies, one symptom: nginx, or the load balancer?
+
+On proxima1 nginx runs in a Docker container **behind a KEMP LoadMaster**, so a
+request crosses two L7 hops before reaching argussight and either one can drop
+`Upgrade`/`Connection`. The evidence is byte-identical in both cases — a 404
+from argussight — so no amount of reading `nginx.conf` settles it. Three
+measurements do, because only one hop differs between each pair:
+
+| argussight direct (`:7000`) | nginx direct (its published port) | through the public name | Culprit |
+|---|---|---|---|
+| 101 | 101 | **404** | **the load balancer** — nginx is correct, KEMP stripped the headers |
+| 101 | **404** | 404 | **nginx** — its `location /argus/` lacks the upgrade lines |
+| **not 101** | — | — | **argussight** after all — back to hop 2 |
+
+`diagnose_video.py` takes all three in one run:
+
+```sh
+python scripts/argussight/diagnose_video.py \
+       --public-origin https://mxcubeweb-px1.synchrotron-soleil.fr:7443 \
+       --via-nginx https://127.0.0.1:7443 --insecure
+```
+
+`--via-nginx` is nginx's own address **as seen from the MXCuBE host**: for a
+container, the port it publishes on `127.0.0.1`, which bypasses KEMP without
+bypassing nginx. Hops 5 and 6 then probe both and name the hop that dropped the
+upgrade, instead of blaming nginx by default. `--insecure` goes with it, because
+the certificate does not match `127.0.0.1`.
+
+Docker itself is never the culprit. A published port is L3/L4 NAT (DNAT plus
+`docker-proxy`): it forwards bytes and cannot read an HTTP header, let alone
+remove one. A container-networking fault gives a 502 or a refused connection,
+never a 404 from argussight.
+
+**What to change on KEMP.** A LoadMaster passes a websocket through a plain
+HTTP/HTTPS virtual service untouched — which is why "KEMP handles the upgrade"
+is usually true. It stops being true the moment a feature makes it parse and
+rebuild the request:
+
+| Feature on the virtual service | Why it breaks the upgrade |
+|---|---|
+| caching, compression | the response is buffered, and a 101 never ends, so it never arrives |
+| ESP / SSO | the handshake is answered with a redirect to a login form, which no websocket client can follow (this one shows up as a 3xx, not a 404) |
+| WAF rules | hop-by-hop headers are stripped as a matter of policy |
+| content rules that rewrite headers | `Connection` is hop-by-hop; a rule that touches it drops the `upgrade` token |
+| **idle timeout** (660 s by default) | the handshake succeeds and the stream dies later: between frames the connection looks idle |
+
+The usual fix is a SubVS for `/argus/` and `/socket.io/` with those features
+off, or a Layer-4/TCP virtual service for them, plus an idle timeout above the
+frame interval. While you are there, ask for `Host` to be passed through with
+its port — nginx needs `Host $http_host` for exactly the same reason.
+
+### nginx logs `Too many references: cannot splice`
+
+Errno **109, `ETOOMANYREFS`**, always an `[alert]` and usually from pid 1:
+
+```
+2026/09/27 09:14:02 [alert] 1#1: sendmsg() failed (109: Too many references: cannot splice)
+```
+
+This is not about your traffic. nginx's master process hands each listening
+socket to its workers over a unix socketpair with `sendmsg(SCM_RIGHTS)`
+(`ngx_write_channel`, `src/os/unix/ngx_channel.c`), and the kernel refuses that
+call with `ETOOMANYREFS` once the number of descriptors **in flight** over unix
+sockets for this user exceeds `RLIMIT_NOFILE` (`too_many_unix_fds`,
+`net/unix/af_unix.c`). Meaning: nginx has no file-descriptor headroom left, and
+its master can no longer reliably talk to its workers.
+
+Two consequences matter for a black sample view:
+
+1. **Worker generations pile up.** A reload (`SIGHUP`) starts new workers and
+   lets the old ones finish their connections first — and a websocket
+   connection never finishes on its own. Every reload with a stream open leaves
+   another generation behind. `nginx -T` prints the file on disk, not what a
+   given worker parsed, so **a perfectly correct config edit can look like it
+   changed nothing.**
+2. **New connections fail.** With no descriptors left nginx cannot open its
+   upstream connection to `:7000` either, which reads as a 502, or as a stream
+   that dies seconds after it starts.
+
+Fix, in order:
+
+```sh
+# 1. how much headroom does the container actually have, and how much is used?
+docker exec <nginx> sh -c 'grep -i "open files" /proc/1/limits; ls /proc/1/fd | wc -l'
+
+# 2. raise it. docker-compose.yml:
+#      ulimits:
+#        nofile: {soft: 65536, hard: 65536}
+#    and in nginx.conf, at the top level:
+#      worker_rlimit_nofile 65536;
+
+# 3. RESTART the container -- do not reload
+docker compose up -d --force-recreate <nginx>
+docker top <nginx> -o pid,lstart,args      # exactly one generation of workers
+```
+
+The restart matters twice over: it clears the accumulated workers, and it is the
+only way to be certain which config is live. Reload for a routine change;
+restart whenever a change "did nothing".
+
+`diagnose_video.py --nginx-log` reads this log and glosses these lines, along
+with `Too many open files` (the same exhaustion as EMFILE), `socketpair()
+failed`, `unknown "connection_upgrade" variable`, `worker_connections are not
+enough`, `no live upstreams`, `connection refused`, `upstream prematurely closed
+connection` and `upstream timed out`. nginx in a container logs to the
+container's stderr, so dump it first:
+
+```sh
+docker logs --tail 5000 <nginx container> > /tmp/nginx.log 2>&1
+python scripts/argussight/diagnose_video.py ... --nginx-log /tmp/nginx.log
+```
 
 After registering the streams, `argus_cameras.py` probes each camera, first
 directly on its streamer and then through the argussight proxy, and logs one
