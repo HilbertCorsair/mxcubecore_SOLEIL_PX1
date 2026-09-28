@@ -32,6 +32,16 @@ The public origin is a question of deployment, not of the video chain, so pass
 usually publishes another port. Every URL the browser dials must carry that
 port, which is why ARGUSSIGHT_PROXY_URL is best written root-relative
 ("/argus"): the page then resolves it against its own origin.
+
+When something else sits in front of nginx -- on proxima1 nginx runs in a
+container behind a KEMP load balancer -- either L7 hop can drop the websocket
+upgrade, and the symptom is the same whichever one did. Give --via-nginx the
+address nginx itself publishes (e.g. https://127.0.0.1:7443, from the host that
+runs the container) and hops 5 and 6 send their handshake twice: 101 at nginx
+but a failure through the public name convicts the load balancer, the same
+failure at both convicts nginx's own location block. --nginx-log then reads
+nginx's error log, which is where the faults that never reach a client at all
+are recorded.
 """
 
 import argparse
@@ -41,6 +51,7 @@ import re
 import socket
 import ssl
 import sys
+import textwrap
 import time
 import urllib.error
 import urllib.request
@@ -60,6 +71,9 @@ CONFIG_CANDIDATES = (
 DEFAULT_WEBROOT = os.path.normpath(os.path.join(HERE, "..", "..", "..", "mxcubeweb"))
 LOG_DIR = os.path.join(os.path.expanduser("~"), "MXCuBElogs")
 MXCUBE_LOG = os.path.join(LOG_DIR, "mxcube.log")
+# Where nginx logs when it runs on the host. In a container it logs to stderr,
+# and --nginx-log then wants a `docker logs` dump.
+NGINX_ERROR_LOG = "/var/log/nginx/error.log"
 TIMEOUT = 5.0
 
 MXCUBE_PORT = 8081  # hardcoded in mxcubeweb/server.py's run()
@@ -230,6 +244,15 @@ def resolve_public(url, origin):
     ws(s):// URL is taken as it stands.
     """
     return ws_url(origin, url) if url.startswith("/") else url
+
+
+def readdress(url, origin):
+    """The same request, sent to a different origin: path and query kept."""
+    parts = urlparse(url)
+    target = parts.path or "/"
+    if parts.query:
+        target += f"?{parts.query}"
+    return ws_url(origin, target)
 
 
 def handshake(url, insecure, origin=""):
@@ -753,6 +776,61 @@ RESPONDERS = [
 # nginx also returns for quite different reasons. Worth asking who answered.
 AMBIGUOUS = (400, 404, 426)
 
+# Every verdict above says "nginx", but nginx is rarely the only proxy in the
+# way. On proxima1 it runs in a container behind a KEMP load balancer, so there
+# are two L7 hops that can drop Upgrade/Connection, with byte-identical
+# symptoms. Only the same handshake sent to nginx's own address tells them
+# apart -- hence --via-nginx, and this hint when it is missing.
+VIA_NGINX_HINT = (
+    "If a load balancer (KEMP, HAProxy, an F5) fronts nginx, rerun with"
+    " --via-nginx https://<the address nginx itself publishes> to tell the two"
+    " apart before touching nginx.conf"
+)
+
+# nginx upgraded the handshake and the public name did not: whatever is in
+# between dropped the headers. KEMP passes an upgrade only on a plain HTTP/HTTPS
+# virtual service; the L7 features below buffer or rewrite the request instead.
+FRONTEND_STRIPPED_UPGRADE = (
+    "nginx itself upgrades this request correctly ({direct} -> 101), so the"
+    " upgrade is being dropped IN FRONT of nginx -- not by nginx, and not by"
+    " Docker, whose published ports are L3/L4 NAT and cannot touch headers. On"
+    " the KEMP LoadMaster, check the virtual service for caching, compression,"
+    " ESP/SSO, WAF rules and any content rule that rewrites headers: each of"
+    " them terminates the request and forwards it without Upgrade/Connection."
+    " Give /argus/ and /socket.io/ a SubVS with those off, or a Layer-4/TCP"
+    " virtual service, and set the idle timeout above the frame interval"
+)
+
+
+def upgrade_culprit(url, via_nginx, insecure, origin, default):
+    """Which proxy dropped the upgrade: nginx, or something in front of it?
+
+    `url` is the public URL that just failed. Sending the very same handshake
+    to nginx's own published address settles it, because only one hop differs:
+    101 there convicts the hop in between, the same failure there convicts
+    nginx. Without --via-nginx there is nothing to compare, so `default`
+    stands -- with a hint, since blaming nginx for a load balancer's doing is
+    the easiest mistake to make here.
+    """
+    if not via_nginx:
+        return f"{default}. {VIA_NGINX_HINT}"
+    direct = readdress(url, via_nginx)
+    status, reason, _, _, _ = handshake(direct, insecure, origin=origin)
+    if status == 101:
+        return FRONTEND_STRIPPED_UPGRADE.format(direct=direct)
+    if status is None:
+        return (
+            f"{default}. (Cannot compare: nginx itself is unreachable at"
+            f" {direct}: {reason}. --via-nginx must name the address nginx"
+            " publishes, as seen from this host -- for a container, the"
+            " published port on 127.0.0.1)"
+        )
+    return (
+        f"{default} -- confirmed at nginx itself, which answers the same"
+        f" handshake with HTTP {status} at {direct}, so nothing in front of it"
+        " is to blame"
+    )
+
 
 def responder(url, insecure, origin):
     """(who, body, status): who answered, what they said, and the status.
@@ -792,7 +870,7 @@ def proxy_hop_passed():
     )
 
 
-def check_public(url, insecure, origin):
+def check_public(url, insecure, origin, via_nginx=""):
     hop = "5 nginx"
     if not url:
         report(hop, "SKIP", "no browser URL to test; fix the failures above first")
@@ -813,12 +891,15 @@ def check_public(url, insecure, origin):
             status = hs_status
             detail = f"{detail} (raw handshake read HTTP {status})"
         if status in AMBIGUOUS and who == "argussight":
-            # The request reached argussight, which only speaks websocket.
+            # The request reached argussight, which only speaks websocket. Some
+            # proxy in the chain forwarded it as plain HTTP; ask which.
             report(
                 hop,
                 "FAIL",
                 f"{url}: HTTP {status} from argussight itself: {body[:60]!r}",
-                NGINX_STRIPPED_UPGRADE,
+                upgrade_culprit(
+                    url, via_nginx, insecure, origin, NGINX_STRIPPED_UPGRADE
+                ),
             )
             return
         fix = dict(PUBLIC_FIXES).get(
@@ -830,6 +911,12 @@ def check_public(url, insecure, origin):
             fix = UPSTREAM_ELSEWHERE
         if who == "nginx":
             detail = f"{detail} (answered by nginx, not argussight)"
+        elif via_nginx:
+            # Whatever the status, if nginx alone upgrades it, the hop in front
+            # of nginx owns the failure -- that verdict beats any guess by code.
+            front = upgrade_culprit(url, via_nginx, insecure, origin, "")
+            if front.startswith("nginx itself upgrades"):
+                fix = front
     report(hop, "FAIL", f"{url}: HTTP {status or '-'}: {detail}", fix)
 
 
@@ -870,7 +957,7 @@ SOCKETIO_BODY_FIXES = [
 ]
 
 
-def check_socketio(origin, insecure):
+def check_socketio(origin, insecure, via_nginx=""):
     """The app's own websocket: no video, but its 400s are precise answers.
 
     A 400 here does not blank the canvas -- the camera list and the stream URL
@@ -907,6 +994,10 @@ def check_socketio(origin, insecure):
         (f for pat, f in SOCKETIO_BODY_FIXES if pat in (body or "").lower()), ""
     )
     if public_fix:
+        if public_fix is NGINX_NO_UPGRADE:
+            public_fix = upgrade_culprit(
+                public, via_nginx, insecure, origin, public_fix
+            )
         report(
             hop,
             "FAIL",
@@ -920,11 +1011,13 @@ def check_socketio(origin, insecure):
     direct = ws_url(f"{scheme}://127.0.0.1:{MXCUBE_PORT}", SOCKETIO_PATH)
     d_status, d_reason, _, d_body, _ = handshake(direct, insecure=True, origin=origin)
     if d_status == 101:
+        # mxcubeweb upgrades it, the public name does not: a proxy in between
+        # dropped the headers. With --via-nginx we can say which one.
         report(
             hop,
             "FAIL",
             f"{public}: HTTP {status}, but {direct}: 101",
-            NGINX_NO_UPGRADE,
+            upgrade_culprit(public, via_nginx, insecure, origin, NGINX_NO_UPGRADE),
         )
         return
     if d_status is None:
@@ -1031,6 +1124,135 @@ def summarize_argussight_log(path):
         print(f"    {line}")
 
 
+# nginx's error log records the faults that never produce a reply at all, so
+# none of the hops above can see them. Matched case-insensitively, in order;
+# the first match wins for a given line.
+NGINX_LOG_FINDINGS = [
+    (
+        "too many references: cannot splice",
+        "ETOOMANYREFS (errno 109), and not about your traffic: nginx's master"
+        " hands listening sockets to its workers over a unix socketpair with"
+        " sendmsg(SCM_RIGHTS), and the kernel refuses that once the number of"
+        " descriptors in flight over unix sockets for this user passes"
+        " RLIMIT_NOFILE. So nginx is out of file-descriptor headroom and the"
+        " master can no longer reliably talk to its workers. Two consequences"
+        " that matter here: (a) worker generations pile up, because a reload"
+        " keeps every old worker alive until its connections end and a"
+        " websocket connection never ends by itself, so `nginx -T` shows the"
+        " file on disk while some workers still serve the config they were"
+        " born with -- which is exactly how a correct config edit can look"
+        " like it changed nothing; (b) with no descriptors left, new upstream"
+        " connections fail, which reads as a 502 or a dropped stream. Fix:"
+        " raise the container's limit (docker-compose `ulimits: nofile:"
+        " {soft: 65536, hard: 65536}`, or --ulimit nofile=65536:65536) plus"
+        " `worker_rlimit_nofile 65536;`, then RESTART the container instead of"
+        " reloading (docker compose up -d --force-recreate <nginx>) so exactly"
+        " one generation of workers is left and you know which config is"
+        " live. Headroom is the fix, not a shorter proxy_read_timeout: the"
+        " 3600s in location /argus/ is deliberate (a live stream must not be"
+        " dropped mid-frame), it just means every abandoned stream holds its"
+        " descriptors for up to an hour. Also stop any reload loop",
+    ),
+    (
+        "too many open files",
+        "EMFILE: the same descriptor exhaustion as ETOOMANYREFS, seen from the"
+        " other side. Raise the container's nofile ulimit and"
+        " worker_rlimit_nofile, then restart the container",
+    ),
+    (
+        "socketpair() failed",
+        "the master could not create a worker channel -- descriptor"
+        " exhaustion again. Raise nofile and restart the container",
+    ),
+    (
+        'unknown "connection_upgrade" variable',
+        "the upgrade lines are in place but `map $http_upgrade"
+        " $connection_upgrade` is missing from http{}. nginx refuses to load"
+        " this config, so NOTHING you edited since is running: the process"
+        " still serves the last config that parsed",
+    ),
+    (
+        "worker_connections are not enough",
+        "every connection slot is taken; video streams hold theirs open for"
+        " hours. Raise worker_connections (and nofile with it)",
+    ),
+    (
+        "no live upstreams",
+        "nginx marked argussight dead after repeated failures and stopped"
+        " trying. See hop 2, then check that proxy_pass names an address"
+        " reachable FROM THE CONTAINER (127.0.0.1 there is the container)",
+    ),
+    (
+        "connection refused",
+        "nothing is listening where proxy_pass points. Inside a container"
+        " 127.0.0.1 is the container itself, so :7000 must be given as the"
+        " host's LAN address (or host.docker.internal)",
+    ),
+    (
+        "upstream prematurely closed connection",
+        "the upstream hung up mid-response: for /argus/ that is argussight"
+        " closing the stream (grep 'Removing stream' in argussight.log), and"
+        " for a websocket it is often proxy_read_timeout firing between frames",
+    ),
+    (
+        "upstream timed out",
+        "proxy_read_timeout elapsed with no data. A websocket is idle by"
+        " nature between frames: set proxy_read_timeout well above the frame"
+        " interval in location /argus/ (and on the load balancer)",
+    ),
+]
+
+
+def summarize_nginx_log(path):
+    """nginx's error log, filtered to the faults that matter to the video.
+
+    Optional and last, because nginx usually runs in a container here and its
+    log is then `docker logs`, not a file. It is worth reading anyway: the
+    descriptor-exhaustion alerts in particular never reach a client, so they
+    are invisible to every hop above while quietly making a reload not mean
+    what it says.
+    """
+    print(f"\n--- {path}: nginx error log")
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            lines = [line.rstrip() for line in f]
+    except OSError as exc:
+        print(f"    cannot read: {exc}")
+        print(
+            "    nginx in a container logs to the container's stderr:"
+            " docker logs --tail 5000 <nginx container> > /tmp/nginx.log 2>&1"
+            " and pass --nginx-log /tmp/nginx.log"
+        )
+        return
+
+    hits = Counter()
+    last = {}
+    for line in lines:
+        low = line.lower()
+        for pattern, verdict in NGINX_LOG_FINDINGS:
+            if pattern in low:
+                hits[pattern] += 1
+                last[pattern] = line
+                break
+    if not hits:
+        print(f"    {len(lines)} lines, none of the known faults")
+        return
+    verdicts = dict(NGINX_LOG_FINDINGS)
+    for pattern, count in hits.most_common():
+        print(f"    {count:5}x {pattern}")
+        # These verdicts are paragraphs, not one-liners: wrap them, or the
+        # terminal does it for us and the indentation stops meaning anything.
+        print(
+            textwrap.fill(
+                verdicts[pattern],
+                width=88,
+                initial_indent=" " * 10,
+                subsequent_indent=" " * 10,
+            )
+        )
+        print(f"          last: {last[pattern][:160]}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--config", default="", help="server.yaml path")
@@ -1047,6 +1269,19 @@ def main():
     parser.add_argument(
         "--argussight-log", default=os.path.join(LOG_DIR, "argussight.log")
     )
+    parser.add_argument(
+        "--via-nginx",
+        default="",
+        help="the address nginx itself publishes, e.g. https://127.0.0.1:7443."
+        " Hops 5 and 6 then probe it too, which tells an upgrade dropped by"
+        " nginx from one dropped by a load balancer in front of it",
+    )
+    parser.add_argument(
+        "--nginx-log",
+        default=NGINX_ERROR_LOG,
+        help="nginx's error log (default: %(default)s). For nginx in a"
+        " container: docker logs <container> > /tmp/nginx.log 2>&1",
+    )
     args = parser.parse_args()
 
     ac._strip_proxy(os.environ)  # localhost and our own nginx only
@@ -1056,10 +1291,12 @@ def main():
     check_mxcube_server(args.insecure, origin)
     check_page(args.webroot, origin, args.insecure)
     check_local_streams()
-    check_public(check_discovery(app), args.insecure, origin)
-    check_socketio(origin, args.insecure)
+    via_nginx = args.via_nginx.rstrip("/")
+    check_public(check_discovery(app), args.insecure, origin, via_nginx)
+    check_socketio(origin, args.insecure, via_nginx)
     summarize_mxcube_log(args.mxcube_log)
     summarize_argussight_log(args.argussight_log)
+    summarize_nginx_log(args.nginx_log)
 
     print()
     failed = [r for r in results if r[1] == "FAIL"]
