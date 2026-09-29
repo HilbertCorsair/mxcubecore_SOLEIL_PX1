@@ -372,10 +372,11 @@ class PX1MiniDiff(GenericDiffractometer):
             No return value, coordinates stored in X, Y, PHI
 
         """
-        # n images need n-1 rotations and no way back: a 3-point centring is
-        # centred at every angle, so the centring ends at the last image's
-        # angle. Each rotation starts as soon as its image is taken and murko
-        # works on that image while omega turns.
+        # One rotation per image: n clicks, n rotations, so the centring ends
+        # at start + n * phi_incr - the start orientation for 3 x 120. The
+        # grid is drawn at the angle the centring ends at, so it must end
+        # where it started. Each rotation starts as soon as its image is
+        # taken and murko works on that image while omega turns.
         original_width, original_height = int(os.getenv("MURKO_SIZEX")), int(os.getenv("MURKO_SIZEY"))
         for i in range(n_points):
             phi.wait_ready()
@@ -383,8 +384,7 @@ class PX1MiniDiff(GenericDiffractometer):
                 self.wait_fresh_frame()
             angle = phi.get_position()
             img, imgName = self.takePictureAnalysis()
-            if i < n_points - 1:
-                phi.sync_move(angle + phi_incr, wait=False)
+            phi.sync_move(angle + phi_incr, wait=False)
 
             _, _, y_click, x_click = self.estimate_click_murko(img, imgName=imgName)
             x_coord = x_click * original_width
@@ -653,9 +653,18 @@ class PX1MiniDiff(GenericDiffractometer):
             )
 
 
-            # MOVE MOTORS. The automatic centring stays at its last angle (see
-            # px1_center_murko); the manual one has turned back to the start.
-            final_angle = phi.get_position() if automatic else PHI_ANGLE_START
+            # MOVE MOTORS. The automatic centring ends one rotation after its
+            # last image (see px1_center_murko), which may still be turning:
+            # use the target, not the readback. The manual one has turned
+            # back to the start.
+            if automatic:
+                final_angle = phi_positions[-1] + phi_incr
+                # Murko is done: let the last rotation arrive before the
+                # centring reports its position, so whatever follows (the
+                # next zoom, the grid snapshot) sees the final orientation.
+                phi.wait_ready()
+            else:
+                final_angle = PHI_ANGLE_START
             centred_pos = self.px1_center_move_motors(echantillon, (sampx, sampy, phiy), pixelsPerMm_Hor, final_angle, phi)
 
             return centred_pos

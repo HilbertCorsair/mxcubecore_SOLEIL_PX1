@@ -395,6 +395,11 @@ class PX1XrayCentring(AbstractXrayCentring):
             log.exception("[UC] could not clear shapes before building the grid")
 
         # ---- build the grid shape from murko analysis (zoom2 centred) ----
+        # The grid is drawn on this image: it must show the sample after the
+        # centring's last rotation and XYZ move, not a frame from before.
+        self.smargon_hwo.wait_ready()
+        self.minidiff.wait_fresh_frame()
+        log.info("[UC] grid drawn at omega %.2f", self.omega_mot.get_position())
         x1, y1, x2, y2 = self.generateGridFromAnalysis(
             self.minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False
         )
@@ -409,9 +414,11 @@ class PX1XrayCentring(AbstractXrayCentring):
         mpos_left_top = self.minidiff.get_centred_point_from_coord(x1, y1)
         mpos_right_bottom = self.minidiff.get_centred_point_from_coord(x2n, y2n)
         mpos_list = [mpos_left_top, mpos_right_bottom]
-        center_x = x1 + 1 / 2 * (x2n - x1)
-        center_y = y1 + 1 / 2 * (y2n - y1)
-        screen_coords = [center_x, center_y]
+        # screen_coord is the grid's top-left corner: that is what
+        # get_xcentring_deltas_start_end_mm, Grid.as_dict and the web
+        # client's DrawGridPlugin read. The centre put the mesh half a grid
+        # right of and below the loop.
+        screen_coords = [x1, y1]
 
         grid1 = Grid(mpos_list, screen_coords)
         grid1.width = x2n - x1
@@ -978,7 +985,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.run_helical(omega, index + 1)
         best_y, spots = self.do_helical_analysis(index)
 
-        if not best_y:
+        # 0.0 is a valid result (peak on the axis); only None means no spots.
+        if best_y is None:
             self.emit('xcentringInfo', 'running', 'No spots in helical analysis')
             self.found_spots = False
             return False
