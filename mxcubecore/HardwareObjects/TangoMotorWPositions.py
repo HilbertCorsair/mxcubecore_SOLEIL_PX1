@@ -5,6 +5,7 @@ import PyTango
 import logging
 import gevent
 import re
+import numbers
 
 class TangoMotorWPositions(AbstractNState):
     """Used solely for zoom to specify fixed zoom positions"""
@@ -18,7 +19,8 @@ class TangoMotorWPositions(AbstractNState):
         #self._last_position = None
         self._zoom_command = None
         self._cmds_menu = {}
-        self.zoom = None
+        # Last position name read back from the hardware (kept while moving).
+        self._last_name = None
 
     @property
     def zoom_command(self):
@@ -100,6 +102,10 @@ class TangoMotorWPositions(AbstractNState):
             "current_zoom",
         )
 
+        # The hardware tells the UI where the zoom is, whoever moved it.
+        self._zoom_position.connect_signal("update", self._position_update)
+        self._chnState.connect_signal("update", self._state_update)
+
     def initialise_values(self):
         values_dict = dict (**{item.name: item.value for item in self.VALUES })
         values_dict.update(
@@ -152,23 +158,70 @@ class TangoMotorWPositions(AbstractNState):
         val = self.get_channel_object("zoom_position").get_value()
         """Read the actuator position."""
         return val  #self._nominal_value'''
-    def get_value(self):
-        if not self.zoom:
-            return self._zoom_position.get_value()
-        else:
-            return self.zoom
+    def name_from_readback(self, raw):
+        """The position name for a current_zoom reading, None between positions.
 
+        Accepts a name ('zoom2', 'Zoom 2'), an integer position index (1-based)
+        or a float encoder offset (matched within `delta`).
+        """
+        if raw is None or isinstance(raw, bool):
+            return None
+
+        names = list(self.positions)
+
+        def norm(v):
+            return str(v).lower().replace(" ", "").replace("_", "")
+
+        if isinstance(raw, str):
+            match = [n for n in names if norm(n) == norm(raw)]
+            if match:
+                return match[0]
+            try:
+                raw = float(raw)
+            except ValueError:
+                return None
+
+        if isinstance(raw, numbers.Integral):
+            return names[raw - 1] if 1 <= raw <= len(names) else None
+
+        try:
+            raw = float(raw)
+        except (TypeError, ValueError):
+            return None
+        for name in names:
+            if abs(raw - self.positions[name]["offset"]) <= self.delta:
+                return name
+        return None
+
+    def get_value(self):
+        """The position the hardware reports (the last one while moving)."""
+        try:
+            name = self.name_from_readback(self._zoom_position.get_value())
+        except Exception:
+            logging.getLogger("HWR").exception("%s: cannot read the zoom", self.name())
+            name = None
+        if name is not None:
+            self._last_name = name
+        return self._last_name
+
+    def _position_update(self, raw=None):
+        name = self.name_from_readback(raw)
+        if name is not None:
+            self._last_name = name
+            self.update_value(name)
+
+    def _state_update(self, state=None):
+        self.update_state(self.motstate_to_state(str(state)))
 
     def _set_value(self, value):
         """Implementation of specific set actuator logic."""
         self.goto_position(value.name)
-        print(f"SETTING ZOOM and emit value =========================val.na,e > {value.name}, val is : {value}")
-        self.zoom = value.name
-        self.emit("stateChanged", (value.name ,))
 
     def get_state(self):
-        val = self.get_value()
-        return self.motstate_to_state(val)  # Assuming it's always ready for this example
+        try:
+            return self.motstate_to_state(str(self._chnState.get_value()))
+        except Exception:
+            return self.STATES.UNKNOWN
 
     def abort(self):
         """Stops motor movement"""
@@ -184,24 +237,9 @@ class TangoMotorWPositions(AbstractNState):
         return value.name in self.position_names
 
     def get_current_name(self):
-        pos = self.get_value()
-        min_dist = 1000.0
-        curr_name = ''
-        valid = False
-
-        for name in self.position_names:
-            offs = self.positions[name]['offset']
-            dist = abs(offs - pos)
-            if dist < min_dist:
-                min_dist = dist
-                curr_name = name
-
-        if curr_name:
-            if min_dist <= self.delta:
-                valid = True
-
-        return curr_name, pos, valid
-
+        raw = self._zoom_position.get_value()
+        name = self.name_from_readback(raw)
+        return name or "", raw, name is not None
 
     def get_properties(self, name=None):
         pos = self.get_value()
@@ -222,13 +260,10 @@ class TangoMotorWPositions(AbstractNState):
         zoom_pos = re.sub(pattern, r'Zoom_\1', name)
 
         _cmd = self._cmds_menu.get(zoom_pos, None)
+        if _cmd is None:
+            raise ValueError("%s: no command for zoom position %r" % (self.name(), name))
+        # The readback (_position_update) reports the new position once the
+        # motor is there; nothing is announced before that.
         _cmd()
-
-        try:
-            self.update_value(name)
-        except:
-            import traceback
-            logging.getLogger('HWR').debug("TangoMotorWPositions (%s) Error moving to offset. %s" % (self.name(), name))
-            logging.getLogger('HWR').debug(traceback.format_exc())
 
     #moveToPosition = goto_position

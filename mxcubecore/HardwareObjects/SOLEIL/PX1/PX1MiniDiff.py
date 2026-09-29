@@ -7,7 +7,12 @@ import os
 import cv2
 from redis_camera import camera
 from imageio import imwrite
-import zmq
+try:
+    # The gevent flavour: a murko request then lets the hub run, so omega can
+    # turn to the next centring angle while murko works on the last image.
+    import zmq.green as zmq
+except ImportError:
+    import zmq
 import pickle
 
 from mxcubecore.HardwareObjects.GenericDiffractometer import (
@@ -171,18 +176,27 @@ class PX1MiniDiff(GenericDiffractometer):
             logging.getLogger("user_level_log").info("%s" %e)
         return img, imgName
 
+    murko_timeout = 30  # s, one prediction; murko answers in about a second
+
     def __get_predictions__(self, request_arguments, host="localhost", port=89019, verbose=False):
         start = time.time()
         context = zmq.Context()
-        if verbose:
-            print("Connecting to server ...")
         socket = context.socket(zmq.REQ)
-        socket.connect("tcp://%s:%d" % (host, port))
-        socket.send(pickle.dumps(request_arguments))
-        raw_predictions = socket.recv()
-        predictions = pickle.loads(raw_predictions)
-        if verbose:
-            print("Received predictions in %.4f seconds" % (time.time() - start))
+        socket.setsockopt(zmq.LINGER, 0)
+        try:
+            socket.connect("tcp://%s:%d" % (host, port))
+            socket.send(pickle.dumps(request_arguments))
+            # A murko that is down would otherwise hang the centring, and the
+            # whole queue behind it, for ever.
+            if not socket.poll(self.murko_timeout * 1000):
+                raise RuntimeError(
+                    "murko (%s:%s) did not answer in %s s" % (host, port, self.murko_timeout)
+                )
+            predictions = pickle.loads(socket.recv())
+        finally:
+            socket.close()
+            context.term()
+        log.debug("murko answered in %.2f s", time.time() - start)
         return predictions
 
     def estimate_click_murko(self, frame, forceSquaredGrid=False, imgName=None, useInsideLoop=False):
@@ -332,28 +346,32 @@ class PX1MiniDiff(GenericDiffractometer):
                 should be given to this method empty
             phi: variable to control the movement in phi of the sample
             n_points: number of points to be taken by the user
-            PHI_ANGLE_START: original position phi of the sample, used to
-                return to original location after movements
+            PHI_ANGLE_START: unused, kept for the call signature
         Returns:
             No return value, coordinates stored in X, Y, PHI
 
         """
+        # n images need n-1 rotations and no way back: a 3-point centring is
+        # centred at every angle, so the centring ends at the last image's
+        # angle. Each rotation starts as soon as its image is taken and murko
+        # works on that image while omega turns.
+        original_width, original_height = int(os.getenv("MURKO_SIZEX")), int(os.getenv("MURKO_SIZEY"))
         for i in range(n_points):
+            phi.wait_ready()
+            if i:
+                self.wait_fresh_frame()
+            angle = phi.get_position()
             img, imgName = self.takePictureAnalysis()
+            if i < n_points - 1:
+                phi.sync_move(angle + phi_incr, wait=False)
+
             _, _, y_click, x_click = self.estimate_click_murko(img, imgName=imgName)
-            original_width, original_height = int(os.getenv("MURKO_SIZEX")), int(os.getenv("MURKO_SIZEY"))
             x_coord = x_click * original_width
             y_coord = y_click * original_height
-            log.debug("Center found at [%s;%s]", x_coord, y_coord)
+            log.debug("Center found at [%s;%s] (omega %.2f)", x_coord, y_coord, angle)
             X.append(x_coord)
             Y.append(y_coord)
-            phi_positions.append(phi.get_position())
-            phi.sync_move_relative(phi_incr)
-
-        logging.getLogger("user_level_log").info(
-            "returning PHI to initial position %s" % PHI_ANGLE_START
-        )
-        phi.move(PHI_ANGLE_START)
+            phi_positions.append(angle)
 
     def px1_center_user_input(self, X, Y, phi_positions, phi, n_points, PHI_ANGLE_START, phi_incr):
         """ Method to get the user inputs for the centring of the sample
@@ -582,7 +600,9 @@ class PX1MiniDiff(GenericDiffractometer):
         X, Y = [], []
         phi_positions = []
 
-        time.sleep(2)
+        # The zoom and light were set (and waited for) before the centring:
+        # a frame taken entirely after that is all the first image needs.
+        self.wait_fresh_frame(frames=3)
 
         try:
 
@@ -612,8 +632,10 @@ class PX1MiniDiff(GenericDiffractometer):
             )
 
 
-            # MOVE MOTORS
-            centred_pos = self.px1_center_move_motors(echantillon, (sampx, sampy, phiy), pixelsPerMm_Hor, PHI_ANGLE_START, phi)
+            # MOVE MOTORS. The automatic centring stays at its last angle (see
+            # px1_center_murko); the manual one has turned back to the start.
+            final_angle = phi.get_position() if automatic else PHI_ANGLE_START
+            centred_pos = self.px1_center_move_motors(echantillon, (sampx, sampy, phiy), pixelsPerMm_Hor, final_angle, phi)
 
             return centred_pos
 
@@ -940,7 +962,10 @@ class PX1MiniDiff(GenericDiffractometer):
         """
         channel = getattr(self.zoom, "_zoom_position", None)
         if channel is not None:
-            return channel.get_value()
+            raw = channel.get_value()
+            resolve = getattr(self.zoom, "name_from_readback", None)
+            # None between positions, so a move is only done on arrival.
+            return resolve(raw) if resolve else raw
         return self.zoom.get_value()
 
     def _zoom_at(self, member):
@@ -1106,12 +1131,14 @@ class PX1MiniDiff(GenericDiffractometer):
                     #   self.move_omega(omega_pos)
                     logging.getLogger("HWR").info(" Moving XYZ to %s" % xyz_motors)
                     self.smargon.move_XYZ(xyz_motors)
+                    # move_XYZ only starts the move: the centring (and the
+                    # queue node running it) ends with the sample in place.
+                    self.smargon.wait_ready()
                     #self.move_to_motors_positions(motor_pos, wait=True)
                 except:
                     logging.exception("Could not move to centred position")
                     self.emit_centring_failed()
-                else:
-                    pass
+                    return
 
                 if self.current_centring_method == GenericDiffractometer.CENTRING_METHOD_AUTO:
                     self.emit("newAutomaticCentringPoint", motor_pos)
