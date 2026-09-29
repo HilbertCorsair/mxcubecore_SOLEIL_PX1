@@ -22,6 +22,7 @@ import logging
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.queue_entry.base_queue_entry import (
     BaseQueueEntry,
+    QueueAbortedException,
     QueueSkipEntryException,
 )
 
@@ -58,6 +59,13 @@ class OpticalCentringQueueEntry(BaseQueueEntry):
             try:
                 valid = xc.run_optical_centring(zoom)
             except Exception as ex:
+                if getattr(ex, "abort_queue", False):
+                    # Murko is gone: no automatic centring, so no unattended
+                    # collect either. Stop the queue instead of skipping on.
+                    logging.getLogger("user_level_log").error(
+                        "Automatic centring impossible (%s): stopping the queue" % ex
+                    )
+                    raise QueueAbortedException(str(ex), self)
                 logging.getLogger("HWR").exception(
                     "[UC] optical centring (%s) failed", zoom
                 )

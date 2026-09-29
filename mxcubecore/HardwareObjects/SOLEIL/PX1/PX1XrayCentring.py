@@ -354,6 +354,10 @@ class PX1XrayCentring(AbstractXrayCentring):
                 "PX1XrayCentring: %s centring did not finish in %s s" % (zoom, timeout)
             )
 
+        error = getattr(md, "last_centring_error", None)
+        if getattr(error, "abort_queue", False):
+            raise error
+
         valid = bool(md.centring_status.get("valid"))
         log.info(
             "[UC] optical centring %s %s in %.1f s",

@@ -25,8 +25,19 @@ from mxcubecore.HardwareObjects import sample_centring
 from mxcubecore.model.queue_model_objects import CentredPosition
 from mxcubecore.HardwareObjects.SOLEIL.PX1.px1_wait import wait_until
 import math
+import socket as _socket
 
 log = logging.getLogger("HWR")
+
+
+class MurkoUnavailable(RuntimeError):
+    """Murko cannot be reached: no automatic centring is possible.
+
+    abort_queue tells the queue entry to stop the whole queue rather than
+    skip the node - without murko the unattended collect cannot go on.
+    """
+
+    abort_queue = True
 
 
 def _norm_zoom(value):
@@ -55,6 +66,8 @@ class PX1MiniDiff(GenericDiffractometer):
         # unattended pipeline waits on it instead of sleeping a fixed time.
         self._centring_idle = gevent.event.Event()
         self._centring_idle.set()
+        # Why the last centring failed, if it raised (see centring_done).
+        self.last_centring_error = None
 
         #Attribute that holsd the "ON" "OFF" state for the light UI button
         #The button has in fact nothing to do with the light direcly
@@ -101,12 +114,21 @@ class PX1MiniDiff(GenericDiffractometer):
              GenericDiffractometer.CENTRING_METHOD_MOVE_TO_BEAM: \
                  self.start_move_to_beam}
 
-    def is_murko_available(self):
-        """
-        Returns True if murko is available
-        :returns: boolean
-        """
-        return True
+    def _murko_address(self):
+        try:
+            return os.environ["MURKO_HOST"], int(os.environ["MURKO_PORT"])
+        except (KeyError, ValueError):
+            raise MurkoUnavailable("MURKO_HOST / MURKO_PORT are not set")
+
+    def is_murko_available(self, timeout=2):
+        """True when murko's port accepts a connection."""
+        try:
+            host, port = self._murko_address()
+            _socket.create_connection((host, port), timeout).close()
+            return True
+        except (OSError, MurkoUnavailable) as ex:
+            log.error("PX1MiniDiff: murko is not reachable: %s", ex)
+            return False
 
     def px1_start(
         self,
@@ -189,7 +211,7 @@ class PX1MiniDiff(GenericDiffractometer):
             # A murko that is down would otherwise hang the centring, and the
             # whole queue behind it, for ever.
             if not socket.poll(self.murko_timeout * 1000):
-                raise RuntimeError(
+                raise MurkoUnavailable(
                     "murko (%s:%s) did not answer in %s s" % (host, port, self.murko_timeout)
                 )
             predictions = pickle.loads(socket.recv())
@@ -237,8 +259,7 @@ class PX1MiniDiff(GenericDiffractometer):
         ]
         request_args["save"] = False
         request_args["prefix"] = "predicted"
-        mhost = os.getenv("MURKO_HOST")
-        mport = int(os.getenv("MURKO_PORT"))
+        mhost, mport = self._murko_address()
         analysis = self.__get_predictions__(request_args, host=mhost, port = mport)
         descriptions = analysis['descriptions'][0]
 
@@ -645,6 +666,9 @@ class PX1MiniDiff(GenericDiffractometer):
             sample_centring.abort_centring()
             # return None
 
+        except MurkoUnavailable:
+            raise  # not a centring result: the caller stops the queue
+
         except:
             import traceback
 
@@ -875,6 +899,7 @@ class PX1MiniDiff(GenericDiffractometer):
     # ------------------------------------------------------------------
 
     def emit_centring_started(self, method):
+        self.last_centring_error = None
         self._centring_idle.clear()
         GenericDiffractometer.emit_centring_started(self, method)
 
@@ -1075,8 +1100,9 @@ class PX1MiniDiff(GenericDiffractometer):
             motor_pos = centring_procedure.get()
             if isinstance(motor_pos, gevent.GreenletExit):
                 raise motor_pos
-        except:
+        except BaseException as ex:  # a cancel arrives as GreenletExit
             logging.exception("Could not complete centring")
+            self.last_centring_error = ex
             self.emit_centring_failed()
         else:
             if motor_pos is None:
