@@ -28,9 +28,10 @@ class PyISPyBRestClient:
 
     REFRESH_MARGIN_SECONDS = 60
 
-    def __init__(self, rest_root: str, keycloak_url: str, grant_type: str, client_id: str, client_secret: str,  timeout: int = 5):
-        self._rest_root = rest_root
-        self._keycloak_url = keycloak_url
+    def __init__(self, rest_root: str, keycloak_url: str, grant_type: str, client_id: str, client_secret: str,  timeout: int = 30):
+        # XML property values can carry surrounding whitespace/newlines
+        self._rest_root = rest_root.strip()
+        self._keycloak_url = keycloak_url.strip()
         self._grant_type =  grant_type
         self._client_id = client_id
         self._client_secret = client_secret
@@ -38,26 +39,21 @@ class PyISPyBRestClient:
         self._session = Session()
         self._access_token = None
         self._token_expiry = None
-        # Temporary debugging only
-        self._session.trust_env = False
+        # trust_env stays True so https_proxy/no_proxy are honoured like curl does;
+        # without the proxy the Keycloak token request times out on the beamline.
         self._session.verify = False
 
     def authenticate(self):
-        # The correct curl command
-        # curl -X POST "https://sso.synchrotron-soleil.fr/auth/realms/pyispyb/protocol/openid-connect/token" -H "Content-Type: application/x-www-form-urlencoded" -d "grant_type=client_credentials" -d "client_id=<placeholder string>" -d "client_secret=<placeholder_string>"
         response = self._session.post(
             self._keycloak_url,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
             data={
-                "Content-type": "application/x-www-form-urlencoded",
                 "grant_type": self._grant_type,
                 "client_id": self._client_id,
-                "client_secret": self._client_secret
+                "client_secret": self._client_secret,
             },
-
-
-            timeout = self._timeout,
+            timeout=self._timeout,
         )
-        # res is a timeout error token does not get stored
         res = self.decode_json_response(response)
         self._store_tokens(res)
 

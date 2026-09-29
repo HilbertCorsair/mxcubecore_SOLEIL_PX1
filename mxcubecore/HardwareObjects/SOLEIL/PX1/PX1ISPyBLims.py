@@ -728,6 +728,9 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
                     client_id=self.get_property("client_id"),
                     client_secret=self.get_property("client_secret"),
                 )
+            proxy_address = self.get_property("proxy_address")
+            if proxy_address:
+                client.update_proxies({"http": proxy_address, "https": proxy_address})
             return PyISPyBDataAdapter(
                         client,
                         self.beamline_name
