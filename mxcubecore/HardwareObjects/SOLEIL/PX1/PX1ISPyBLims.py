@@ -805,8 +805,6 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         self.user_name = pid
         #self.data_adapter = self._create_data_adapter()
         proposal = self.adapter.get_proposals()
-        import pdb
-        pdb.set_trace()
         todays_session = self.adapter.find_sessions_by_poposal_and_beamline_for_today(proposal)
         start_datetime_str = self.check_to_string(todays_session["session"]['startDate'])
         # Parse the string into a datetime object
@@ -950,5 +948,4 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
                 image_dict[prop] = ispyb_path
             except:
                 pass
-
 

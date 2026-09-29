@@ -43,15 +43,21 @@ class PyISPyBRestClient:
         self._session.verify = False
 
     def authenticate(self):
+        # The correct curl command
+        # curl -X POST "https://sso.synchrotron-soleil.fr/auth/realms/pyispyb/protocol/openid-connect/token" -H "Content-Type: application/x-www-form-urlencoded" -d "grant_type=client_credentials" -d "client_id=<placeholder string>" -d "client_secret=<placeholder_string>"
         response = self._session.post(
             self._keycloak_url,
             data={
+                "Content-type": "application/x-www-form-urlencoded",
                 "grant_type": self._grant_type,
                 "client_id": self._client_id,
                 "client_secret": self._client_secret
             },
+
+
             timeout = self._timeout,
         )
+        # res is a timeout error token does not get stored
         res = self.decode_json_response(response)
         self._store_tokens(res)
 
