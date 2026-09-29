@@ -8,13 +8,17 @@ container of the queue, note the inheritance from QueueEntryContainer. See the
 documentation for the queue_entry module for more information.
 """
 
+import csv
 import logging
+import os
+import time
 import traceback
 
 import gevent
 
 from mxcubecore import queue_entry
 from mxcubecore.BaseHardwareObjects import HardwareObject
+from mxcubecore.model import queue_model_objects as qmo
 from mxcubecore.model.queue_model_enumerables import CENTRING_METHOD
 from mxcubecore.queue_entry import base_queue_entry
 from mxcubecore.queue_entry.base_queue_entry import QUEUE_ENTRY_STATUS
@@ -205,6 +209,8 @@ class QueueManager(HardwareObject, QueueEntryContainer):
         self.set_current_entry(entry)
         self._current_queue_entries.append(entry)
         entry.status = QUEUE_ENTRY_STATUS.RUNNING
+        entry.started_at = time.time()
+        entry.ended_at = None
 
         self.emit("queue_entry_execute_started", (entry,))
 
@@ -226,6 +232,7 @@ class QueueManager(HardwareObject, QueueEntryContainer):
                 self.__execute_entry(child)
             # This part should not be here
             # But somehow exception from collect_failed is not catched here
+            entry.ended_at = time.time()
             if entry.is_failed():
                 entry.status = QUEUE_ENTRY_STATUS.FAILED
                 self.emit("queue_entry_execute_finished", (entry, "Failed"))
@@ -241,6 +248,7 @@ class QueueManager(HardwareObject, QueueEntryContainer):
                 "encountered Exception (continuing):\n%s" % ex.stack_trace or ex.message
             )
             # Queue entry, failed, skipp.
+            entry.ended_at = time.time()
             entry.status = QUEUE_ENTRY_STATUS.SKIPPED
             self.emit("queue_entry_execute_finished", (entry, "Skipped"))
         except base_queue_entry.QueueAbortedException as ex:
@@ -252,6 +260,7 @@ class QueueManager(HardwareObject, QueueEntryContainer):
             logging.getLogger("HWR").warning(
                 "encountered Exception (continuing):\n%s" % ex.stack_trace or ex.message
             )
+            entry.ended_at = time.time()
             entry.status = QUEUE_ENTRY_STATUS.FAILED
             self.emit("queue_entry_execute_finished", (entry, "Aborted"))
             entry.post_execute()
@@ -261,6 +270,7 @@ class QueueManager(HardwareObject, QueueEntryContainer):
             logging.getLogger("HWR").warning(
                 "encountered Exception (continuing):\n%s" % ex.stack_trace or ex.message
             )
+            entry.ended_at = time.time()
             entry.status = QUEUE_ENTRY_STATUS.FAILED
             self.emit("queue_entry_execute_finished", (entry, "Failed"))
             self.emit("statusMessage", ("status", "Queue execution failed", "error"))
@@ -273,8 +283,113 @@ class QueueManager(HardwareObject, QueueEntryContainer):
             entry.post_execute()
         finally:
             # self.emit('queue_entry_execute_finished', (entry, ))
+            if entry.ended_at is None:
+                entry.ended_at = time.time()
             self.set_current_entry(None)
             self._current_queue_entries.pop(self._current_queue_entries.index(entry))
+            get_model = getattr(entry, "get_data_model", None)
+            if get_model is not None and isinstance(get_model(), qmo.Sample):
+                self._log_sample_timing(entry)
+
+    # ------------------------------------------------------------------
+    # Per-sample timing: one summary line in the log and one CSV row per
+    # sample, from the start/end stamps __execute_entry puts on every entry.
+    # ------------------------------------------------------------------
+
+    TIMING_CSV_FIELDS = ["date", "sample", "status", "total_s", "mount_s", "phases"]
+
+    @staticmethod
+    def _leaf_entries(entry, since):
+        """Descendants without children (the phases) run since `since`.
+
+        The bound drops stamps left over from an earlier run of an entry that
+        is disabled this time.
+        """
+        leaves = []
+        for child in entry._queue_entry_list:
+            if child._queue_entry_list:
+                leaves.extend(QueueManager._leaf_entries(child, since))
+            elif (getattr(child, "started_at", None) or 0) >= since:
+                leaves.append(child)
+        return leaves
+
+    @staticmethod
+    def _entry_label(entry):
+        model = entry.get_data_model()
+        label = model.get_name() if hasattr(model, "get_name") else str(entry)
+        zoom = getattr(model, "zoom", None)
+        return "%s (%s)" % (label, zoom) if zoom else label
+
+    @staticmethod
+    def _fmt_seconds(seconds):
+        seconds = int(round(seconds))
+        return "%dm%02ds" % divmod(seconds, 60) if seconds >= 60 else "%ds" % seconds
+
+    def _log_sample_timing(self, entry):
+        """Log how long the sample took, mount to unmount, and each phase."""
+        try:
+            if entry.started_at is None:
+                return
+            sample = entry.get_data_model().loc_str
+            total = entry.ended_at - entry.started_at
+            phases = [
+                (self._entry_label(e), e.ended_at - e.started_at, e.started_at)
+                for e in self._leaf_entries(entry, entry.started_at)
+                if e.ended_at is not None
+            ]
+            if not phases:
+                return  # nothing ran under the sample: not worth a line
+            # Everything before the first phase: the mount (or the chained
+            # exchange from the previous pin) and the mount-time checks.
+            mount = phases[0][2] - entry.started_at
+            try:  # QUEUE_ENTRY_STATUS is a namedtuple of ints
+                status = QUEUE_ENTRY_STATUS._fields[
+                    QUEUE_ENTRY_STATUS.index(entry.status)
+                ]
+            except ValueError:
+                status = str(entry.status)
+
+            parts = ["mount %s" % self._fmt_seconds(mount)] + [
+                "%s %s" % (name, self._fmt_seconds(secs)) for name, secs, _ in phases
+            ]
+            msg = "[Timing] sample %s: total %s | %s" % (
+                sample,
+                self._fmt_seconds(total),
+                " | ".join(parts),
+            )
+            logging.getLogger("user_level_log").info(msg)
+            logging.getLogger("HWR").info(msg)
+
+            self._append_timing_csv(
+                {
+                    "date": time.strftime(
+                        "%Y-%m-%d %H:%M:%S", time.localtime(entry.started_at)
+                    ),
+                    "sample": sample,
+                    "status": status,
+                    "total_s": "%.1f" % total,
+                    "mount_s": "%.1f" % mount,
+                    "phases": ";".join(
+                        "%s=%.1f" % (name, secs) for name, secs, _ in phases
+                    ),
+                }
+            )
+        except Exception:
+            logging.getLogger("HWR").exception("Could not log the sample timing")
+
+    def _append_timing_csv(self, row):
+        path = os.path.expanduser(
+            self.get_property("timing_csv", "~/MXCuBElogs/sample_timings.csv")
+        )
+        if not path:
+            return
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        new_file = not os.path.exists(path)
+        with open(path, "a", newline="") as fd:
+            writer = csv.DictWriter(fd, fieldnames=self.TIMING_CSV_FIELDS)
+            if new_file:
+                writer.writeheader()
+            writer.writerow(row)
 
     def stop(self):
         """
@@ -287,6 +402,7 @@ class QueueManager(HardwareObject, QueueEntryContainer):
             for qe in self._current_queue_entries:
                 try:
                     qe.status = QUEUE_ENTRY_STATUS.FAILED
+                    qe.ended_at = time.time()
                     self.emit("queue_entry_execute_finished", (qe, "Aborted"))
                     qe.stop()
                     qe.post_execute()

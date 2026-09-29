@@ -1,6 +1,7 @@
 
 import logging
 import gevent
+import gevent.event
 import time
 import os
 import cv2
@@ -17,9 +18,15 @@ from mxcubecore.HardwareObjects.GenericDiffractometer import (
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.HardwareObjects import sample_centring
 from mxcubecore.model.queue_model_objects import CentredPosition
+from mxcubecore.HardwareObjects.SOLEIL.PX1.px1_wait import wait_until
 import math
 
 log = logging.getLogger("HWR")
+
+
+def _norm_zoom(value):
+    """'Zoom 2', 'zoom2', 'ZOOM_2' -> 'zoom2'."""
+    return str(value).lower().replace(" ", "").replace("_", "")
 
 """
 # Rewrote the function get_predictions to avoid needing the dependencies of murko/utils.py
@@ -36,6 +43,13 @@ from utils import (
 class PX1MiniDiff(GenericDiffractometer):
     def __init__(self, name):
         super().__init__(name)
+
+        # Set while no centring runs. Cleared by emit_centring_started, set
+        # again by emit_centring_successful / emit_centring_failed - the very
+        # end of a centring, after centring_done has moved the motors. The
+        # unattended pipeline waits on it instead of sleeping a fixed time.
+        self._centring_idle = gevent.event.Event()
+        self._centring_idle.set()
 
         #Attribute that holsd the "ON" "OFF" state for the light UI button
         #The button has in fact nothing to do with the light direcly
@@ -832,6 +846,193 @@ class PX1MiniDiff(GenericDiffractometer):
         """
 
 
+    # ------------------------------------------------------------------
+    # One centring at a time. A centring is a job that can be waited on:
+    # the queue must never send a second one while the first still turns
+    # the goniometer (and must not change the zoom under it either).
+    # ------------------------------------------------------------------
+
+    def emit_centring_started(self, method):
+        self._centring_idle.clear()
+        GenericDiffractometer.emit_centring_started(self, method)
+
+    def emit_centring_successful(self):
+        try:
+            GenericDiffractometer.emit_centring_successful(self)
+        except Exception:
+            # The generic code clears the method only at its very end: an
+            # error on the way would leave "already in centring method" in
+            # place and refuse every later centring.
+            log.exception("PX1MiniDiff: could not report the centred position")
+            self.centring_status = {"valid": False}
+            self.current_centring_method = None
+            self.current_centring_procedure = None
+        finally:
+            self._centring_idle.set()
+
+    def emit_centring_failed(self):
+        try:
+            GenericDiffractometer.emit_centring_failed(self)
+        finally:
+            self._centring_idle.set()
+
+    def is_centring(self):
+        return not self._centring_idle.is_set()
+
+    def wait_centring_done(self, timeout=None):
+        """True once no centring runs (including the final motor move)."""
+        return self._centring_idle.wait(timeout)
+
+    def start_centring_method(self, method, sample_info=None, wait=False):
+        """Start a centring, unless one is already running.
+
+        A running centring is never interrupted and no second command is
+        sent: it is logged and dropped. One exception: a procedure that is
+        already dead (just cancelled, or just finished) only waits for its
+        centring_done callback, which the hub runs on its next turn - the web
+        client cancels and restarts a manual centring back to back.
+        """
+        if self.is_centring():
+            procedure = self.current_centring_procedure
+            if procedure is not None and procedure.dead:
+                self.wait_centring_done(timeout=30)
+            if self.is_centring():
+                logging.getLogger("HWR").warning(
+                    "PX1MiniDiff: a centring (%s) is still running, not starting %s",
+                    self.current_centring_method,
+                    method,
+                )
+                return
+
+        GenericDiffractometer.start_centring_method(
+            self, method, sample_info=sample_info, wait=wait
+        )
+        if wait:
+            # px1_*_centring ignore wait_result: honour it here instead.
+            self.wait_centring_done()
+
+    def _zoom_member(self, zoom):
+        """The zoom VALUES member for 'zoom2', 'Zoom 2' or the enum itself.
+
+        TangoDCMotorWPositions names its members P0..P9 (values 'Zoom 1'..),
+        TangoMotorWPositions uses the username for both, so VALUES['zoom2']
+        works with neither; match on the normalised name or value instead.
+        """
+        norm = _norm_zoom
+        wanted = norm(getattr(zoom, "value", zoom))
+        positions = {norm(name) for name in getattr(self.zoom, "positions", {})}
+        for member in self.zoom.VALUES:
+            if norm(member.value) not in positions and norm(member.name) not in positions:
+                continue  # MOVING, FAULT, UNKNOWN ...
+            if wanted in (norm(member.value), norm(member.name)):
+                return member
+        raise ValueError("PX1MiniDiff: unknown zoom position %r" % (zoom,))
+
+    def _zoom_readback(self):
+        """The zoom position the hardware reports, not the one last commanded.
+
+        TangoMotorWPositions (the class proxima1's zoom.xml, with usernames
+        zoom1.., is written for) returns the last *commanded* name from
+        get_value() once _set_value has run, and derives READY from it: both
+        would pass the instant the command is sent. Its current_zoom channel
+        is the real readback. TangoDCMotorWPositions' get_value() already
+        reads the encoder.
+        """
+        channel = getattr(self.zoom, "_zoom_position", None)
+        if channel is not None:
+            return channel.get_value()
+        return self.zoom.get_value()
+
+    def _zoom_at(self, member):
+        current = self._zoom_readback()
+        current = getattr(current, "value", current)
+        if _norm_zoom(current) in (_norm_zoom(member.value), _norm_zoom(member.name)):
+            return True
+
+        # A numeric readback: the encoder offset, or a 1-based position index.
+        try:
+            position = float(current)
+        except (TypeError, ValueError):
+            return False
+        names = list(self.zoom.positions)
+        key = next(
+            (n for n in names if _norm_zoom(n) in (_norm_zoom(member.value), _norm_zoom(member.name))),
+            None,
+        )
+        if key is None:
+            return False
+        offset = self.zoom.positions[key].get("offset")
+        delta = float(getattr(self.zoom, "delta", 5) or 5)
+        if offset is not None and abs(position - float(offset)) <= delta:
+            return True
+        return position == names.index(key) + 1
+
+    def _zoom_ready(self):
+        # The raw Tango state where the class keeps one (TangoMotorWPositions
+        # derives get_state() from the commanded name, see _zoom_readback).
+        channel = getattr(self.zoom, "_chnState", None)
+        if channel is not None:
+            raw = str(channel.get_value()).upper()
+            return not any(s in raw for s in ("MOVING", "RUNNING", "FAULT", "ALARM"))
+        state = self.zoom.get_state()
+        return state == self.zoom.STATES.READY or str(
+            getattr(state, "name", state)
+        ).upper() in ("READY", "ON", "STANDBY")
+
+    def move_zoom(self, zoom, timeout=30):
+        """Move the zoom to a predefined position and wait until it is there.
+
+        The readback is polled (the Tango channels poll at 1 s), so waiting on
+        the state alone would pass before the motor has even started.
+        """
+        member = self._zoom_member(zoom)
+        if self._zoom_at(member) and self._zoom_ready():
+            return True
+
+        t0 = time.time()
+        self.zoom._set_value(member)
+        reached = wait_until(
+            lambda: self._zoom_at(member) and self._zoom_ready(),
+            timeout,
+            what="zoom %s" % member.value,
+        )
+        log.debug("PX1MiniDiff: zoom %s reached in %.1f s", member.value, time.time() - t0)
+        if reached:
+            # The centring reads pixels/mm once, when it starts: make sure they
+            # are the new zoom's, not whatever the last signal left behind.
+            try:
+                self.update_zoom_calibration()
+            except Exception:
+                log.exception("PX1MiniDiff: zoom calibration update failed")
+        return reached
+
+    def wait_fresh_frame(self, frames=2, timeout=3):
+        """Wait until the camera has published `frames` new images.
+
+        After a motor move, the last image in redis may predate the end of the
+        move. Two new frame ids guarantee one exposed entirely afterwards.
+        Returns False (and does not wait) when the camera has no frame
+        counter, so a different camera module never blocks the pipeline.
+        """
+        try:
+            cam = camera()
+            first = cam.get_image_id()
+        except Exception:
+            log.debug("PX1MiniDiff: camera has no frame counter", exc_info=True)
+            return False
+        if first is None:
+            return False
+
+        seen = [first]
+
+        def advanced():
+            current = cam.get_image_id()
+            if current != seen[-1]:
+                seen.append(current)
+            return len(seen) > frames
+
+        return wait_until(advanced, timeout, period=0.02, what="fresh camera frame")
+
     def centring_motor_moved(self, pos):
         """
         """
@@ -853,6 +1054,15 @@ class PX1MiniDiff(GenericDiffractometer):
             logging.exception("Could not complete centring")
             self.emit_centring_failed()
         else:
+            if motor_pos is None:
+                # px1_center swallows its own errors and returns None. Report
+                # it, or current_centring_method stays set and every later
+                # centring is refused as "already in centring method".
+                logging.getLogger("HWR").warning(
+                    "Diffractometer: centring returned no position"
+                )
+                self.emit_centring_failed()
+                return
 
             if motor_pos != None and not XYZcombined:
                 for motor in motor_pos:

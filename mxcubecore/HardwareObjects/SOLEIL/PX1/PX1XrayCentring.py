@@ -29,6 +29,7 @@ from mxcubecore.BaseHardwareObjects import HardwareObject
 from PyTango import DeviceProxy
 from mxcubecore.HardwareObjects.SampleView import Shape, Line, Point, Grid
 from mxcubecore.HardwareObjects.CreateDirClient import CreateDirectoryClient
+from mxcubecore.HardwareObjects.SOLEIL.PX1.px1_wait import wait_until
 
 log = logging.getLogger('HWR')
 gevent.monkey.patch_all()
@@ -314,17 +315,51 @@ class PX1XrayCentring(AbstractXrayCentring):
     # runs at a time, since the queue mounts one sample at a time).
     # ------------------------------------------------------------------
 
-    def run_optical_centring(self, zoom, settle=10):
-        """Set the zoom level and run one automatic (murko) centring.
+    optical_centring_timeout = 120  # s, one murko centring incl. the final move
 
-        Called twice (zoom1 then zoom2) by OpticalCentringQueueEntry. Extracted
-        verbatim from the zoom1/zoom2 steps of the legacy driver.
+    def run_optical_centring(self, zoom, settle=None, timeout=None):
+        """Set the zoom level and run ONE automatic (murko) centring, to the end.
+
+        Called twice (zoom1 then zoom2) by OpticalCentringQueueEntry. It used
+        to start the centring and sleep a fixed 10 s: a murko centring takes
+        longer, so the zoom2 phase changed the zoom under the still-running
+        zoom1 centring and then ran its own - two centrings in one row, the
+        second one spilling into the grid scan. Now it waits for the real end
+        of each step and never sends a centring while another one runs.
+
+        `settle` is accepted for compatibility and ignored: the zoom move is
+        waited for on the motor itself.
+
+        Returns True when the centring produced a valid position. Raises when
+        a previous centring is still running or this one does not finish.
         """
-        if self.minidiff.zoom.get_value() != zoom:
-            self.minidiff.zoom._set_value(self.minidiff.zoom.VALUES[zoom])
-            gevent.sleep(settle)
-        self.minidiff.start_centring_method(self.minidiff.CENTRING_METHOD_AUTO)
-        gevent.sleep(10)
+        md = self.minidiff
+        timeout = timeout or self.optical_centring_timeout
+
+        if not md.wait_centring_done(timeout):
+            raise RuntimeError(
+                "PX1XrayCentring: previous centring still running after %s s, "
+                "not starting the %s centring" % (timeout, zoom)
+            )
+
+        if not md.move_zoom(zoom):
+            raise RuntimeError("PX1XrayCentring: zoom did not reach %s" % zoom)
+
+        t0 = time.time()
+        md.start_centring_method(md.CENTRING_METHOD_AUTO)
+        if not md.wait_centring_done(timeout):
+            md.cancel_centring_method()
+            md.wait_centring_done(10)
+            raise RuntimeError(
+                "PX1XrayCentring: %s centring did not finish in %s s" % (zoom, timeout)
+            )
+
+        valid = bool(md.centring_status.get("valid"))
+        log.info(
+            "[UC] optical centring %s %s in %.1f s",
+            zoom, "done" if valid else "FAILED", time.time() - t0,
+        )
+        return valid
 
     def begin_centring_session(self, sample_model, user_params=None):
         """Reset session state, build the grid shape, assemble collect params,
@@ -425,26 +460,35 @@ class PX1XrayCentring(AbstractXrayCentring):
         param_list[0]['motors'] = self.createMotorDict()
         HWR.beamline.collect.current_dc_parameters = param_list[0]
 
-        time.sleep(1)
+        # No fixed sleeps: each step waits on the state the next one needs.
+        # go_to_sampleview() returns once the supervisor is in the phase (and
+        # the light is set), the rotation is a blocking move, and each
+        # snapshot waits for a camera frame exposed after the last move.
         self.go_to_sampleview()
-        time.sleep(3)
+        self.minidiff.wait_fresh_frame()
         imgPath1 = (
             param_list[0]["fileinfo"]["archive_directory"] + '/'
             + param_list[0]["fileinfo"]["prefix"] + '_1_1.snapshot.jpeg'
         )
         self.minidiff.takePictureAnalysis(path=imgPath1)
-        time.sleep(2)
         imgPath2 = (
             param_list[0]["fileinfo"]["archive_directory"] + '/'
             + param_list[0]["fileinfo"]["prefix"] + '_1_2.snapshot.jpeg'
         )
-        self.omega_mot.set_value(self.omega_mot.get_value() + 90)
-        time.sleep(3)
+        target = self.omega_mot.get_position() + 90
+        self.omega_mot.sync_move(target)
+        wait_until(
+            lambda: abs(self.omega_mot.get_position() - target) < 0.05,
+            10,
+            what="omega at %.2f" % target,
+        )
+        self.minidiff.wait_fresh_frame()
         self.minidiff.takePictureAnalysis(path=imgPath2)
-        time.sleep(2)
 
+        # do_collect runs the whole collection synchronously; what used to be
+        # a fixed 10 s here is only the collect device winding down.
         HWR.beamline.collect.do_collect("mxcube")
-        gevent.sleep(10)
+        self.wait_collect_ready(timeout=60)
 
     def finalize_session(self, sample_model=None, unload=True):
         """Clear graphics and, when asked, unload the sample.
@@ -961,7 +1005,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.move_motors(cpos)
         self.emit('xcentringInfo', 'running', 'Registering centered position')
         self.register_center_position(cpos)
-        time.sleep(1)
 
         self.flag_is_centring = False
         if not self.only_helical and self.fig:
@@ -975,15 +1018,17 @@ class PX1XrayCentring(AbstractXrayCentring):
     def zero_sgonaxis(self):
         log.debug("ZEROing sgonaxis axis")
         self.log_msg("ZEROing sgonaxis axis")
-        self.sgonaxis_dev.x = 0.0
-        #self.minidiff.wait_device_ready( timeout = 20 )
-        gevent.sleep(1)
-        self.sgonaxis_dev.y = 0.0
-        #self.minidiff.wait_device_ready( timeout = 20 )
-        gevent.sleep(1)
-        self.sgonaxis_dev.z = 0.0
+        # One axis at a time, as before, but each write waits for its own
+        # axis to read back zero instead of a blind second after it. The
+        # bound keeps the worst case near the old fixed 3 s.
+        for axis in ("x", "y", "z"):
+            setattr(self.sgonaxis_dev, axis, 0.0)
+            wait_until(
+                lambda: abs(getattr(self.sgonaxis_dev, axis)) < 1e-3,
+                2,
+                what="sgonaxis %s zeroed" % axis,
+            )
         self.minidiff.wait_device_ready( timeout = 20 )
-        gevent.sleep(1)
         log.debug("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % \
             (self.sgonaxis_dev.x, self.sgonaxis_dev.y, self.sgonaxis_dev.z))
         self.log_msg("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % \
@@ -1202,9 +1247,13 @@ class PX1XrayCentring(AbstractXrayCentring):
 
     def run_mesh(self):
         self.emit('xcentringInfo', 'running', 'running mesh')
-        while not self.is_collect_phase(): # put while here to avoid stuck because time out
-            self.go_to_collect()
-            gevent.sleep(2) # allow time to refresh display after
+        # go_to_collect() itself waits for the phase; retry a bounded number
+        # of times instead of looping (and sleeping) for ever.
+        for _attempt in range(3):
+            if self.testmode or self.is_collect_phase() or self.go_to_collect():
+                break
+        else:
+            raise RuntimeError("PX1XrayCentring: supervisor never reached the collect phase")
 
         # program mesh
         self.log_msg("MESH - Programming collect device:")
@@ -1720,8 +1769,6 @@ class PX1XrayCentring(AbstractXrayCentring):
     def go_to_sampleview(self, timeout=180):
         self.px1env_hwo.goto_sample_view_phase()
 
-        gevent.sleep(0.5)
-
         t0 = time.time()
         while True:
             env_state = self.px1env_hwo.get_state()
@@ -1753,7 +1800,6 @@ class PX1XrayCentring(AbstractXrayCentring):
             return
 
         self.px1env_hwo.goto_collect_phase()
-        gevent.sleep(0.5)
 
         t0 = time.time()
         while True:
