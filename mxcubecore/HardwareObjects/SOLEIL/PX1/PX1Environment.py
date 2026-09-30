@@ -1,5 +1,7 @@
 import time
 import logging
+from contextlib import nullcontext
+
 import gevent
 from mxcubecore.HardwareObjects.abstract.AbstractMotor import AbstractMotor
 from mxcubecore.Command.Tango import DeviceProxy
@@ -260,6 +262,54 @@ class PX1Environment(HardwareObject):
             phase = "<unreadable>"
         return state, phase
 
+    # ------------------------------------------------------------------
+    # A phase change moves the Smargon too: it is a goniometer procedure.
+    # ------------------------------------------------------------------
+
+    phase_start_timeout = 1.5  # s for the supervisor to report MOVING
+
+    def _smargon(self):
+        try:
+            from mxcubecore import HardwareRepository as HWR
+
+            smargon = HWR.beamline.diffractometer.smargon
+        except Exception:
+            return None
+        return smargon if hasattr(smargon, "procedure") else None
+
+    def _supervisor_moving(self):
+        # The device itself, not the polled channel: right after the command
+        # the channel still holds the state from before it.
+        try:
+            state = self.device.State()
+        except Exception:
+            state = self.state_chan.get_value()
+        return (getattr(state, "name", None) or str(state)) in ("MOVING", "RUNNING")
+
+    def _run_phase(self, label, send, timeout=60):
+        """Send a phase command and wait until the phase change is over.
+
+        Holds the goniometer gate from before the command until the
+        supervisor has stopped moving and the Smargon has settled, so no
+        goniometer command is sent in the middle of a phase move - which
+        goes through STANDBY between its steps. Over = seen moving (or not
+        within phase_start_timeout: nothing to move) and then not moving.
+        """
+        smargon = self._smargon()
+        ctx = smargon.procedure("phase %s" % label) if smargon else nullcontext()
+        with ctx:
+            self.wait_not_moving(timeout)
+            send()
+            t0 = time.time()
+            while not self._supervisor_moving():
+                if time.time() - t0 > self.phase_start_timeout:
+                    break
+                gevent.sleep(0.05)
+            if not self.wait_not_moving(timeout):
+                logging.getLogger("HWR").warning(
+                    "PX1Environment: phase %s still moving after %s s", label, timeout
+                )
+
     def goto_phase(self, phase, timeout=60):
         """Send the supervisor to <phase>, waiting until it can accept it.
 
@@ -277,34 +327,37 @@ class PX1Environment(HardwareObject):
 
         log = logging.getLogger("HWR")
 
-        if not self.wait_not_moving(timeout):
-            state, current = self._describe()
-            log.warning(
-                "PX1Environment: still %s after %s s (phase %s); sending phase "
-                "%s anyway",
-                state,
-                timeout,
-                current,
-                phase,
-            )
+        def send():
+            if not self.wait_not_moving(timeout):
+                state, current = self._describe()
+                log.warning(
+                    "PX1Environment: still %s after %s s (phase %s); sending phase "
+                    "%s anyway",
+                    state,
+                    timeout,
+                    current,
+                    phase,
+                )
 
-        try:
-            cmd()
-        except Exception:
-            # One retry: the state can go MOVING between the check and the
-            # call, and the supervisor rejects the command outright rather
-            # than queueing it.
-            state, current = self._describe()
-            log.warning(
-                "PX1Environment: phase %s refused while %s (phase %s); "
-                "retrying once",
-                phase,
-                state,
-                current,
-                exc_info=True,
-            )
-            self.wait_not_moving(timeout)
-            cmd()
+            try:
+                cmd()
+            except Exception:
+                # One retry: the state can go MOVING between the check and the
+                # call, and the supervisor rejects the command outright rather
+                # than queueing it.
+                state, current = self._describe()
+                log.warning(
+                    "PX1Environment: phase %s refused while %s (phase %s); "
+                    "retrying once",
+                    phase,
+                    state,
+                    current,
+                    exc_info=True,
+                )
+                self.wait_not_moving(timeout)
+                cmd()
+
+        self._run_phase(phase, send, timeout)
 
     def set_phase(self, phase, timeout=120):
         self.goto_phase(phase)
@@ -337,25 +390,19 @@ class PX1Environment(HardwareObject):
             # phase command while it is moving. These two helpers bypass
             # goto_phase (they go through get_command_object), so the wait has
             # to be repeated here.
-            self.wait_not_moving()
-            self.get_command_object("GoToCentringPhase")()
-            time.sleep(0.1)
+            self._run_phase("CENTRING", self.get_command_object("GoToCentringPhase"))
 
     def goto_collect_phase(self):
 
         if not self.ready_for_collect() or self.get_phase() != "COLLECT":
-            self.wait_not_moving()
-            self.get_command_object("GoToCollectPhase")
-            if not self.get_command_object("GoToCollectPhase"):
+            cmd = self.get_command_object("GoToCollectPhase")
+            if not cmd:
                 try :
-                    self._collect = self.add_command( {"type": "tango", "name": "GoToCollectPhase", "tangoname": self.tangoname}, "GoToCollectPhase", )
-                    self._collect()
-                    time.sleep(0.1)
+                    cmd = self._collect = self.add_command( {"type": "tango", "name": "GoToCollectPhase", "tangoname": self.tangoname}, "GoToCollectPhase", )
                 except :
-                    print("EXEPTION GTCP 5")
-                    pass
-            else:
-                self.get_command_object("GoToCollectPhase")()
+                    logging.getLogger("HWR").exception("PX1Environment: no GoToCollectPhase command")
+                    return
+            self._run_phase("COLLECT", cmd)
 
 
     def goto_loading_phase(self):
@@ -370,18 +417,15 @@ class PX1Environment(HardwareObject):
 
     def goto_default_phase(self):
         if not self.ready_for_default_position():
-            self.get_command_object("GoToDefaultPhase")()
-            time.sleep(0.1)
+            self._run_phase("DEFAULT", self.get_command_object("GoToDefaultPhase"))
 
     def goto_sample_view_phase(self):
         if not self.ready_for_visu_sample():
-            self.get_command_object("GoToVisuSamplePhase")()
-            time.sleep(0.1)
+            self._run_phase("VISU_SAMPLE", self.get_command_object("GoToVisuSamplePhase"))
 
     def goto_fluo_scan_phase(self):
         if not self.ready_for_fluo_scan():
-            self.get_command_object("GoToFluoScanPhase")()
-            time.sleep(0.1)
+            self._run_phase("FLUO_SCAN", self.get_command_object("GoToFluoScanPhase"))
 
     def _set_authorization_flag(self, value):
         if value != self.auth:

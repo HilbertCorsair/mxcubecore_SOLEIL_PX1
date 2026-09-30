@@ -444,7 +444,7 @@ class PX1MiniDiff(GenericDiffractometer):
         logging.getLogger("user_level_log").info(
             "returning PHI to initial position %s" % PHI_ANGLE_START
         )
-        phi.move(PHI_ANGLE_START)
+        phi.sync_move(PHI_ANGLE_START)
 
     def px1_center_computations(self, X, Y, beam_x, beam_y, phi_positions, PhiCamera, n_points):
         """ Method to compute the positions need to center the sample based on
@@ -581,7 +581,41 @@ class PX1MiniDiff(GenericDiffractometer):
         return centred_pos
 
 
-    def px1_center(
+    def move_to_centred(self, centred_pos, motors):
+        """Move the computed axes (and omega) as one command and wait for it.
+
+        Only sampx/sampy/phiy/omega: centred_pos also carries the initial
+        value of every other centring role, and phiz is the same Smargon
+        axis as one of them - moving it would undo the computed value.
+        Keyed by the Smargon actuator, not by HO name, so it does not depend
+        on how the config files are named.
+        """
+        targets = {}
+        for motor in motors:
+            hwobj = getattr(motor, "motor", motor)
+            axis = getattr(hwobj, "motor_name", None)
+            if axis is None or hwobj not in centred_pos:
+                raise RuntimeError("centring: no Smargon axis for %r" % (hwobj,))
+            targets[axis] = centred_pos[hwobj]
+        logging.getLogger("HWR").info("Centring: moving to %s", targets)
+        self.emit_progress_message("Moving sample to centred position...")
+        self.smargon.move_motors(targets, wait=True)
+
+    def px1_center(self, *args, automatic=False):
+        """Run one centring: n clicks, n rotations, then the centring move.
+
+        The automatic centring holds the goniometer from its first rotation
+        to the end of the move that brings the computed point onto the beam,
+        so nothing else can send a command in between. The manual one only
+        takes it for each motion (each command is gated): it must not block
+        the goniometer while it waits for the user's clicks.
+        """
+        if automatic:
+            with self.smargon.procedure("auto centring"):
+                return self._px1_center(*args, automatic=True)
+        return self._px1_center(*args, automatic=False)
+
+    def _px1_center(
         self,
         phi,
         phiy,
@@ -659,13 +693,16 @@ class PX1MiniDiff(GenericDiffractometer):
             # back to the start.
             if automatic:
                 final_angle = phi_positions[-1] + phi_incr
-                # Murko is done: let the last rotation arrive before the
-                # centring reports its position, so whatever follows (the
-                # next zoom, the grid snapshot) sees the final orientation.
-                phi.wait_ready()
             else:
                 final_angle = PHI_ANGLE_START
             centred_pos = self.px1_center_move_motors(echantillon, (sampx, sampy, phiy), pixelsPerMm_Hor, final_angle, phi)
+
+            # The point of the centring: bring the computed point onto the
+            # beam. Done here, as the last step of the centring itself (and,
+            # for the automatic one, inside its goniometer procedure), not in
+            # the link callback afterwards where another command could slip
+            # in first.
+            self.move_to_centred(centred_pos, (sampx, sampy, phiy, phi))
 
             return centred_pos
 
@@ -720,20 +757,12 @@ class PX1MiniDiff(GenericDiffractometer):
                               "VISU_SAMPLE" : 8 }
 
 
-        if timeout:
-            self.px1env_ho.ready_event.clear()
-
-            self.px1env_ho.cmds.get(translation_to_env[phase])()
-            #self.px1env_ho.set_phase(phase)
-            self.px1env_ho.ready_event.wait()
-            self.px1env_ho.ready_event.clear()
-
-        else:
-            # Through goto_phase, not straight into px1env_ho.cmds: the
-            # supervisor refuses a phase command while it is MOVING, and
-            # goto_phase is where that wait lives. The int mapping above is
-            # already EnvironmentPhase's, so this is like for like.
-            self.px1env_ho.goto_phase(translation_to_env[phase])
+        # Always through goto_phase, never straight into px1env_ho.cmds: the
+        # supervisor refuses a phase command while it is MOVING, and a phase
+        # change moves the Smargon - goto_phase waits for both and holds the
+        # goniometer gate meanwhile. The int mapping above is already
+        # EnvironmentPhase's, so this is like for like.
+        self.px1env_ho.goto_phase(translation_to_env[phase], timeout or 60)
         self.update_backlight()
 
     def prepare_centring(self, timeout=20):
@@ -1100,12 +1129,13 @@ class PX1MiniDiff(GenericDiffractometer):
         self.emit_diffractometer_moved()
 
     def centring_done(self, centring_procedure, XYZcombined=True):
-        """
-        Descript. :
+        """Report the end of a centring.
+
+        The centring greenlet has already moved the sample to the centred
+        position (see _px1_center); this only reports the result.
         """
         logging.getLogger("HWR").debug("Diffractometer: centring procedure done.")
         try:
-            # Check the .get() method
             motor_pos = centring_procedure.get()
             if isinstance(motor_pos, gevent.GreenletExit):
                 raise motor_pos
@@ -1113,77 +1143,26 @@ class PX1MiniDiff(GenericDiffractometer):
             logging.exception("Could not complete centring")
             self.last_centring_error = ex
             self.emit_centring_failed()
-        else:
-            if motor_pos is None:
-                # px1_center swallows its own errors and returns None. Report
-                # it, or current_centring_method stays set and every later
-                # centring is refused as "already in centring method".
-                logging.getLogger("HWR").warning(
-                    "Diffractometer: centring returned no position"
-                )
-                self.emit_centring_failed()
-                return
+            return
 
-            if motor_pos != None and not XYZcombined:
-                for motor in motor_pos:
-                    position = motor_pos[motor]
-                    logging.getLogger("HWR").debug("   - motor is %s - going to %s" % (motor.name(), position))
+        if motor_pos is None:
+            # px1_center swallows its own errors (a failed move included) and
+            # returns None. Report it, or current_centring_method stays set
+            # and every later centring is refused as "already in centring
+            # method".
+            logging.getLogger("HWR").warning(
+                "Diffractometer: centring returned no position"
+            )
+            self.emit_centring_failed()
+            return
 
-                self.emit_progress_message("Moving sample to centred position...")
-                self.emit_centring_moving()
-                try:
-                    self.move_to_motors_positions(motor_pos, wait=True)
-                except:
-                    logging.exception("Could not move to centred position")
-                    self.emit_centring_failed()
-                else:
-                    pass
+        if self.current_centring_method == GenericDiffractometer.CENTRING_METHOD_AUTO:
+            self.emit("newAutomaticCentringPoint", motor_pos)
 
-                if self.current_centring_method == GenericDiffractometer.CENTRING_METHOD_AUTO:
-                    self.emit("newAutomaticCentringPoint", motor_pos)
-
-                self.centring_time = time.time()
-                self.emit_centring_successful()
-                self.emit_progress_message("")
-                self.ready_event.set()
-            if motor_pos != None and XYZcombined:
-                xyz_motors = {}
-                omega_pos = None
-                for motor in motor_pos:
-                    position = motor_pos[motor]
-                    if motor.name() != "omega":
-                        xyz_motors.update({motor.name(): position})
-                        logging.getLogger("HWR").debug("   - MOTOR is %s - going to %s" % (motor.name(), position))
-                    else:
-                        omega_pos = position
-
-                self.emit_progress_message("Moving sample to centred position...")
-                self.emit_centring_moving()
-
-                try:
-                    #if omega_pos:
-                    #   logging.getLogger("HWR").info(" Moving Omega to %.3f" % omega_pos)
-                    #   self.move_omega(omega_pos)
-                    logging.getLogger("HWR").info(" Moving XYZ to %s" % xyz_motors)
-                    self.smargon.move_XYZ(xyz_motors)
-                    # move_XYZ only starts the move: the centring (and the
-                    # queue node running it) ends with the sample in place.
-                    self.smargon.wait_ready()
-                    #self.move_to_motors_positions(motor_pos, wait=True)
-                except:
-                    logging.exception("Could not move to centred position")
-                    self.emit_centring_failed()
-                    return
-
-                if self.current_centring_method == GenericDiffractometer.CENTRING_METHOD_AUTO:
-                    self.emit("newAutomaticCentringPoint", motor_pos)
-
-                self.centring_time = time.time()
-                self.emit_centring_successful()
-                self.emit_progress_message("")
-                self.ready_event.set()
-
-
+        self.centring_time = time.time()
+        self.emit_centring_successful()
+        self.emit_progress_message("")
+        self.ready_event.set()
 
     def move_to_beam(self, x,y, omega=None):
 
@@ -1205,9 +1184,14 @@ class PX1MiniDiff(GenericDiffractometer):
 
         d_phiy = -dx
 
-        mot_phiy.move_relative(d_phiy)
-        mot_x.move_relative(d_sx)
-        mot_y.move_relative(d_sy)
+        # One command for the three axes, not three back to back.
+        self._move_relative_batch(((mot_phiy, d_phiy), (mot_x, d_sx), (mot_y, d_sy)))
+
+    def _move_relative_batch(self, moves, wait=False):
+        """Relative moves of several Smargon axes as ONE gated command."""
+        self.smargon.move_motors_relative(
+            {mot.motor_name: delta for mot, delta in moves}, wait=wait
+        )
 
     def move_to_centred_position(self, centred_position):
         """
@@ -1218,13 +1202,16 @@ class PX1MiniDiff(GenericDiffractometer):
         """
         """
         self.emit_progress_message("Moving to motors positions...")
+        if wait:
+            # In this greenlet: a waited move spawned elsewhere would wait
+            # for the goniometer gate this greenlet may be holding.
+            self.move_motors(motors_positions)
+            self.emit_progress_message("")
+            return
         self.move_to_motors_positions_procedure = gevent.spawn(\
              self.move_motors, motors_positions)
 
         self.move_to_motors_positions_procedure.link(self.move_motors_done)
-
-        if wait:
-            self.wait_device_ready(10)
 
     def move_omega_relative(self, relative_pos, wait=True):
         omega_mot = self.motor_hwobj_dict.get("phi")
@@ -1234,9 +1221,21 @@ class PX1MiniDiff(GenericDiffractometer):
         omega_mot = self.motor_hwobj_dict.get("phi")
         omega_mot.sync_move(target_position)
 
+    def wait_device_ready(self, timeout=30):
+        """Wait until the goniometer's last command has completely finished.
+
+        Not just STANDBY: the Smargon drops to STANDBY between the legs of
+        one motion (see Smargon.wait_settled).
+        """
+        self.smargon.wait_settled(timeout)
+
+    wait_ready = wait_device_ready
+
     def move_motors(self, motor_positions, timeout=15):
         """
-        Moves diffractometer motors to the requested positions
+        Moves diffractometer motors to the requested positions, as one
+        goniometer command (chi, which needs its own velocity sequence,
+        right after it, inside the same procedure).
 
         :param motors_dict: dictionary with motor names or hwobj
                             and target values.
@@ -1245,32 +1244,30 @@ class PX1MiniDiff(GenericDiffractometer):
         if isinstance(motor_positions, CentredPosition):
             motor_positions = motor_positions.as_dict()
 
-        self.wait_device_ready(timeout)
-        #logging.getLogger("HWR").info("PX1MiniDiff.move_motors: motor_positions= %s" % motor_positions)
+        targets = {}
+        chi = []
+        # phiz is the same Smargon axis as sampy (or sampx): let the real
+        # role win, whatever the dict order.
+        items = sorted(motor_positions.items(), key=lambda kv: kv[0] == "phiz")
+        for key, position in items:
+            motor = self.motor_hwobj_dict.get(key) if isinstance(key, str) else key
+            if motor is None or position is None or motor is self.zoom:
+                continue
+            axis = getattr(motor, "motor_name", None)
+            if axis is None:
+                logging.getLogger("HWR").warning(
+                    "PX1MiniDiff.move_motors: %r is not a Smargon axis, not moved", key
+                )
+                continue
+            if axis == "chi":
+                chi.append((motor, position))
+            elif axis not in targets:
+                targets[axis] = float(position)
 
-        for motor in list(motor_positions.keys()):
-            #logging.getLogger("HWR").info("PX1MiniDiff.move_motors: INP motor= %s name= %s" % (motor, motor.name()))
-            position = motor_positions[motor]
-
-
-            # CHECK IF FUNCTIONAL !!! is it changing existing values or is it adding new ones?
-            if isinstance(motor, str):
-                motor_role = motor
-                motor = self.motor_hwobj_dict.get(motor_role)
-                del motor_positions[motor_role]
-                if not motor or motor.name() == "/zoom":
-                    continue
-                motor_positions[motor] = position
-            #logging.getLogger("HWR").info("PX1MiniDiff.move_motors: OUT motor= %s" % motor)
-            self.wait_device_ready(timeout)
-            try:
-                motor.sync_move(position)
-            except:
-                import traceback
-                logging.getLogger("HWR").debug("  / error moving motor on diffractometer. state is %s" % (self.smargon_state))
-                logging.getLogger("HWR").debug("     / %s " % traceback.format_exc())
-
-        self.wait_device_ready(timeout)
+        with self.smargon.procedure("move motors"):
+            self.smargon.move_motors(targets, wait=True)
+            for motor, position in chi:
+                motor.move(position, wait=True)
         self.update_zoom_calibration()
 
     def motor_positions_to_screen(self, centred_positions_dict):
@@ -1388,8 +1385,7 @@ class PX1MiniDiff(GenericDiffractometer):
         d_sy = math.cos(math.radians(phi_angle)) * self.arrow_step
         d_sx = math.sin(math.radians(phi_angle)) * self.arrow_step
 
-        mot_x.move_relative(d_sx)
-        mot_y.move_relative(d_sy)
+        self._move_relative_batch(((mot_x, d_sx), (mot_y, d_sy)))
 
     def go_down(self):
         phi_angle = self.get_omega_position()
@@ -1399,8 +1395,7 @@ class PX1MiniDiff(GenericDiffractometer):
         d_sy = -math.cos(math.radians(phi_angle)) * self.arrow_step
         d_sx = -math.sin(math.radians(phi_angle)) * self.arrow_step
 
-        mot_x.move_relative(d_sx)
-        mot_y.move_relative(d_sy)
+        self._move_relative_batch(((mot_x, d_sx), (mot_y, d_sy)))
 
 
     def go_right(self):

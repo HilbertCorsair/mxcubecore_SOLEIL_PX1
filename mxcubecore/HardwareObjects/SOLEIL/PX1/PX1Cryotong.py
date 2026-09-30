@@ -3,6 +3,7 @@ import logging
 import gevent
 import gevent.event
 import time
+from contextlib import nullcontext
 from mxcubecore.HardwareObjects.abstract.sample_changer import Container
 import PyTango
 
@@ -406,14 +407,29 @@ class PX1Cryotong(Cats90):
                 % (loaded.get_address(), basketno, sampleno)
             )
 
-        if on_diff:
-            if loaded is not None and selected == loaded and not wash:
-                msg = "Load aborted. Reason: \nSample " + str(loaded.get_address()) + " already loaded"
-                logging.getLogger("user_level_log").info(msg)
-                self.emit("catsError", msg)
-                self._update_state()
-                raise Exception(msg)
+        if on_diff and loaded is not None and selected == loaded and not wash:
+            msg = "Load aborted. Reason: \nSample " + str(loaded.get_address()) + " already loaded"
+            logging.getLogger("user_level_log").info(msg)
+            self.emit("catsError", msg)
+            self._update_state()
+            raise Exception(msg)
 
+        # The robot works at the goniometer: hold it until the pin is on and
+        # moved to its pin length, so no goniometer command lands meanwhile.
+        with self._gonio_procedure("sample load %s:%s" % (basketno, sampleno)):
+            self._send_load(on_diff, argin)
+            self.environment.wait_ready()
+            HWR.beamline.diffractometer.mount_finished()
+        #self.videohub_ho.select_camera("OAV", process="mount")
+
+    def _gonio_procedure(self, name):
+        smargon = getattr(HWR.beamline.diffractometer, "smargon", None)
+        if smargon is None or not hasattr(smargon, "procedure"):
+            return nullcontext()
+        return smargon.procedure(name)
+
+    def _send_load(self, on_diff, argin):
+        if on_diff:
             logging.getLogger("HWR").warning("  ==========CATS=== chained load sample, sending to cats:  %s" % argin)
             self.environment.wait_ready()
             self._execute_server_task(self._cmdChainedLoad, argin)
@@ -427,10 +443,6 @@ class PX1Cryotong(Cats90):
                 )
             logging.getLogger("HWR").warning("  ==========CATS=== load sample, sending to cats:  %s" % argin)
             self._execute_server_task(self._cmdLoad, argin)
-
-        self.environment.wait_ready()
-        HWR.beamline.diffractometer.mount_finished()
-        #self.videohub_ho.select_camera("OAV", process="mount")
 
     def wait_countdown(self, timeout=20):
         t0 = time.time()
@@ -752,7 +764,8 @@ class PX1Cryotong(Cats90):
         #self.videohub_ho.select_camera("Robot", process="unmount")
         #self.videohub_ho.start_recording(file_prefix="unmount")
         logging.getLogger("HWR").warning("  ==========CATS=== unload sample, sending to cats:  %s" % argin)
-        self._execute_server_task(self._cmdUnload, argin)
+        with self._gonio_procedure("sample unload"):
+            self._execute_server_task(self._cmdUnload, argin)
         #self.videohub_ho.select_camera("OAV", process="unmount")
         self.update_info()
 

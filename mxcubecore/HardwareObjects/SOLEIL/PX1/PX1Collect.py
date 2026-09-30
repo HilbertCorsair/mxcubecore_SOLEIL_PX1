@@ -249,8 +249,34 @@ class PX1Collect(AbstractCollect):
         self.emit("collectReady", (True, ))
 
     def data_collection_hook(self):
-        """Main collection hook
+        """Main collection hook: one goniometer procedure, start to end.
+
+        The collect server drives the Smargon during the collection, and
+        data_collection_end() sends omega back: holding the goniometer gate
+        from the preparation to that return keeps every other command off it.
         """
+        smargon = getattr(self.diffractometer_hwobj, "smargon", None)
+        if smargon is None or not hasattr(smargon, "procedure"):
+            return self._data_collection_hook()
+        with smargon.procedure("data collection"):
+            return self._data_collection_hook()
+
+    def _wait_devices_settled(self, timeout=60):
+        """What the fixed 10 s after prepare_devices_for_collection waited for.
+
+        The collect phase change, the goniometer and the detector distance,
+        each waited on until it has actually finished.
+        """
+        self.px1env_hwobj.wait_ready(timeout)
+        self.diffractometer_hwobj.wait_device_ready(timeout)
+        try:
+            self.resolution_hwobj._hwr_detector.distance.wait_ready(timeout)
+        except Exception:
+            logging.getLogger("HWR").exception(
+                "PX1Collect: could not wait for the detector distance"
+            )
+
+    def _data_collection_hook(self):
         collection_type = self.current_dc_parameters['experiment_type']
         logging.getLogger("HWR").info("PX1Collect: Running PX1 data collection hook. Type is %s" % collection_type )
         self.emit("collectStarted", (None, 1))
@@ -263,7 +289,8 @@ class PX1Collect(AbstractCollect):
 
         ready = self.prepare_devices_for_collection()
 
-        time.sleep(10)
+        if ready:
+            self._wait_devices_settled()
 
         if not ready:
             self.collection_failed("Cannot prepare collection")
@@ -330,6 +357,7 @@ class PX1Collect(AbstractCollect):
             log = logging.getLogger("HWR")
             if collection_type != 'Characterization':  # standard or helical
                 self.start_standard_collection()
+                self._wait_collect_started()
                 log.debug("Waiting for collect to finish. max time waiting: %s" % max_wait_time)
                 if not self.wait_collect_ready(timeout=max_wait_time):
                     log.debug("Timeout waiting for end of Collection")
@@ -343,6 +371,7 @@ class PX1Collect(AbstractCollect):
             else:
                 # CHARACTERIZATION
                 self.start_characterization()
+                self._wait_collect_started()
                 if not self.wait_collect_ready(timeout=max_wait_time):
                     log.debug("Timeout waiting for end of Collection")
                     raise BaseException("Timeout waiting for collection end")
@@ -1354,6 +1383,18 @@ class PX1Collect(AbstractCollect):
                 return False
             gevent.sleep(0.05)
         return True
+
+    def _wait_collect_started(self, timeout=10):
+        """The collect server must be seen RUNNING before its end is believed.
+
+        Right after Start() the polled state can still read STANDBY from
+        before: wait_collect_ready() would return at once and the hook would
+        send omega back while the collect server still drives it.
+        """
+        if not self.wait_collect_moving(timeout):
+            logging.getLogger("HWR").warning(
+                "PX1Collect: collect server not seen RUNNING %s s after Start()", timeout
+            )
 
     def wait_collect_ready(self, timeout=10):
         collection_type = self.current_dc_parameters['experiment_type']

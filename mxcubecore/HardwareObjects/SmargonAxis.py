@@ -38,9 +38,15 @@ class SmargonAxis(AbstractMotor, Smargon):
         self.current_position = 0
         self.state = 'UNKNOWN'
 
-        self.motor_name = self.get_property("motor_name")
+        # proxima1's config names the axis <motor_name>, the repo's
+        # <actuator_name>: take whichever is there.
+        self.motor_name = self.get_property("motor_name") or self.get_property(
+            "actuator_name"
+        )
         self.smargon = self.get_object_by_role("smargon")
         self.backlash = self.get_property("backlash")
+        if self.backlash is not None:
+            self.backlash = float(self.backlash)
         self.limits = self.get_property("limits")
 
         self.velocity_default = self.smargon.get_property("velocity_default")
@@ -86,7 +92,9 @@ class SmargonAxis(AbstractMotor, Smargon):
         return self.smargon.motor_channels[self.motor_name].get_value()
     
     def set_value (self, _val):
-        return self.smargon.motor_channels[self.motor_name].set_value(_val)
+        # Through the gate like every other command (the web motor fields
+        # land here): never a raw write on top of a running motion.
+        self.move(_val)
 
     def get_limits(self):
         if self.limits:
@@ -126,17 +134,25 @@ class SmargonAxis(AbstractMotor, Smargon):
 
         return pos
 
+    # Every command goes through the shared Smargon's gate (see Smargon).
+
+    def procedure(self, name, timeout=None):
+        return self.smargon.procedure(name, timeout)
+
+    def busy_reason(self):
+        return self.smargon.busy_reason()
+
+    def wait_settled(self, timeout=None, targets=None):
+        self.smargon.wait_settled(timeout, targets)
+
     def sync_move(self, position, wait=True):
-        self.smargon.wait_ready()
-        self.smargon.move(self.motor_name, position, backlash=self.backlash)
-        if wait:
-            self.smargon.wait_ready()
+        self.move(position, wait=wait)
 
     def sync_move_relative(self, position, wait=True):
         new_pos = self.get_position() + position
         self.sync_move(new_pos, wait)
 
-    def move(self, target_position):
+    def move(self, target_position, wait=False):
         """Move the motor to the required position
 
         Arguments:
@@ -150,31 +166,26 @@ class SmargonAxis(AbstractMotor, Smargon):
             return
 
         if self.motor_name == 'chi':
-            log.debug("SmargonAxis.py -  Moving chi to %s" % target_position)
-            self.smargon.move('velocity', self.velocity_slow)
-            self.smargon.wait_ready()
-            gevent.sleep(0.2)
-            log.debug("SmargonAxis.py -  Current value for velocity is %s" % self.smargon.get_position('velocity'))
+            # Slow velocity, chi, default velocity: three commands that must
+            # not be split, so one procedure, run to the end.
+            with self.smargon.procedure("chi -> %.2f" % target_position):
+                log.debug("SmargonAxis.py -  Moving chi to %s" % target_position)
+                self.smargon.move('velocity', self.velocity_slow, wait=True)
+                self.smargon.move(self.motor_name, target_position, backlash=self.backlash, wait=True)
+                self.smargon.move('velocity', self.velocity_default, wait=True)
+            return
 
-        self.smargon.move(self.motor_name, target_position, backlash=self.backlash)
-
-        if self.motor_name == 'chi':
-            log.debug("SmargonAxis.py -  Moving chi restoring default velocity after move")
-            self.restore_task = gevent.spawn(self.restore_default_velocity)
-            gevent.sleep(0.2)
-            log.debug("SmargonAxis.py -  Current value for velocity is %s" % self.smargon.get_position('velocity'))
+        self.smargon.move(self.motor_name, target_position, backlash=self.backlash, wait=wait)
 
     def restore_default_velocity(self):
-        self.smargon.wait_ready()
-        self.smargon.move('velocity', self.velocity_default)
-        self.smargon.wait_ready()
+        self.smargon.move('velocity', self.velocity_default, wait=True)
 
-    def move_relative(self, position):
+    def move_relative(self, position, wait=False):
         new_pos = self.get_position() + position
-        self.smargon.move(self.motor_name, new_pos, backlash=self.backlash)
+        self.move(new_pos, wait=wait)
 
-    def wait_ready(self):
-        self.smargon.wait_ready()
+    def wait_ready(self, timeout=None):
+        self.smargon.wait_settled(timeout)
 
     def stop(self):
         self.smargon.stop()

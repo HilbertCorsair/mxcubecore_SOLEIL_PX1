@@ -1030,21 +1030,12 @@ class PX1XrayCentring(AbstractXrayCentring):
     def zero_sgonaxis(self):
         log.debug("ZEROing sgonaxis axis")
         self.log_msg("ZEROing sgonaxis axis")
-        # One axis at a time, as before, but each write waits for its own
-        # axis to read back zero instead of a blind second after it. The
-        # bound keeps the worst case near the old fixed 3 s.
-        for axis in ("x", "y", "z"):
-            setattr(self.sgonaxis_dev, axis, 0.0)
-            wait_until(
-                lambda: abs(getattr(self.sgonaxis_dev, axis)) < 1e-3,
-                2,
-                what="sgonaxis %s zeroed" % axis,
-            )
-        self.minidiff.wait_device_ready( timeout = 20 )
-        log.debug("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % \
-            (self.sgonaxis_dev.x, self.sgonaxis_dev.y, self.sgonaxis_dev.z))
-        self.log_msg("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % \
-            (self.sgonaxis_dev.x, self.sgonaxis_dev.y, self.sgonaxis_dev.z))
+        # One gated command for the three axes, waited until settled. These
+        # used to be three raw writes to the device, outside the gate.
+        self.smargon_hwo.move_motors({"x": 0.0, "y": 0.0, "z": 0.0}, wait=True)
+        self.log_msg("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % tuple(
+            self.smargon_hwo.get_position(axis) for axis in ("x", "y", "z")
+        ))
 
     def close_report_display(self):
         if self.proc_display:
@@ -1290,11 +1281,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.collect_dev.imagePath = self.get_base_directory()
         self.collect_dev.imageName = self.get_prefix()
 
-        # start the mesh
-        self.collect_dev.prepareCollect()
-        self.collect_dev.start()
-        # wait collect to finish
-        self.wait_collect_ready()
+        self._run_collect_server("mesh")
 
     def run_helical(self, omega, scan_no):
 
@@ -1366,11 +1353,44 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.log_msg("          nimgs:  %d" % self.collect_dev.nimages)
         self.log_msg("     imageWidth:  %d" % self.collect_dev.imageWidth)
         self.log_msg(" exposurePeriod:  %d" % self.collect_dev.exposurePeriod)
-        # start the mesh
-        self.collect_dev.prepareCollect()
-        self.collect_dev.start()
-        #
-        self.wait_collect_ready()
+        self._run_collect_server("helical %d" % scan_no)
+
+    collect_start_timeout = 10  # s for the collect server to report RUNNING
+
+    def _collect_state(self):
+        # Read the device, not the polled channel: right after start() the
+        # channel can still hold the state from before it.
+        try:
+            return str(self.collect_dev.State())
+        except Exception:
+            return str(self.collect_state_chan.get_value())
+
+    def _run_collect_server(self, what, timeout=480):
+        """Run a programmed scan on the collect server as one goniometer procedure.
+
+        The collect server drives the Smargon itself; holding the gate from
+        prepareCollect to the end of the scan keeps every other command off
+        the goniometer meanwhile, and the procedure only ends once the
+        Smargon has settled. The end of the scan is the collect server
+        leaving RUNNING - after it was seen entering it, so a state read just
+        after start() cannot pass for the end.
+        """
+        with self.smargon_hwo.procedure(what):
+            self.collect_dev.prepareCollect()
+            self.collect_dev.start()
+            started = wait_until(
+                lambda: self._collect_state() in ("MOVING", "RUNNING"),
+                self.collect_start_timeout,
+                what="collect server running (%s)" % what,
+            )
+            if not started:
+                log.warning("[UC] %s: collect server never reported RUNNING", what)
+            if not wait_until(
+                lambda: self._collect_state() not in ("MOVING", "RUNNING"),
+                timeout,
+                what="collect server done (%s)" % what,
+            ):
+                raise RuntimeError("PX1XrayCentring: %s did not end in %s s" % (what, timeout))
 
     def wait_collect_ready(self,timeout=480):
         t0 = time.time()
@@ -1536,10 +1556,9 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.smargon_hwo.move_motors(position_dict, wait=True)
 
     def move_motors(self, position_dict):
-        self.smargon_hwo.set_freeze(True)
-        for motor, pos in position_dict.items():
-            self.motors_dict[motor].move(pos)
-        self.smargon_hwo.set_freeze(False)
+        # One gated command (see PX1MiniDiff.move_motors), waited until
+        # settled; role names as keys.
+        self.minidiff.move_motors(dict(position_dict))
 
     def calc_pseudo(self, y, z, omega_pos=None):
 
