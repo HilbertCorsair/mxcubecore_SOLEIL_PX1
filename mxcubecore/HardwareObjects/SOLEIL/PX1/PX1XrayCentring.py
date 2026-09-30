@@ -29,6 +29,7 @@ from mxcubecore.BaseHardwareObjects import HardwareObject
 from PyTango import DeviceProxy
 from mxcubecore.HardwareObjects.SampleView import Shape, Line, Point, Grid
 from mxcubecore.HardwareObjects.CreateDirClient import CreateDirectoryClient
+from mxcubecore.HardwareObjects.SOLEIL.PX1.px1_wait import wait_until
 
 log = logging.getLogger('HWR')
 gevent.monkey.patch_all()
@@ -310,30 +311,235 @@ class PX1XrayCentring(AbstractXrayCentring):
                 sample_model.loc_str, elapsed,
             )
 
-    # ------------------------------------------------------------------
-    # Public phase seams. Each is called by exactly one queue entry in the
-    # decomposed pipeline, and by unattended_collect_single() in sequence.
-    # They share session state on this singleton (only one centring session
-    # runs at a time, since the queue mounts one sample at a time).
-    # ------------------------------------------------------------------
+    optical_centring_timeout = 120  # s, one murko centring incl. the final move
 
-    def run_optical_centring(self, zoom, settle=10):
-        """Set the zoom level and run one automatic (murko) centring.
+    def run_optical_centring(self, zoom, settle=None, timeout=None):
+        """Set the zoom level and run ONE automatic (murko) centring, to the end.
 
-        Called twice (zoom1 then zoom2) by OpticalCentringQueueEntry. Extracted
-        verbatim from the zoom1/zoom2 steps of the legacy driver.
+        Called twice (zoom1 then zoom2) by OpticalCentringQueueEntry. It used
+        to start the centring and sleep a fixed 10 s: a murko centring takes
+        longer, so the zoom2 phase changed the zoom under the still-running
+        zoom1 centring and then ran its own - two centrings in one row, the
+        second one spilling into the grid scan. Now it waits for the real end
+        of each step and never sends a centring while another one runs.
+
+        `settle` is accepted for compatibility and ignored: the zoom move is
+        waited for on the motor itself.
+
+        Returns True when the centring produced a valid position. Raises when
+        a previous centring is still running or this one does not finish.
         """
-        if self.minidiff.zoom.get_value() != zoom:
-            self.minidiff.zoom._set_value(self.minidiff.zoom.VALUES[zoom])
-            gevent.sleep(settle)
-        self.minidiff.start_centring_method(self.minidiff.CENTRING_METHOD_AUTO)
-        gevent.sleep(10)
+        md = self.minidiff
+        timeout = timeout or self.optical_centring_timeout
+
+        if not md.wait_centring_done(timeout):
+            raise RuntimeError(
+                "PX1XrayCentring: previous centring still running after %s s, "
+                "not starting the %s centring" % (timeout, zoom)
+            )
+
+        if not md.move_zoom(zoom):
+            raise RuntimeError("PX1XrayCentring: zoom did not reach %s" % zoom)
+
+        t0 = time.time()
+        md.start_centring_method(md.CENTRING_METHOD_AUTO)
+        if not md.wait_centring_done(timeout):
+            md.cancel_centring_method()
+            md.wait_centring_done(10)
+            raise RuntimeError(
+                "PX1XrayCentring: %s centring did not finish in %s s" % (zoom, timeout)
+            )
+
+        error = getattr(md, "last_centring_error", None)
+        if getattr(error, "abort_queue", False):
+            raise error
+
+        valid = bool(md.centring_status.get("valid"))
+        log.info(
+            "[UC] optical centring %s %s in %.1f s",
+            zoom, "done" if valid else "FAILED", time.time() - t0,
+        )
+        return valid
 
     def begin_centring_session(self, sample_model, user_params=None):
         """Reset session state, build the grid shape, assemble collect params,
         and prepare the report + snapshots for ONE sample.
 
         Run once per sample by GridScanQueueEntry before run_grid_scan().
+        Combines the grid-building of the legacy driver with the setup half of
+        do_xcentring (prepare/report/snapshots). current_dc_parameters must be
+        set before prepare() (it reads the fileinfo prefix), and the grid shape
+        must be added before prepare() (it reads the grid from SampleView).
+        """
+        basket, pos_in_basket = sample_model.location
+        position = (int(basket) - 1) * 16 + (int(pos_in_basket) - 1)
+        sample = HWR.beamline.sample_changer.get_sample_list()[position]
+
+        self._uc_sample = sample
+        self._uc_position = position
+        self._uc_user_params = user_params
+        self.found_spots = False
+
+        # Clear the shape store here rather than relying on mount_sample's
+        # sample_view.clear_all() and finalize_session's clear having run in the
+        # right order: the grid must never inherit a shape from a previous
+        # sample, whatever the mount/unmount interleaving was.
+        try:
+            self.graphics_manager_hwo.clear_all()
+            self.graphics_manager_hwo._shapes = {}
+        except Exception:
+            log.exception("[UC] could not clear shapes before building the grid")
+
+        # ---- build the grid shape from murko analysis (zoom2 centred) ----
+        # The grid is drawn on this image: it must show the sample after the
+        # centring's last rotation and XYZ move, not a frame from before.
+        self.smargon_hwo.wait_ready()
+        self.minidiff.wait_fresh_frame()
+        log.info("[UC] grid drawn at omega %.2f", self.omega_mot.get_position())
+        x1, y1, x2, y2 = self.generateGridFromAnalysis(
+            self.minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False
+        )
+        zoom_position = self.minidiff.zoom.get_value()
+        beam_size_x = HWR.beamline.beam.get_beam_size()[0] * self.minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmY']
+        number_colums = math.ceil((x2 - x1) / beam_size_x)
+        x2n = x1 + number_colums * beam_size_x
+        beam_size_y = HWR.beamline.beam.get_beam_size()[1] * self.minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmZ']
+        number_lines = math.ceil((y2 - y1) / beam_size_y)
+        y2n = y1 + number_lines * beam_size_y
+
+        mpos_left_top = self.minidiff.get_centred_point_from_coord(x1, y1)
+        mpos_right_bottom = self.minidiff.get_centred_point_from_coord(x2n, y2n)
+        mpos_list = [mpos_left_top, mpos_right_bottom]
+        # screen_coord is the grid's top-left corner: that is what
+        # get_xcentring_deltas_start_end_mm, Grid.as_dict and the web
+        # client's DrawGridPlugin read. The centre put the mesh half a grid
+        # right of and below the loop.
+        screen_coords = [x1, y1]
+
+        grid1 = Grid(mpos_list, screen_coords)
+        grid1.width = x2n - x1
+        grid1.height = y2n - y1
+        grid1.cell_count_fun = "zig-zag"
+        grid1.cell_h_space = -1
+        grid1.cell_height = beam_size_y
+        grid1.cell_v_space = -1
+        grid1.cell_width = beam_size_x
+        grid1.label = "Grid"
+        grid1.num_cols = number_colums
+        grid1.num_rows = number_lines
+        grid1.selected = False
+        self.graphics_manager_hwo.add_shape(grid1)
+        self.flag_is_centring = True
+
+        # ---- assemble collect parameters (defaults + user overrides) ----
+        param_list = self.prepareParamList(sample.get_id(), position)
+        self.applyUserParams(param_list[0], user_params)
+        self.protein_acro = param_list[0]['sample_reference']['acronym']
+        self._uc_param_list = param_list
+        HWR.beamline.collect.current_dc_parameters = param_list[0]
+
+        # ---- prepare report + snapshots (setup half of do_xcentring) ----
+        self.Y = []
+        self.errmsg = ""
+        self.emit('xcentringInfo', 'running', 'Preparing')
+        HWR.beamline.transmission.set_value(self.default_transmission_xray)
+        self.prepare()
+        self.prepare_report()
+        output_directory = self.get_process_directory()
+        self.moved = True
+        self.collect_snapshots(output_directory)
+        self.snapshots_to_report()
+        self.minidiff.wait_ready()
+        self.omega_mot.sync_move(self.omega_saved)
+        if not self.wait_envready():
+            self.emit('xcentringInfo', 'running',
+                      'Error waiting for environment. Cannot continue')
+            raise RuntimeError("PX1XrayCentring: environment not ready for centring")
+
+    def collect_with_params(self):
+        """Refresh motors into the collect params, take the two diffraction
+        snapshots, and run the data collection.
+
+        Snapshot + do_collect half of the legacy driver. The caller guards on
+        self.found_spots; run by UnattendedDataCollectionQueueEntry.
+        """
+        param_list = self._uc_param_list
+        param_list[0]['motors'] = self.createMotorDict()
+        HWR.beamline.collect.current_dc_parameters = param_list[0]
+
+        # No fixed sleeps: each step waits on the state the next one needs.
+        # go_to_sampleview() returns once the supervisor is in the phase (and
+        # the light is set), the rotation is a blocking move, and each
+        # snapshot waits for a camera frame exposed after the last move.
+        self.go_to_sampleview()
+        self.minidiff.wait_fresh_frame()
+        imgPath1 = (
+            param_list[0]["fileinfo"]["archive_directory"] + '/'
+            + param_list[0]["fileinfo"]["prefix"] + '_1_1.snapshot.jpeg'
+        )
+        self.minidiff.takePictureAnalysis(path=imgPath1)
+        imgPath2 = (
+            param_list[0]["fileinfo"]["archive_directory"] + '/'
+            + param_list[0]["fileinfo"]["prefix"] + '_1_2.snapshot.jpeg'
+        )
+        target = self.omega_mot.get_position() + 90
+        self.omega_mot.sync_move(target)
+        wait_until(
+            lambda: abs(self.omega_mot.get_position() - target) < 0.05,
+            10,
+            what="omega at %.2f" % target,
+        )
+        self.minidiff.wait_fresh_frame()
+        self.minidiff.takePictureAnalysis(path=imgPath2)
+
+        # do_collect runs the whole collection synchronously; what used to be
+        # a fixed 10 s here is only the collect device winding down.
+        HWR.beamline.collect.do_collect("mxcube")
+        self.wait_collect_ready(timeout=60)
+
+    def finalize_session(self, sample_model=None, unload=True):
+        """Clear graphics and, when asked, unload the sample.
+
+        Always run (even after a failed centring) by UnmountQueueEntry, which
+        passes unload=False while another sample is still to come: the pin then
+        stays on the goniometer and the next sample's mount is a chained load
+        (CATS Exchange) rather than an unload followed by a plain load. The
+        graphics/state teardown happens either way.
+        """
+        try:
+            self.graphics_manager_hwo.clear_all()
+            self.graphics_manager_hwo._shapes = {}
+        except Exception:
+            log.exception("Error clearing graphics at end of unattended collect")
+        self.found_spots = False
+
+        if not unload:
+            return
+
+        sample = getattr(self, "_uc_sample", None)
+        if sample is None and sample_model is not None:
+            basket, pos_in_basket = sample_model.location
+            position = (int(basket) - 1) * 16 + (int(pos_in_basket) - 1)
+            sample = HWR.beamline.sample_changer.get_sample_list()[position]
+        if sample is not None:
+            sc = HWR.beamline.sample_changer
+            try:
+                # Go through the public unload() so the changer state machine
+                # runs: assert_can_execute_task, _set_state(Unloading),
+                # update_info() and the loadedSampleChanged signal the web client
+                # needs to see that the goniometer is empty again. Calling
+                # _do_unload() directly bypassed all of it.
+                # PX1Cryotong.unload is the only override that takes wash;
+                # AbstractSampleChanger.unload has a different signature and
+                # raises when nothing is loaded.
+                if hasattr(sc, "cancel_souflette"):
+                    sc.unload(sample, wait=True, wash=False)
+                else:
+                    sc._do_unload(sample, wash=False)
+            except Exception:
+                log.exception("Error during unload at end of unattended collect")
+
+        """Run once per sample by GridScanQueueEntry before run_grid_scan().
         Combines the grid-building of the legacy driver with the setup half of
         do_xcentring (prepare/report/snapshots). current_dc_parameters must be
         set before prepare() (it reads the fileinfo prefix), and the grid shape
@@ -942,7 +1148,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.run_helical(omega, index + 1)
         best_y, spots = self.do_helical_analysis(index)
 
-        if not best_y:
+        # 0.0 is a valid result (peak on the axis); only None means no spots.
+        if best_y is None:
             self.emit('xcentringInfo', 'running', 'No spots in helical analysis')
             self.found_spots = False
             return False
@@ -973,8 +1180,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.move_motors(cpos)
         self.emit('xcentringInfo', 'running', 'Registering centered position')
         self.register_center_position(cpos)
-        time.sleep(1)
-
         self.flag_is_centring = False
         if not self.only_helical and self.fig:
             self.fig.savefig(self.report_image)
@@ -987,19 +1192,12 @@ class PX1XrayCentring(AbstractXrayCentring):
     def zero_sgonaxis(self):
         log.debug("ZEROing sgonaxis axis")
         self.log_msg("ZEROing sgonaxis axis")
-        self.sgonaxis_dev.x = 0.0
-        #self.minidiff.wait_device_ready( timeout = 20 )
-        gevent.sleep(1)
-        self.sgonaxis_dev.y = 0.0
-        #self.minidiff.wait_device_ready( timeout = 20 )
-        gevent.sleep(1)
-        self.sgonaxis_dev.z = 0.0
-        self.minidiff.wait_device_ready( timeout = 20 )
-        gevent.sleep(1)
-        log.debug("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % \
-            (self.sgonaxis_dev.x, self.sgonaxis_dev.y, self.sgonaxis_dev.z))
-        self.log_msg("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % \
-            (self.sgonaxis_dev.x, self.sgonaxis_dev.y, self.sgonaxis_dev.z))
+        # One gated command for the three axes, waited until settled. These
+        # used to be three raw writes to the device, outside the gate.
+        self.smargon_hwo.move_motors({"x": 0.0, "y": 0.0, "z": 0.0}, wait=True)
+        self.log_msg("ZEROing done x=%3.4f, y=%3.4f, z=%3.4f " % tuple(
+            self.smargon_hwo.get_position(axis) for axis in ("x", "y", "z")
+        ))
 
     def close_report_display(self):
         if self.proc_display:
@@ -1190,7 +1388,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.x_positions = np.linspace (self.mesh_x_start + self.mesh_x_halfstep ,
                                          self.mesh_x_end - self.mesh_x_halfstep,
                                          self.mesh_img_per_line)
-
         self.y_positions = np.linspace (self.mesh_y_start + self.mesh_y_halfstep,
                                         self.mesh_y_end - self.mesh_y_halfstep,
                                         self.mesh_nb_lines)
@@ -1214,9 +1411,13 @@ class PX1XrayCentring(AbstractXrayCentring):
 
     def run_mesh(self):
         self.emit('xcentringInfo', 'running', 'running mesh')
-        while not self.is_collect_phase(): # put while here to avoid stuck because time out
-            self.go_to_collect()
-            gevent.sleep(2) # allow time to refresh display after
+        # go_to_collect() itself waits for the phase; retry a bounded number
+        # of times instead of looping (and sleeping) for ever.
+        for _attempt in range(3):
+            if self.testmode or self.is_collect_phase() or self.go_to_collect():
+                break
+        else:
+            raise RuntimeError("PX1XrayCentring: supervisor never reached the collect phase")
 
         # program mesh
         self.log_msg("MESH - Programming collect device:")
@@ -1241,11 +1442,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.collect_dev.imagePath = self.get_base_directory()
         self.collect_dev.imageName = self.get_prefix()
 
-        # start the mesh
-        self.collect_dev.prepareCollect()
-        self.collect_dev.start()
-        # wait collect to finish
-        self.wait_collect_ready()
+        self._run_collect_server("mesh")
 
     def run_helical(self, omega, scan_no):
 
@@ -1317,11 +1514,44 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.log_msg("          nimgs:  %d" % self.collect_dev.nimages)
         self.log_msg("     imageWidth:  %d" % self.collect_dev.imageWidth)
         self.log_msg(" exposurePeriod:  %d" % self.collect_dev.exposurePeriod)
-        # start the mesh
-        self.collect_dev.prepareCollect()
-        self.collect_dev.start()
-        #
-        self.wait_collect_ready()
+        self._run_collect_server("helical %d" % scan_no)
+
+    collect_start_timeout = 10  # s for the collect server to report RUNNING
+
+    def _collect_state(self):
+        # Read the device, not the polled channel: right after start() the
+        # channel can still hold the state from before it.
+        try:
+            return str(self.collect_dev.State())
+        except Exception:
+            return str(self.collect_state_chan.get_value())
+
+    def _run_collect_server(self, what, timeout=480):
+        """Run a programmed scan on the collect server as one goniometer procedure.
+
+        The collect server drives the Smargon itself; holding the gate from
+        prepareCollect to the end of the scan keeps every other command off
+        the goniometer meanwhile, and the procedure only ends once the
+        Smargon has settled. The end of the scan is the collect server
+        leaving RUNNING - after it was seen entering it, so a state read just
+        after start() cannot pass for the end.
+        """
+        with self.smargon_hwo.procedure(what):
+            self.collect_dev.prepareCollect()
+            self.collect_dev.start()
+            started = wait_until(
+                lambda: self._collect_state() in ("MOVING", "RUNNING"),
+                self.collect_start_timeout,
+                what="collect server running (%s)" % what,
+            )
+            if not started:
+                log.warning("[UC] %s: collect server never reported RUNNING", what)
+            if not wait_until(
+                lambda: self._collect_state() not in ("MOVING", "RUNNING"),
+                timeout,
+                what="collect server done (%s)" % what,
+            ):
+                raise RuntimeError("PX1XrayCentring: %s did not end in %s s" % (what, timeout))
 
     def wait_collect_ready(self,timeout=480):
         t0 = time.time()
@@ -1487,10 +1717,9 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.smargon_hwo.move_motors(position_dict, wait=True)
 
     def move_motors(self, position_dict):
-        self.smargon_hwo.set_freeze(True)
-        for motor, pos in position_dict.items():
-            self.motors_dict[motor].move(pos)
-        self.smargon_hwo.set_freeze(False)
+        # One gated command (see PX1MiniDiff.move_motors), waited until
+        # settled; role names as keys.
+        self.minidiff.move_motors(dict(position_dict))
 
     def calc_pseudo(self, y, z, omega_pos=None):
 
@@ -1732,8 +1961,6 @@ class PX1XrayCentring(AbstractXrayCentring):
     def go_to_sampleview(self, timeout=180):
         self.px1env_hwo.goto_sample_view_phase()
 
-        gevent.sleep(0.5)
-
         t0 = time.time()
         while True:
             env_state = self.px1env_hwo.get_state()
@@ -1765,7 +1992,6 @@ class PX1XrayCentring(AbstractXrayCentring):
             return
 
         self.px1env_hwo.goto_collect_phase()
-        gevent.sleep(0.5)
 
         t0 = time.time()
         while True:
@@ -1818,8 +2044,6 @@ class PX1XrayCentring(AbstractXrayCentring):
             if elapsed > 50.0:
                 self.emit('xcentringInfo', 'error', 'timeout (%3.2f secs) waiting for analysis results. aborting' % elapsed)
                 raise Exception("PX1XrayCentring - timeout waiting for dozor log file (%s)" % elapsed)
-            #self.graphics_manager_hwo.start_stream()
-            return
         #self.graphics_manager_hwo.start_stream()
 
 

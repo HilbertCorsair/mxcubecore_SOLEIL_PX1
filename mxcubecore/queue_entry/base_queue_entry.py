@@ -215,6 +215,11 @@ class BaseQueueEntry(QueueEntryContainer):
         self.set_view(view, view_set_queue_entry)
         self._checked_for_exec = False
         self.status = QUEUE_ENTRY_STATUS.NOT_EXECUTED
+        # Wall-clock (time.time()) start and end of the last run, stamped by
+        # QueueManager. Clients time the queue rows from these, not from when
+        # their own copy of the state change happened to arrive.
+        self.started_at = None
+        self.ended_at = None
         self.type_str = ""
         self._data_model.lims_session_id = HWR.beamline.session.session_id
 
@@ -702,6 +707,9 @@ class SampleQueueEntry(BaseQueueEntry):
                 else:
                     sample_mounted = mount_device.is_mounted_sample(loc)
 
+                if _has_unattended_pipeline(self._data_model):
+                    self._require_murko()
+
                 if not sample_mounted:
                     self.sample_centring_result = gevent.event.AsyncResult()
                     try:
@@ -721,6 +729,7 @@ class SampleQueueEntry(BaseQueueEntry):
                         self.status = QUEUE_ENTRY_STATUS.FAILED
 
                         if isinstance(e, QueueSkipEntryException):
+                        if isinstance(e, (QueueSkipEntryException, QueueAbortedException)):
                             raise
 
                         if not self._sample_changer_usable(mount_device):
@@ -763,6 +772,18 @@ class SampleQueueEntry(BaseQueueEntry):
                 )
                 log.info(msg)
             self.get_view().setText(1, "")
+
+    def _require_murko(self):
+        """Stop the queue before mounting when murko is down.
+
+        The unattended pipeline centres with murko only: without it every
+        sample would be mounted, fail its centring and be unmounted again.
+        """
+        check = getattr(HWR.beamline.diffractometer, "is_murko_available", None)
+        if check is not None and not check():
+            msg = "Murko is not reachable: unattended collect stopped before mounting"
+            logging.getLogger("user_level_log").error(msg)
+            raise QueueAbortedException(msg, self)
 
     @staticmethod
     def _wait_mounted(mount_device, loc, timeout=MOUNT_SETTLE_TIMEOUT):

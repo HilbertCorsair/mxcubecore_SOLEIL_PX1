@@ -19,6 +19,7 @@
 
   <object role="light" href="/light"/>
   <object role="lightarm" href="/lightarm"/>
+  <object role="backlight" href="/backlight"/>
 
   <object role="beam_info" hwrid="/beam-info"></object>
 
