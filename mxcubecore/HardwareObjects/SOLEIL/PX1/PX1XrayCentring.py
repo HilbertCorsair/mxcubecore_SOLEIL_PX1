@@ -1883,8 +1883,6 @@ class PX1XrayCentring(AbstractXrayCentring):
             if elapsed > 50.0:
                 self.emit('xcentringInfo', 'error', 'timeout (%3.2f secs) waiting for analysis results. aborting' % elapsed)
                 raise Exception("PX1XrayCentring - timeout waiting for dozor log file (%s)" % elapsed)
-            #self.graphics_manager_hwo.start_stream()
-            return
         #self.graphics_manager_hwo.start_stream()
 
 
