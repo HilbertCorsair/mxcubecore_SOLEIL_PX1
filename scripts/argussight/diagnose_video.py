@@ -731,6 +731,20 @@ def check_discovery(app):
     oav = next((n for n in names if meta.get(n, {}).get("oav")), names[0])
     base = (app.get("ARGUSSIGHT_PROXY_URL") or "").rstrip("/")
     report(hop, "PASS", f"streams {streams}; MXCuBE shows {names}; OAV = {oav}")
+    unregistered = [n for n in configured if n not in streams]
+    unlisted = [s for s in streams if configured and s not in configured]
+    if len(names) < 2 or unregistered or unlisted:
+        report(
+            hop,
+            "WARN",
+            f"{len(names)} camera(s) reach the page"
+            + (" -- the switcher is hidden and the menu falls back to ui.yaml "
+               "camera_setup" if len(names) < 2 else "")
+            + f"; configured but not registered: {unregistered}; registered but "
+            f"not in ARGUSSIGHT_CAMERAS: {unlisted}",
+            "unregistered: grep 'registered' in argussight.log; unlisted: add "
+            "them to ARGUSSIGHT_CAMERAS and restart MXCuBE",
+        )
     if not base:
         return ""
     url = f"{base}/{oav}"

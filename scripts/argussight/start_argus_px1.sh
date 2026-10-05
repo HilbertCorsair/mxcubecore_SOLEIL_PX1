@@ -34,7 +34,11 @@ export PX1_REDIS_CHANNEL="${PX1_REDIS_CHANNEL-mxcubeweb}"
 # Override with CONDA_ACTIVATE=/path/to/activate (empty: use the current
 # environment, e.g. on a dev machine), CONDA_ENV, HELPER_PY, MXCUBE_ENV,
 # MXCUBE_PY.
-CONDA_ACTIVATE="${CONDA_ACTIVATE-$HOME/miniconda3/bin/activate}"
+# Unset: the conda install on PATH (conda info --base), else ~/miniconda3.
+if [ -z "${CONDA_ACTIVATE+x}" ]; then
+    conda_base="$(conda info --base 2>/dev/null || true)"
+    CONDA_ACTIVATE="${conda_base:-$HOME/miniconda3}/bin/activate"
+fi
 # Same default as mxgo.sh's ARGUS_CONDA_ENV; base has no argussight (exit 127).
 CONDA_ENV="${CONDA_ENV-argussight}"
 
@@ -52,10 +56,24 @@ if [ -n "$CONDA_ACTIVATE" ]; then
         # this script's positional params as the env name.
         set +u
         # shellcheck disable=SC1090
-        source "$CONDA_ACTIVATE" "$CONDA_ENV"
+        source "$CONDA_ACTIVATE" "$CONDA_ENV" || true
         set -u
+        # A missing env does not always fail the source; carrying on in the
+        # wrong env ends in "failed to execute argussight" (exit 127) later.
+        if [ "${CONDA_DEFAULT_ENV:-}" != "$CONDA_ENV" ] \
+            && [ "$(basename "${CONDA_PREFIX:-/}")" != "$CONDA_ENV" ]; then
+            echo "ERROR: could not activate conda env '$CONDA_ENV' with $CONDA_ACTIVATE" \
+                 "(active: '${CONDA_DEFAULT_ENV:-none}')." >&2
+            echo "       Check it exists: conda env list. Override with CONDA_ENV=<name>" \
+                 "or CONDA_ACTIVATE=<conda root>/bin/activate." >&2
+            exit 1
+        fi
     else
-        echo "conda activate script not found ($CONDA_ACTIVATE); using current environment" >&2
+        echo "ERROR: conda activate script not found ($CONDA_ACTIVATE), so env" \
+             "'$CONDA_ENV' cannot be activated." >&2
+        echo "       Set CONDA_ACTIVATE=<conda root>/bin/activate, or CONDA_ACTIVATE=" \
+             "to use the current environment." >&2
+        exit 1
     fi
 fi
 
@@ -78,7 +96,35 @@ echo "helpers on $HELPER_PY; video-streamers on $ARGUS_STREAMER_PY"
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
 export no_proxy="*" NO_PROXY="*"
 
-ARGUSSIGHT_BIN="${ARGUSSIGHT_BIN-argussight}"
+# How to run argussight, resolved now so a broken env fails before the operator
+# is asked about the camera. The helpers import argussight too (argus_cameras.py
+# registers the streams with its gRPC stubs), so it must be importable by
+# HELPER_PY; argussight itself then runs from that same env -- not from some
+# other env's `argussight` that happens to be on PATH (e.g. base's). The console
+# script exists only when the package was pip-installed; an importable source
+# checkout has none (setsid: "failed to execute argussight", exit 127), so fall
+# back to running the module.
+if ! import_err=$("$HELPER_PY" -c "import argussight.main, argussight.grpc.argus_service_pb2_grpc" 2>&1); then
+    echo "ERROR: $HELPER_PY (${CONDA_PREFIX:-no conda env}) cannot import argussight:" >&2
+    echo "       ${import_err##*$'\n'}" >&2
+    if [[ "$import_err" == *"No module named 'argussight"* ]]; then
+        echo "       Install it into the '$CONDA_ENV' env, e.g.:" \
+             "pip install -e /nfs/ruche/share-dev/px1dev/MXCuBE/WebApp/argussight" >&2
+    else
+        # e.g. PyPI argussight 0.3.2 does not declare its psutil dependency.
+        echo "       argussight is there but one of its dependencies is not;" \
+             "pip install it into the '$CONDA_ENV' env." >&2
+    fi
+    exit 1
+fi
+if [ -n "${ARGUSSIGHT_BIN:-}" ]; then
+    ARGUS_CMD=("$ARGUSSIGHT_BIN")
+elif [ -x "$(dirname "$HELPER_PY")/argussight" ]; then
+    ARGUS_CMD=("$(dirname "$HELPER_PY")/argussight")
+else
+    ARGUS_CMD=("$HELPER_PY" -m argussight.main)
+fi
+echo "argussight command: ${ARGUS_CMD[*]}"
 
 # argussight >= 0.3.2 reads <dir>/config.yaml from `-c <dir>`; without it, it
 # looks in the current directory, dies with FileNotFoundError before binding
@@ -90,9 +136,13 @@ ARGUS_CONFIG_DIR="${ARGUS_CONFIG_DIR-$HERE/config}"
 ARGUS_WORKDIR="${ARGUS_WORKDIR-$HOME/MXCuBElogs/argussight}"
 # Seconds to wait for argussight to bind :50051 and :7000.
 ARGUS_BIND_TIMEOUT="${ARGUS_BIND_TIMEOUT-30}"
-# Ports this stack binds: argussight gRPC, argussight proxy, the OAV streamer
-# (argus_cameras.py's CAMERAS).
-STACK_PORTS="50051 7000 9000"
+# Ports this stack binds: argussight gRPC, argussight proxy, and one per
+# streamer, read from argus_cameras.py's CAMERAS so they cannot drift.
+if ! camera_ports=$(cd "$HERE" && "$HELPER_PY" -c \
+        'import argus_cameras as a; print(*[c["port"] for c in a.CAMERAS])' 2>/dev/null); then
+    camera_ports="9000 9001 9002 9003 9004"
+fi
+STACK_PORTS="50051 7000 $camera_ports"
 
 # Is anything LISTENING on this local port? Same test as mxgo.sh's port_open.
 port_open() {
@@ -186,7 +236,7 @@ echo "starting argussight (gRPC :50051, proxy :7000; config $ARGUS_CONFIG_DIR," 
 # exec + setsid: the recorded pid is argussight itself, and it leads its own
 # session, which stop_recorded uses to reach its children (see above). The
 # background subshell is not a process-group leader, so setsid does not fork.
-(cd "$ARGUS_WORKDIR" && exec setsid "$ARGUSSIGHT_BIN" -c "$ARGUS_CONFIG_DIR" \
+(cd "$ARGUS_WORKDIR" && exec setsid "${ARGUS_CMD[@]}" -c "$ARGUS_CONFIG_DIR" \
     -hs "$REDIS_HOST" -p "$REDIS_PORT" -ch "$PX1_REDIS_CHANNEL") &
 argus_pid=$!
 echo "$argus_pid" >> "$PIDFILE"
