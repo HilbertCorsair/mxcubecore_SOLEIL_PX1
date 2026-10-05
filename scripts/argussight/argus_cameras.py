@@ -246,9 +246,22 @@ def preflight():
     check = "import video_streamer.main"
     if any(cam.get("in_redis_channel") for cam in CAMERAS):
         check += "; from video_streamer.core.camera import RedisCamera"
+    # The hutch cameras (http MJPEG) need an MJPEGCamera that cuts frames out of
+    # the stream; stock v1.5.0's never sends ffmpeg a byte.
+    mjpeg = [cam["name"] for cam in CAMERAS if cam["uri"].startswith("http")]
+    if mjpeg:
+        check += ("; from video_streamer.core.camera import MJPEGCamera"
+                  "; import sys; sys.exit(0 if hasattr(MJPEGCamera, '_extract_frame') else 3)")
     result = subprocess.run(
         [STREAMER_PY, "-c", check], capture_output=True, text=True,
     )
+    if result.returncode == 3:
+        logger.error(
+            "video-streamer used by %s cannot read MJPEG cameras (%s): it lacks "
+            "the MJPEG backport. Install video-streamer_SOLEIL_PX1 (main) into "
+            "that env.", STREAMER_PY, ", ".join(mjpeg),
+        )
+        sys.exit(1)
     if result.returncode != 0:
         lines = result.stderr.strip().splitlines()
         logger.error(

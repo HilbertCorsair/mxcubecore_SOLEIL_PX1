@@ -36,8 +36,9 @@ def probe(name, uri, seconds):
     print(f"      video_streamer from {os.path.dirname(video_streamer.__file__)}")
     for meth in ("_extract_boundary", "_extract_frame", "_image_to_rgb24"):
         if not hasattr(MJPEGCamera, meth):
-            print(f"FAIL  this video_streamer has no MJPEGCamera.{meth}: not the PX2 "
-                  "fork (px2_video_streamer_v1.9.1); MJPEG -> MPEG1 cannot work")
+            print(f"FAIL  this video_streamer has no MJPEGCamera.{meth}: its MJPEG "
+                  "reader cannot feed ffmpeg. Install video-streamer_SOLEIL_PX1 "
+                  "with the MJPEG backport into this env")
             return False
     cam = MJPEGCamera.__new__(MJPEGCamera)  # skip __init__: its GET has no timeout
 
