@@ -35,7 +35,8 @@ export PX1_REDIS_CHANNEL="${PX1_REDIS_CHANNEL-mxcubeweb}"
 # environment, e.g. on a dev machine), CONDA_ENV, HELPER_PY, MXCUBE_ENV,
 # MXCUBE_PY.
 CONDA_ACTIVATE="${CONDA_ACTIVATE-$HOME/miniconda3/bin/activate}"
-CONDA_ENV="${CONDA_ENV-base}"
+# Same default as mxgo.sh's ARGUS_CONDA_ENV; base has no argussight (exit 127).
+CONDA_ENV="${CONDA_ENV-argussight}"
 
 # Interpreter for the video-streamers, called directly (no env switch).
 CONDA_ROOT="$(dirname "$(dirname "$CONDA_ACTIVATE")")"
