@@ -409,6 +409,11 @@ For `http://` sources leave `size` as `"0,0"`; video-streamer detects the real
 resolution. Only the OAV needs a real size, because `RedisCamera` locks ffmpeg's
 source size to it and a wrong value kills ffmpeg with a broken pipe.
 
+| Symptom | Cause | Check / fix |
+|---|---|---|
+| `setsid: failed to execute argussight: No such file or directory`, then `exited with code 127` | an env without the `argussight` console script. The launcher now refuses to start in that case, before the camera prompt | `conda env list`; `ls $CONDA_PREFIX/bin/argussight`. If the package is importable but has no script, the launcher runs `python -m argussight.main` itself. Otherwise `pip install -e /nfs/ruche/share-dev/px1dev/MXCuBE/WebApp/argussight` into the `argussight` env. Override with `CONDA_ENV`, `CONDA_ACTIVATE`, `ARGUSSIGHT_BIN` |
+| "Beamline Cameras" lists one camera (or the old `ui.yaml` ones) | fewer than **two** argussight cameras reached the page. `BeamlineCamera.jsx` then falls back to `ui.yaml`'s `camera_setup` | `diagnose_video.py` hop `3 discovery` (WARN lists unregistered/unlisted names). Edit the server.yaml mxcubeweb reads (`<config>/mxcube-web/server.yaml`, under `mxcube:`), then **restart** mxcubeweb: it reads the file only at startup |
+
 ## Deployment config (on proxima1, outside this repo)
 
 ### `server.yaml`
