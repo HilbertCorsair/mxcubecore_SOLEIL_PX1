@@ -39,10 +39,13 @@ def tool(name):
 
 
 def connect(url):
-    try:
-        return websockets.connect(url, max_size=None, open_timeout=5, proxy=None)
-    except TypeError:  # websockets < 15: no proxy support, no kwarg
-        return websockets.connect(url, max_size=None, open_timeout=5)
+    kwargs = {"max_size": None, "open_timeout": 5}
+    # Only websockets >= 15 knows `proxy` (and only it would use one). Older
+    # versions reject it -- lazily, when the connection opens, so a try/except
+    # around this call cannot catch it.
+    if int(websockets.__version__.split(".")[0]) >= 15:
+        kwargs["proxy"] = None
+    return websockets.connect(url, **kwargs)
 
 
 async def pump(url, seconds, sink):
