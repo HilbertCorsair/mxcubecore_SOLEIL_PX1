@@ -53,6 +53,7 @@ _objects:
   - gphl_connection: gphl-setup.yml
   - gphl_workflow: gphl-workflow.yml
   - xray_centring: xray_centring2.yml
+  - unattended_collect: unattended-collect-mockup.xml
   # - centring: centring.xml
   # Analysis:
   - offline_processing: offline-processing-mockup.xml

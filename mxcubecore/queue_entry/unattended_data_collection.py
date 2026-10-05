@@ -1,4 +1,4 @@
-#  Project: MXCuBE
+#  Project name: MXCuBE
 #  https://github.com/mxcube
 #
 #  This file is part of MXCuBE software.
@@ -15,76 +15,36 @@
 #
 #  You should have received a copy of the GNU Lesser General Public License
 #  along with MXCuBE. If not, see <http://www.gnu.org/licenses/>.
-
-import logging
-
-from mxcubecore import HardwareRepository as HWR
 from mxcubecore.model import queue_model_objects
-from mxcubecore.queue_entry.base_queue_entry import (
-    BaseQueueEntry,
-    QueueSkipEntryException,
-)
+from mxcubecore.queue_entry.base_queue_entry import QueueSkipEntryException
+from mxcubecore.queue_entry.data_collection import DataCollectionQueueEntry
 
 __credits__ = ["MXCuBE collaboration"]
 __license__ = "LGPLv3+"
 __category__ = "General"
 
 
-class UnattendedDataCollectionQueueEntry(BaseQueueEntry):
-    """Unattended pipeline phase: snapshots + data collection + autoprocessing.
+class UnattendedDataCollectionQueueEntry(DataCollectionQueueEntry):
+    """The data collection of an unattended collect.
 
-    Runs PX1XrayCentring.collect_with_params() (refresh motors, two diffraction
-    snapshots, do_collect), guarded by found_spots; a skip raises
-    QueueSkipEntryException so the row reads as skipped rather than collected.
-
-    post_execute triggers autoprocessing as a fallback for collections that
-    AbstractCollect.collection_finished() does not cover (fewer than 20 frames).
-    PX1Collect.trigger_auto_processing de-duplicates via _autoproc_launched, so
-    a collection that already triggered itself is not processed twice.
+    A standard data collection, at the position found by the tasks before it.
     """
 
-    NAME = "Unattended data collection"
-    DATA_MODEL = queue_model_objects.UnattendedDataCollection
-
-    def __init__(self, view=None, data_model=None, view_set_queue_entry=True):
-        BaseQueueEntry.__init__(self, view, data_model, view_set_queue_entry)
-        self._collected = False
-
-    def execute(self):
-        BaseQueueEntry.execute(self)
-        log = logging.getLogger("HWR")
-        xc = HWR.beamline.xray_centring
-        self._collected = False
-        log.info("[UC] UnattendedDataCollectionQueueEntry.execute reached")
-
-        if not getattr(xc, "found_spots", False):
-            log.info("[UC] data collection skipped (no spots)")
-            raise QueueSkipEntryException(
-                "Data collection skipped: no spots found", self
-            )
-
-        try:
-            xc.collect_with_params()
-            self._collected = True
-        except Exception:
-            log.exception("[UC] data collection failed")
+    QMO = queue_model_objects.UnattendedDataCollection
 
     def pre_execute(self):
-        BaseQueueEntry.pre_execute(self)
+        model = self.get_data_model()
+        context = model.get_parent().context
 
-    def post_execute(self):
-        BaseQueueEntry.post_execute(self)
-        if not self._collected:
-            return
-        try:
-            collect = HWR.beamline.collect
-            collect.trigger_auto_processing(
-                "standard", collect.current_dc_parameters, -1
-            )
-        except Exception:
-            logging.getLogger("HWR").exception(
-                "[UC] autoprocessing trigger failed"
-            )
+        if not context.get("found_spots"):
+            msg = f"{model.label} skipped, no spots found"
+            raise QueueSkipEntryException(msg, self)
+
+        acq_params = model.acquisitions[0].acquisition_parameters
+        acq_params.centred_position = queue_model_objects.CentredPosition(
+            context.get("centred_position")
+        )
+        super().pre_execute()
 
     def get_type_str(self):
-        return "Unattended data collection"
+        return self.get_data_model().label

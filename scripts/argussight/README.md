@@ -399,7 +399,7 @@ python check_frames.py --uri redis://localhost:6399 --timeout 5   # -> exit 3
 
 ## Adding a hutch camera
 
-1. Uncomment/extend an entry in `CAMERAS` in `argus_cameras.py`.
+1. Add an entry to `CAMERAS` in `argus_cameras.py`.
 2. Add a matching entry to `ARGUSSIGHT_CAMERAS` in the deployed `server.yaml`.
    **The `name` must match** or the stream is silently dropped from the switcher.
 3. Exactly one camera carries `oav: true` — it is the default view and the only
@@ -442,9 +442,12 @@ mxcube:
   ARGUSSIGHT_PROXY_URL: /argus
   ARGUSSIGHT_CAMERAS:
     - { name: oav, label: OAV (centring), width: 1360, height: 1024, oav: true }
-    # Add hutch cameras here once their URLs are known; the names must match
-    # the `name` values in argus_cameras.py's CAMERAS.
-    # - { name: hutch_1, label: Hutch 1, width: 1920, height: 1080 }
+    # The names must match the `name` values in argus_cameras.py's CAMERAS.
+    # width/height: the camera's native size (the UI sizes the canvas from it).
+    - { name: hutch_1, label: Hutch 1, width: 1920, height: 1080 }
+    - { name: hutch_2, label: Hutch 2, width: 1920, height: 1080 }
+    - { name: hutch_3, label: Hutch 3, width: 1920, height: 1080 }
+    - { name: hutch_4, label: Hutch 4, width: 1920, height: 1080 }
 ```
 
 Leave `ARGUSSIGHT_CAMERAS` empty to expose every discovered stream unfiltered —

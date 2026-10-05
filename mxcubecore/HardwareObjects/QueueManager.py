@@ -32,10 +32,8 @@ class QueueManager(HardwareObject, QueueEntryContainer):
         QueueEntryContainer.__init__(self)
         self.centring_method = CENTRING_METHOD.NONE
         self._root_task = None
-        # The entry a single-entry run was started with, None for a whole-queue
-        # run. Read by queue entries that need to know what the current run
-        # covers (see queue_entry.unmount.UnmountQueueEntry).
-        self._run_root_entry = None
+        # The entry of a single entry run, None when the whole queue runs
+        self.run_root_entry = None
         self._paused_event = gevent.event.Event()
         self._paused_event.set()
         self._current_queue_entry = None
@@ -46,12 +44,15 @@ class QueueManager(HardwareObject, QueueEntryContainer):
 
     def init(self):
         site_entry_path = self.get_property("site_entry_path")
-        queue_entry.import_queue_entries(site_entry_path)
+        if site_entry_path:
+            queue_entry.import_queue_entries(site_entry_path.split(","))
+        else:
+            queue_entry.import_queue_entries()
 
     def __getstate__(self):
         d = dict(self.__dict__)
         d["_root_task"] = None
-        d["_run_root_entry"] = None
+        d["run_root_entry"] = None
         d["_paused_event"] = None
         return d
 
@@ -99,7 +100,7 @@ class QueueManager(HardwareObject, QueueEntryContainer):
             self.emit("statusMessage", ("status", "Queue running", "running"))
             self._is_stopped = False
             self._running = True
-            self._run_root_entry = entry
+            self.run_root_entry = entry
 
             if not entry:
                 self._current_queue_entries = []
@@ -313,9 +314,7 @@ class QueueManager(HardwareObject, QueueEntryContainer):
     @staticmethod
     def _entry_label(entry):
         model = entry.get_data_model()
-        label = model.get_name() if hasattr(model, "get_name") else str(entry)
-        zoom = getattr(model, "zoom", None)
-        return "%s (%s)" % (label, zoom) if zoom else label
+        return model.get_name() if hasattr(model, "get_name") else str(entry)
 
     @staticmethod
     def _fmt_seconds(seconds):

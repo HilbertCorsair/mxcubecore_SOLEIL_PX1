@@ -107,12 +107,14 @@ class PyISPyBDataAdapter:
             "cellBeta": crystal["cell_beta"],
             "cellC": crystal["cell_c"],
             "cellGamma": crystal["cell_gamma"],
-            "diffractionPlan": sample_data["DiffractionPlan"]["diffractionPlanId"],
+            "diffractionPlan": (sample_data.get("DiffractionPlan") or {}).get(
+                "diffractionPlanId"
+            ),
         }
 
     def __find_proposal_by_id(self, proposal_id: int) -> Proposal:
         return self.__to_proposal(
-            self.client.get("proposals?proposalNumber=%s" % (proposal_id))[0]
+            self.client.get("proposals?proposalId=%s" % (proposal_id))[0]
         )
 
     def get_current_user_data(self) -> dict:
@@ -289,12 +291,18 @@ class PyISPyBDataAdapter:
     def get_samples(self, proposal_id: int) -> list[dict]:
         """Fetches samples for the given proposal id from PyISPyB."""
         try:
-            import pdb
-            pdb.set_trace()
-            proposal = self.find_proposal(code = "mx", number = proposal_id)
+            proposal = self.__find_proposal_by_id(proposal_id)
+        except (PyISPyBUnsuccessfulResponse, IndexError):
+            self.logger.exception("Error in get_samples")
+            return []
+        return self.get_samples_by_code_and_number(proposal.code, proposal.number)
+
+    def get_samples_by_code_and_number(self, code: str, number: str) -> list[dict]:
+        """Fetches samples for the given proposal code and number from PyISPyB."""
+        try:
             samples = self.client.get(
                 "samples?proposal=%s%s&beamLineName=%s"
-                % (proposal.code, proposal.number, self.beamline_name),
+                % (code, number, self.beamline_name),
                 timeout=10,
             )
         except PyISPyBUnsuccessfulResponse:

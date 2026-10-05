@@ -9,8 +9,6 @@ import errno
 import time
 import copy
 import io
-import xmltodict
-from xml.dom.minidom import parseString
 from mxcubecore.BaseHardwareObjects import HardwareObjectState
 from enum import (
     Enum,
@@ -130,6 +128,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.only_helical = False
         self.shape = None
         self.found_spots = False
+        self.sample_prefix = None
 
     def init(self):
         self.centring_task = None
@@ -182,7 +181,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.smargon_hwo = self.get_object_by_role('smargon')
         self.beaminfo_hwo = self.get_object_by_role('beaminfo')
         self.gevent_event = gevent.event.Event()
-        self.auto_collect_counter = 0
 
     def define_state(self):
         motstate = self.get_channel_object("state").get_value() #self.collect_state_chan.get_value()
@@ -251,77 +249,15 @@ class PX1XrayCentring(AbstractXrayCentring):
 
     default_transmission_xray = 25
 
-    # Fallback when ISPyB carries no diffraction plan for the sample. Matches
-    # the Unattended collect form default; applyUserParams() overrides it with
-    # the value entered in the form whenever one is given.
-    default_resolution = 2.0
-
-    def unattended_collect_single(self, sample_model, user_params=None):
-        """Run the unattended centring + data collection for ONE sample.
-
-        Legacy single-call driver, kept for backward compatibility / manual use.
-        It simply calls the decomposed public phase seams in order; the queue
-        pipeline (OpticalCentring x2 -> GridScan -> LineScan x2 ->
-        FinalizeCentring -> UnattendedDataCollection -> Unmount) calls the very
-        same seams, one per queue entry. Iteration across samples is handled by
-        the queue; this drives a single sample.
-
-        Args:
-            sample_model: queue_model_objects.Sample for the target sample.
-                Its .location is a (basket, pos_in_basket) tuple, both 1-indexed.
-            user_params: optional dict with the user-edited acquisition subset
-                (osc_start, osc_range, exp_time, num_images, transmission,
-                resolution) entered in the Unattended collect form. When given,
-                these override the paramCollect.xml defaults; per-sample derived
-                fields (file paths, motors, sample identity) are left untouched.
-        """
-        start_time = time.perf_counter()
-
-        try:
-            loc = tuple(int(x) for x in sample_model.location)
-        except (TypeError, ValueError):
-            # Sample.location is (None, None) until the client fills it in.
-            loc = None
-
-        if loc is None or not HWR.beamline.sample_changer.is_mounted_sample(loc):
-            log.debug("Sample not mounted, loading.")
-            HWR.beamline.sample_changer.load(sample=sample_model.loc_str, wait=True)
-
-        try:
-            self.run_optical_centring("zoom1", settle=10)
-            self.run_optical_centring("zoom2", settle=6)
-
-            self.begin_centring_session(sample_model, user_params)
-
-            # mesh + helical scans + centring fit (with the legacy one-shot retry)
-            self.do_xcentring(showReport=False)
-            while self.flag_is_centring:
-                time.sleep(1)
-
-            if self.found_spots:
-                self.collect_with_params()
-            else:
-                log.debug("No spots found, skipping data collection for this sample.")
-        finally:
-            self.finalize_session(sample_model)
-
-            elapsed = time.perf_counter() - start_time
-            log.debug(
-                "unattended_collect_single finished for sample %s in %.2fs",
-                sample_model.loc_str, elapsed,
-            )
-
     optical_centring_timeout = 120  # s, one murko centring incl. the final move
 
     def run_optical_centring(self, zoom, settle=None, timeout=None):
         """Set the zoom level and run ONE automatic (murko) centring, to the end.
 
-        Called twice (zoom1 then zoom2) by OpticalCentringQueueEntry. It used
-        to start the centring and sleep a fixed 10 s: a murko centring takes
-        longer, so the zoom2 phase changed the zoom under the still-running
-        zoom1 centring and then ran its own - two centrings in one row, the
-        second one spilling into the grid scan. Now it waits for the real end
-        of each step and never sends a centring while another one runs.
+        Called twice (zoom1 then zoom2) by the optical centring tasks of an
+        unattended collect. It waits for the real end of each step and never
+        sends a centring while another one runs, so the zoom2 task cannot
+        change the zoom under the zoom1 centring.
 
         `settle` is accepted for compatibility and ignored: the zoom move is
         waited for on the motor itself.
@@ -361,23 +297,14 @@ class PX1XrayCentring(AbstractXrayCentring):
         )
         return valid
 
-    def begin_centring_session(self, sample_model, user_params=None):
-        """Reset session state, build the grid shape, assemble collect params,
-        and prepare the report + snapshots for ONE sample.
+    def begin_centring_session(self, prefix):
+        """Build the grid shape and prepare the report + snapshots, for ONE sample.
 
-        Run once per sample by GridScanQueueEntry before run_grid_scan().
-        Combines the grid-building of the legacy driver with the setup half of
-        do_xcentring (prepare/report/snapshots). current_dc_parameters must be
-        set before prepare() (it reads the fileinfo prefix), and the grid shape
-        must be added before prepare() (it reads the grid from SampleView).
+        Run by the grid scan task of an unattended collect, before
+        run_grid_scan(). prefix names the result directories. The grid shape
+        must be added before prepare(), which reads it from SampleView.
         """
-        basket, pos_in_basket = sample_model.location
-        position = (int(basket) - 1) * 16 + (int(pos_in_basket) - 1)
-        sample = HWR.beamline.sample_changer.get_sample_list()[position]
-
-        self._uc_sample = sample
-        self._uc_position = position
-        self._uc_user_params = user_params
+        self.sample_prefix = prefix
         self.found_spots = False
 
         # Clear the shape store here rather than relying on mount_sample's
@@ -431,13 +358,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.graphics_manager_hwo.add_shape(grid1)
         self.flag_is_centring = True
 
-        # ---- assemble collect parameters (defaults + user overrides) ----
-        param_list = self.prepareParamList(sample.get_id(), position)
-        self.applyUserParams(param_list[0], user_params)
-        self.protein_acro = param_list[0]['sample_reference']['acronym']
-        self._uc_param_list = param_list
-        HWR.beamline.collect.current_dc_parameters = param_list[0]
-
         # ---- prepare report + snapshots (setup half of do_xcentring) ----
         self.Y = []
         self.errmsg = ""
@@ -456,55 +376,13 @@ class PX1XrayCentring(AbstractXrayCentring):
                       'Error waiting for environment. Cannot continue')
             raise RuntimeError("PX1XrayCentring: environment not ready for centring")
 
-    def collect_with_params(self):
-        """Refresh motors into the collect params, take the two diffraction
-        snapshots, and run the data collection.
-
-        Snapshot + do_collect half of the legacy driver. The caller guards on
-        self.found_spots; run by UnattendedDataCollectionQueueEntry.
-        """
-        param_list = self._uc_param_list
-        param_list[0]['motors'] = self.createMotorDict()
-        HWR.beamline.collect.current_dc_parameters = param_list[0]
-
-        # No fixed sleeps: each step waits on the state the next one needs.
-        # go_to_sampleview() returns once the supervisor is in the phase (and
-        # the light is set), the rotation is a blocking move, and each
-        # snapshot waits for a camera frame exposed after the last move.
-        self.go_to_sampleview()
-        self.minidiff.wait_fresh_frame()
-        imgPath1 = (
-            param_list[0]["fileinfo"]["archive_directory"] + '/'
-            + param_list[0]["fileinfo"]["prefix"] + '_1_1.snapshot.jpeg'
-        )
-        self.minidiff.takePictureAnalysis(path=imgPath1)
-        imgPath2 = (
-            param_list[0]["fileinfo"]["archive_directory"] + '/'
-            + param_list[0]["fileinfo"]["prefix"] + '_1_2.snapshot.jpeg'
-        )
-        target = self.omega_mot.get_position() + 90
-        self.omega_mot.sync_move(target)
-        wait_until(
-            lambda: abs(self.omega_mot.get_position() - target) < 0.05,
-            10,
-            what="omega at %.2f" % target,
-        )
-        self.minidiff.wait_fresh_frame()
-        self.minidiff.takePictureAnalysis(path=imgPath2)
-
-        # do_collect runs the whole collection synchronously; what used to be
-        # a fixed 10 s here is only the collect device winding down.
-        HWR.beamline.collect.do_collect("mxcube")
-        self.wait_collect_ready(timeout=60)
-
-    def finalize_session(self, sample_model=None, unload=True):
+    def finalize_session(self, unload=True):
         """Clear graphics and, when asked, unload the sample.
 
-        Always run (even after a failed centring) by UnmountQueueEntry, which
-        passes unload=False while another sample is still to come: the pin then
-        stays on the goniometer and the next sample's mount is a chained load
-        (CATS Exchange) rather than an unload followed by a plain load. The
-        graphics/state teardown happens either way.
+        Run by the unmount task of an unattended collect, also after a failed
+        centring. unload is False while another sample follows: the pin then
+        stays on the goniometer and the next mount is a chained load (CATS
+        Exchange) rather than an unload followed by a plain load.
         """
         try:
             self.graphics_manager_hwo.clear_all()
@@ -512,190 +390,29 @@ class PX1XrayCentring(AbstractXrayCentring):
         except Exception:
             log.exception("Error clearing graphics at end of unattended collect")
         self.found_spots = False
+        self.sample_prefix = None
 
         if not unload:
             return
 
-        sample = getattr(self, "_uc_sample", None)
-        if sample is None and sample_model is not None:
-            basket, pos_in_basket = sample_model.location
-            position = (int(basket) - 1) * 16 + (int(pos_in_basket) - 1)
-            sample = HWR.beamline.sample_changer.get_sample_list()[position]
-        if sample is not None:
-            sc = HWR.beamline.sample_changer
-            try:
-                # Go through the public unload() so the changer state machine
-                # runs: assert_can_execute_task, _set_state(Unloading),
-                # update_info() and the loadedSampleChanged signal the web client
-                # needs to see that the goniometer is empty again. Calling
-                # _do_unload() directly bypassed all of it.
-                # PX1Cryotong.unload is the only override that takes wash;
-                # AbstractSampleChanger.unload has a different signature and
-                # raises when nothing is loaded.
-                if hasattr(sc, "cancel_souflette"):
-                    sc.unload(sample, wait=True, wash=False)
-                else:
-                    sc._do_unload(sample, wash=False)
-            except Exception:
-                log.exception("Error during unload at end of unattended collect")
-
-        """Run once per sample by GridScanQueueEntry before run_grid_scan().
-        Combines the grid-building of the legacy driver with the setup half of
-        do_xcentring (prepare/report/snapshots). current_dc_parameters must be
-        set before prepare() (it reads the fileinfo prefix), and the grid shape
-        must be added before prepare() (it reads the grid from SampleView).
-        """
-        basket, pos_in_basket = sample_model.location
-        position = (int(basket) - 1) * 16 + (int(pos_in_basket) - 1)
-        sample = HWR.beamline.sample_changer.get_sample_list()[position]
-
-        self._uc_sample = sample
-        self._uc_position = position
-        self._uc_user_params = user_params
-        self.found_spots = False
-
-        # Clear the shape store here rather than relying on mount_sample's
-        # sample_view.clear_all() and finalize_session's clear having run in the
-        # right order: the grid must never inherit a shape from a previous
-        # sample, whatever the mount/unmount interleaving was.
-        try:
-            self.graphics_manager_hwo.clear_all()
-            self.graphics_manager_hwo._shapes = {}
-        except Exception:
-            log.exception("[UC] could not clear shapes before building the grid")
-
-        # ---- build the grid shape from murko analysis (zoom2 centred) ----
-        x1, y1, x2, y2 = self.generateGridFromAnalysis(
-            self.minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False
-        )
-        zoom_position = self.minidiff.zoom.get_value()
-        beam_size_x = HWR.beamline.beam.get_beam_size()[0] * self.minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmY']
-        number_colums = math.ceil((x2 - x1) / beam_size_x)
-        x2n = x1 + number_colums * beam_size_x
-        beam_size_y = HWR.beamline.beam.get_beam_size()[1] * self.minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmZ']
-        number_lines = math.ceil((y2 - y1) / beam_size_y)
-        y2n = y1 + number_lines * beam_size_y
-
-        mpos_left_top = self.minidiff.get_centred_point_from_coord(x1, y1)
-        mpos_right_bottom = self.minidiff.get_centred_point_from_coord(x2n, y2n)
-        mpos_list = [mpos_left_top, mpos_right_bottom]
-        center_x = x1 + 1 / 2 * (x2n - x1)
-        center_y = y1 + 1 / 2 * (y2n - y1)
-        screen_coords = [center_x, center_y]
-
-        grid1 = Grid(mpos_list, screen_coords)
-        grid1.width = x2n - x1
-        grid1.height = y2n - y1
-        grid1.cell_count_fun = "zig-zag"
-        grid1.cell_h_space = -1
-        grid1.cell_height = beam_size_y
-        grid1.cell_v_space = -1
-        grid1.cell_width = beam_size_x
-        grid1.label = "Grid"
-        grid1.num_cols = number_colums
-        grid1.num_rows = number_lines
-        grid1.selected = False
-        self.graphics_manager_hwo.add_shape(grid1)
-        self.flag_is_centring = True
-
-        # ---- assemble collect parameters (defaults + user overrides) ----
-        param_list = self.prepareParamList(sample.get_id(), position)
-        self.applyUserParams(param_list[0], user_params)
-        self.protein_acro = param_list[0]['sample_reference']['acronym']
-        self._uc_param_list = param_list
-        HWR.beamline.collect.current_dc_parameters = param_list[0]
-
-        # ---- prepare report + snapshots (setup half of do_xcentring) ----
-        self.Y = []
-        self.errmsg = ""
-        self.emit('xcentringInfo', 'running', 'Preparing')
-        HWR.beamline.transmission.set_value(self.default_transmission_xray)
-        self.prepare()
-        self.prepare_report()
-        output_directory = self.get_process_directory()
-        self.moved = True
-        self.collect_snapshots(output_directory)
-        self.snapshots_to_report()
-        self.minidiff.wait_ready()
-        self.omega_mot.sync_move(self.omega_saved)
-        if not self.wait_envready():
-            self.emit('xcentringInfo', 'running',
-                      'Error waiting for environment. Cannot continue')
-            raise RuntimeError("PX1XrayCentring: environment not ready for centring")
-
-    def collect_with_params(self):
-        """Refresh motors into the collect params, take the two diffraction
-        snapshots, and run the data collection.
-
-        Snapshot + do_collect half of the legacy driver. The caller guards on
-        self.found_spots; run by UnattendedDataCollectionQueueEntry.
-        """
-        param_list = self._uc_param_list
-        param_list[0]['motors'] = self.createMotorDict()
-        HWR.beamline.collect.current_dc_parameters = param_list[0]
-
-        time.sleep(1)
-        self.go_to_sampleview()
-        time.sleep(3)
-        imgPath1 = (
-            param_list[0]["fileinfo"]["archive_directory"] + '/'
-            + param_list[0]["fileinfo"]["prefix"] + '_1_1.snapshot.jpeg'
-        )
-        self.minidiff.takePictureAnalysis(path=imgPath1)
-        time.sleep(2)
-        imgPath2 = (
-            param_list[0]["fileinfo"]["archive_directory"] + '/'
-            + param_list[0]["fileinfo"]["prefix"] + '_1_2.snapshot.jpeg'
-        )
-        self.omega_mot.set_value(self.omega_mot.get_value() + 90)
-        time.sleep(3)
-        self.minidiff.takePictureAnalysis(path=imgPath2)
-        time.sleep(2)
-
-        HWR.beamline.collect.do_collect("mxcube")
-        gevent.sleep(10)
-
-    def finalize_session(self, sample_model=None, unload=True):
-        """Clear graphics and, when asked, unload the sample.
-
-        Always run (even after a failed centring) by UnmountQueueEntry, which
-        passes unload=False while another sample is still to come: the pin then
-        stays on the goniometer and the next sample's mount is a chained load
-        (CATS Exchange) rather than an unload followed by a plain load. The
-        graphics/state teardown happens either way.
-        """
-        try:
-            self.graphics_manager_hwo.clear_all()
-            self.graphics_manager_hwo._shapes = {}
-        except Exception:
-            log.exception("Error clearing graphics at end of unattended collect")
-        self.found_spots = False
-
-        if not unload:
+        sc = HWR.beamline.sample_changer
+        sample = sc.get_loaded_sample()
+        if sample is None:
             return
-
-        sample = getattr(self, "_uc_sample", None)
-        if sample is None and sample_model is not None:
-            basket, pos_in_basket = sample_model.location
-            position = (int(basket) - 1) * 16 + (int(pos_in_basket) - 1)
-            sample = HWR.beamline.sample_changer.get_sample_list()[position]
-        if sample is not None:
-            sc = HWR.beamline.sample_changer
-            try:
-                # Go through the public unload() so the changer state machine
-                # runs: assert_can_execute_task, _set_state(Unloading),
-                # update_info() and the loadedSampleChanged signal the web client
-                # needs to see that the goniometer is empty again. Calling
-                # _do_unload() directly bypassed all of it.
-                # PX1Cryotong.unload is the only override that takes wash;
-                # AbstractSampleChanger.unload has a different signature and
-                # raises when nothing is loaded.
-                if hasattr(sc, "cancel_souflette"):
-                    sc.unload(sample, wait=True, wash=False)
-                else:
-                    sc._do_unload(sample, wash=False)
-            except Exception:
-                log.exception("Error during unload at end of unattended collect")
+        try:
+            # Go through the public unload() so the changer state machine
+            # runs: assert_can_execute_task, _set_state(Unloading),
+            # update_info() and the loadedSampleChanged signal the web client
+            # needs to see that the goniometer is empty again.
+            # PX1Cryotong.unload is the only override that takes wash;
+            # AbstractSampleChanger.unload has a different signature and
+            # raises when nothing is loaded.
+            if hasattr(sc, "cancel_souflette"):
+                sc.unload(sample, wait=True, wash=False)
+            else:
+                sc._do_unload(sample, wash=False)
+        except Exception:
+            log.exception("Error during unload at end of unattended collect")
 
     def generateGridFromAnalysis(self, minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=True, safeGuard=True):
 
@@ -733,182 +450,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         x2 = int((c + (w / 2) * RATIO) * og_w)
 
         return x1, y1, x2, y2
-
-    def convert_dict_range(self, dic):
-        res = []
-        puckNb = 0
-        for el in dic.values():
-            lower, upper = int(el['start_sample']), int(el['end_sample'])
-            if lower > 0 and upper > 0:
-                for j in range(lower - 1, upper):
-                    res.append(j + puckNb * 16)
-            puckNb += 1
-        return res
-
-    def createMotorDict(self):
-        ordered_motors = {
-            'phi': self.omega_mot.get_position(),
-            'phiz': self.phiz_mot.get_position(),
-            'phiy': self.phiy_mot.get_position(),
-            'sampx': self.sampx_mot.get_position(),
-            'sampy': self.sampy_mot.get_position(),
-            'kappa': self.kappa_mot.get_position(),
-            'kappa_phi': self.kappaphi_mot.get_position(),
-            'beam_x': None,
-            'beam_y':None,
-            'zoom':None,
-
-        }
-        return ordered_motors
-
-    def convert_xml_dict(self, xml_dict):
-        if isinstance(xml_dict, dict):
-            if '#text' in xml_dict:
-                value = xml_dict['#text']
-                type_info = xml_dict.get('@type')
-                if type_info == 'int':
-                    return int(value)
-                elif type_info == 'float':
-                    return float(value)
-                elif type_info == 'bool':
-                    return value.lower() == 'true'
-                else:
-                    return value
-            elif '@type' in xml_dict and xml_dict['@type'] == 'null':
-                return None
-            elif all(key.startswith('@') for key in xml_dict.keys()):
-                if xml_dict.get('@type') == 'dict':
-                    return {}
-                return ""
-            else:
-                if xml_dict.get('@type') == 'list':
-                    if 'item' in xml_dict:
-                        return [self.convert_xml_dict(xml_dict['item'])]
-                    else:
-                        return []
-
-                new_dict = {}
-                for key, value in xml_dict.items():
-                    if not key.startswith('@'):
-                        new_dict[key] = self.convert_xml_dict(value)
-                return new_dict
-        elif isinstance(xml_dict, list):
-            return [self.convert_xml_dict(item) for item in xml_dict]
-        else:
-            return xml_dict
-
-    def prepareParamList(self, sampleID, position):
-        """
-        Method to parse config/paramCollect.xml, convert into a python dict, override certain values and put inside param_list to be returned
-        """
-        with open('/home/experiences/proxima1/com-proxima1/arthur_mxcube/WebApp/config/paramCollect.xml') as fd:
-            retrieved_data = xmltodict.parse(fd.read())
-
-        param_list = self.convert_xml_dict(retrieved_data)['root']
-        smp_list = HWR.beamline.lims.get_samples()
-        containerSampleChangerLocation, sampleLocation = (position // 16) + 1, (position % 16) + 1
-        blSampleID = position + 6 # THIS IS HARD CODED AND WILL NEED TO BE FIXED WHEN POSSIBLE
-        SamplesInContainer = [s for s in smp_list if s['containerSampleChangerLocation'] == str(containerSampleChangerLocation)]
-        SampleAtLocation = [d for d in SamplesInContainer if d['sampleLocation'] == str(sampleLocation)]
-        if not SampleAtLocation:
-            msg = (
-                f"No ISPyB sample found for container {containerSampleChangerLocation}, "
-                f"location {sampleLocation}, position {position}"
-            )
-            log.error(msg)
-            # Bail out rather than falling through to SampleAtLocation[0] and
-            # raising a bare IndexError. The calling queue entry turns this into
-            # found_spots = False, so the pipeline skips to Unmount and the run
-            # advances to the next sample.
-            raise RuntimeError(msg)
-        currentSample = SampleAtLocation[0]
-        proteinAcronym = currentSample['proteinAcronym']
-        sampleName = currentSample['sampleName']
-        samplePrefix = proteinAcronym + "-" + sampleName
-        runNumber = 1
-        proposal = HWR.beamline.lims.session_manager.active_session.number
-        sessionID =  HWR.beamline.lims.session_manager.active_session.session_id
-        template = samplePrefix + "_" + str(runNumber) + r"_%004\d.h5"
-        motors = self.createMotorDict()
-        stringTimestamp = str(datetime.now())
-        # TO DO put this in an config file
-        masterPath = "/data4/proxima1-soleil/"+ "2026_Run2/" + stringTimestamp[:10] + "/" + proposal + '/'
-        try:
-            resolution =  smp_list[position -1]["diffractionPlan"]["requiredResolution"]
-        except Exception as e:
-            # Unattended runs are headless: never block on input(). Fall back to
-            # the default; the Unattended collect form's resolution field, when
-            # filled in, overrides this in applyUserParams().
-            resolution = self.default_resolution
-            log.error(f"Resolution problem: {e}")
-            log.warning(
-                f"Could not recover a valid resolution value for position {position} "
-                f"(sample list length {len(smp_list)}, index used {position - 1}); "
-                f"falling back to {resolution} A"
-            )
-
-        param_list["detector_distance"] = HWR.beamline.resolution.resolution_to_distance(resolution, 0.979)
-        param_list["fileinfo"]["prefix"] = samplePrefix
-        param_list["fileinfo"]["directory"] = masterPath + "RAW_DATA/" + proteinAcronym + "/" + samplePrefix
-        param_list["fileinfo"]["runNumber"] = runNumber
-        param_list["fileinfo"]["archive_directory"] = masterPath + "ARCHIVE/"+ proteinAcronym + "/" + samplePrefix
-        param_list["fileinfo"]["process_directory"] = masterPath + "PROCESSED_DATA/" + proteinAcronym + "/" + samplePrefix
-        param_list["fileinfo"]["template"] = template
-        param_list["sessionId"] = sessionID
-        param_list["sample_reference"]["blSampleId"] = blSampleID
-        param_list['sample_reference']['sample_name'] = sampleName
-        param_list['sample_reference']['acronym'] = proteinAcronym
-        param_list["EDNA_files_dir"] = masterPath + "PROCESSED_DATA"
-        param_list['motors'] = motors
-        param_list['blSampleId'] = blSampleID
-
-        return [param_list]
-
-    def applyUserParams(self, params, user_params):
-        """Override the acquisition subset in <params> with the user-edited
-        values from the Unattended collect form.
-
-        Only the keys the form exposes are touched; everything else
-        (file paths, motors, sample identity, sessionId) stays as derived by
-        prepareParamList. Each override is guarded so a missing/blank field
-        falls back to the paramCollect.xml default. The frontend field names
-        are mapped here onto the keys the collect path consumes
-        (current_dc_parameters / oscillation_sequence).
-        """
-        if not user_params:
-            return
-
-        osc = None
-        osc_seq = params.get("oscillation_sequence")
-        if isinstance(osc_seq, list) and osc_seq:
-            osc = osc_seq[0]
-
-        osc_map = {
-            "osc_start": "start",
-            "osc_range": "range",
-            "exp_time": "exposure_time",
-            "num_images": "number_of_images",
-        }
-        if osc is not None:
-            for ui_key, dc_key in osc_map.items():
-                value = user_params.get(ui_key)
-                if value not in (None, ""):
-                    osc[dc_key] = value
-
-        transmission = user_params.get("transmission")
-        if transmission not in (None, ""):
-            params["transmission"] = transmission
-
-        resolution = user_params.get("resolution")
-        if resolution not in (None, ""):
-            try:
-                params["detector_distance"] = (
-                    HWR.beamline.resolution.resolution_to_distance(
-                        resolution, 0.979
-                    )
-                )
-            except Exception as e:
-                log.error(f"Could not apply user resolution {resolution}: {e}")
 
     def is_user_enabled(self):
         return self.user_enabled
@@ -1097,8 +638,8 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         Mesh half of the legacy do_xcentring. Sets self.found_spots and seeds
         the PHI/Y accumulators for the line scans. Returns True if mesh spots
-        were found (or only_helical is set), False otherwise. Run by
-        GridScanQueueEntry after begin_centring_session().
+        were found (or only_helical is set), False otherwise. Run by the
+        grid scan task after begin_centring_session().
         """
         if not self.only_helical:
             self.emit('xcentringInfo', 'running', 'Running mesh scan')
@@ -1140,7 +681,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         One iteration of the legacy helical loop, for a fixed scan index
         (0-based). Appends to self.PHI / self.Y and fills the report slot
         index+1. Returns True if spots were found; otherwise sets
-        self.found_spots = False and returns False. Run by LineScanQueueEntry.
+        self.found_spots = False and returns False. Run by a line scan task.
         """
         self.emit('xcentringInfo', 'running', 'Running helical scan %s' % (index + 1))
         omega = self.omega_saved + self.omega_relative * (index + 1)
@@ -1171,7 +712,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         position, register it, and save the report.
 
         Tail of the legacy do_xcentring. Needs self.PHI / self.Y accumulated by
-        run_grid_scan + run_line_scan. Run by FinalizeCentringQueueEntry after
+        run_grid_scan + run_line_scan. Run by the finalize centring task after
         the line scans.
         """
         self.emit('xcentringInfo', 'running', 'Calculating centred position')
@@ -1876,7 +1417,10 @@ class PX1XrayCentring(AbstractXrayCentring):
         dtime = datetime.now()
         dtime_str = '{0.year}{0.month:02d}{0.day:02d}_{0.hour:02d}{0.minute:02d}'.format(dtime)
 
-        samplename = HWR.beamline.collect.current_dc_parameters["fileinfo"]["prefix"]
+        samplename = (
+            self.sample_prefix
+            or HWR.beamline.collect.current_dc_parameters["fileinfo"]["prefix"]
+        )
         log.debug(f"SAMPLE name used in setting base directories {samplename}")
         dirname = '%s_%s_%s' % (self.get_prefix(), samplename, dtime_str)
         log.debug(f"base directories dirname is :  {dirname}")

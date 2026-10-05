@@ -617,7 +617,6 @@ class PX1Collect(AbstractCollect):
             # Hack to bypass store_image_in_lims
             #try:
             image_id, img_info = self.store_image_in_lims(imgno)
-            HWR.beamline.lims.prepare_image_for_lims(img_info)
             """except:
                 info = {'image_id': "_007",
                     'image_no': 5,
@@ -634,8 +633,8 @@ class PX1Collect(AbstractCollect):
                     'nb_images': nb_images,
                     'thumb_path': img_info['jpegThumbnailFileOrigPath'],
                     'jpeg_path': img_info['jpegFileOrigPath'],
-                    'thumb_ispyb': img_info['jpegThumbnailFileFullPath'],
-                    'jpeg_ispyb': img_info['jpegFileFullPath'],
+                    'thumb_ispyb': img_info.get('jpegThumbnailFileFullPath'),
+                    'jpeg_ispyb': img_info.get('jpegFileFullPath'),
                     }
             return info
 
@@ -1025,6 +1024,7 @@ class PX1Collect(AbstractCollect):
                           'machineMessage': self.get_machine_message(),
                           'temperature': self.get_cryo_temperature()}
             archive_directory = self.current_dc_parameters['fileinfo']['archive_directory']
+            jpeg_full_path = jpeg_thumbnail_full_path = None
             if archive_directory:
                 jpeg_filename = "%s.jpeg" % os.path.splitext(filename)[0]
                 thumb_filename = "%s.thumb.jpeg" % os.path.splitext(filename)[0] # a verifier
@@ -1038,10 +1038,11 @@ class PX1Collect(AbstractCollect):
             if motor_position_id:
                 lims_image['motorPositionId'] = motor_position_id
 
-            image_id = HWR.beamline.lims.adapter.store_image(lims_image)
-            # saving changed the FullPath to the ispyb path (ruche). keep original
+            # ISPyB gets the ruche paths; the local ones are kept for the thumbnails
             lims_image['jpegFileOrigPath'] = jpeg_full_path
             lims_image['jpegThumbnailFileOrigPath'] = jpeg_thumbnail_full_path
+            HWR.beamline.lims.prepare_image_for_lims(lims_image)
+            image_id = HWR.beamline.lims.adapter.store_image(lims_image)
             return image_id, lims_image
 
 

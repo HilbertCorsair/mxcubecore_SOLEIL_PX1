@@ -43,11 +43,12 @@ _objects:
   - diffractometer: diffractometer-mockup.xml
   - sample_view: sample-view-mockup.xml
   - lims: lims-client-mockup.xml
-  # - queue_manager: queue.xml
-  # - queue_model: queue-model.xml
+  - queue_manager: queue.xml
+  - queue_model: queue-model.xml
   # Procedures:
-  # - collect: mxcollect.xml
+  - collect: collect-mockup.xml
   - xrf_spectrum: xrf-spectrum-mockup.xml
+  - unattended_collect: unattended-collect-mockup.xml
   # - energy_scan: energyscan-mockup.xml
   # - imaging: xray-imaging.xml # Only in EMBL as of 201907
   # - gphl_workflow: gphl-workflow.xml

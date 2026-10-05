@@ -17,13 +17,10 @@
 #  along with MXCuBE. If not, see <http://www.gnu.org/licenses/>.
 
 
-import logging
+import gevent
+
 from mxcubecore import HardwareRepository as HWR
-from mxcubecore.queue_entry.base_queue_entry import (
-    BaseQueueEntry,
-    QueueAbortedException,
-    QueueSkipEntryException,
-)
+from mxcubecore.queue_entry.base_queue_entry import BaseQueueEntry
 
 __credits__ = ["MXCuBE collaboration"]
 __license__ = "LGPLv3+"
@@ -40,62 +37,19 @@ class OpticalCentringQueueEntry(BaseQueueEntry):
 
     def execute(self):
         BaseQueueEntry.execute(self)
+        HWR.beamline.diffractometer.automatic_centring_try_count = (
+            self.get_data_model().try_count
+        )
 
-        # PX1 unattended pipeline: set the zoom and
-        # run the automatic (murko) centring via the xray_centring HO. Falls back to the
-        # generic diffractometer centring when no zoom is requested.
-        zoom = getattr(self.get_data_model(), "zoom", None)
-        xc = getattr(HWR.beamline, "xray_centring", None)
-        if zoom and xc is not None and hasattr(xc, "run_optical_centring"):
-            # run_optical_centring blocks until the centring (and its final
-            # motor move) is over, and refuses to start while another one
-            # runs, so the next phase never overlaps this one.
-            # A centring fault must not abort the queue (the later phases
-            # still run and Unmount still unloads), but it must not show as
-            # a success either: skip the entry, which the queue continues
-            # past and the client shows as a warning.
-            try:
-                valid = xc.run_optical_centring(zoom)
-            except Exception as ex:
-
-                if getattr(ex, "abort_queue", False):
-                    # Murko is gone: no automatic centring, so no unattended
-                    # collect either. Stop the queue instead of skipping on.
-                    logging.getLogger("user_level_log").error(
-                        "Automatic centring impossible (%s): stopping the queue" % ex
-                    )
-                    raise QueueAbortedException(str(ex), self)
-                logging.getLogger("HWR").exception(
-                    "[UC] optical centring (%s) failed", zoom
-                )
-                raise QueueSkipEntryException(
-                    "Optical centring (%s) failed: %s" % (zoom, ex), self
-                )
-            if valid is False:
-                raise QueueSkipEntryException(
-                    "Optical centring (%s) found no position" % zoom, self
-                )
-            return
-
-        dm = HWR.beamline.diffractometer
-        dm.automatic_centring_try_count = self.get_data_model().try_count
-        dm.start_centring_method(dm.CENTRING_METHOD_AUTO, wait=True)
+        HWR.beamline.diffractometer.start_centring_method(
+            HWR.beamline.diffractometer.CENTRING_METHOD_AUTO, wait=True
+        )
 
     def pre_execute(self):
         BaseQueueEntry.pre_execute(self)
 
     def post_execute(self):
-        # Qt-only view call: in the queue-driven (web) path the view is absent
-        # or a stand-in without this method, and a failure here would abort the
-        # unattended pipeline before it reaches Unmount.
-        view = self.get_view()
-        if hasattr(view, "set_checkable"):
-            try:
-                view.set_checkable(False)
-            except Exception:
-                logging.getLogger("HWR").exception(
-                    "[UC] optical centring: set_checkable failed"
-                )
+        self.get_view().set_checkable(False)
         BaseQueueEntry.post_execute(self)
 
     def get_type_str(self):

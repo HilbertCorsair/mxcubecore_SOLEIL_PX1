@@ -1246,96 +1246,70 @@ class XrayCentring(TaskNode):
         pass
 
 
-class UnattendedCollect(TaskNode):
-    """Per-sample unattended centring + data collection.
+#: The unattended collect pipeline: (label, method, kwargs, needs_spots).
+#: "collect" is not a method of the unattended_collect object, it stands for
+#: the UnattendedDataCollection of the group.
+UNATTENDED_TASKS = (
+    ("Centring (zoom 1)", "optical_centring", {"zoom": 1}, False),
+    ("Centring (zoom 2)", "optical_centring", {"zoom": 2}, False),
+    ("Grid scan", "grid_scan", {}, False),
+    ("Line scan 1", "line_scan", {"index": 0}, True),
+    ("Line scan 2", "line_scan", {"index": 1}, True),
+    ("Finalize centring", "finalize_centring", {}, True),
+    ("Data collection", "collect", {}, True),
+    ("Unmount", "unmount", {}, False),
+)
 
-    One instance is added to the queue under each Sample node selected in the
-    samples-tab right-click action. Execution delegates to
-    PX1XrayCentring.unattended_collect_single() via UnattendedCollectQueueEntry.
-    The queue handles iteration across samples; this task is single-sample.
+
+class UnattendedCollect(TaskGroup):
+    """Task group of an unattended collect.
+
+    One UnattendedTask per step and an UnattendedDataCollection, executed in
+    order. The tasks share their state through `context`.
     """
 
     def __init__(self):
-        TaskNode.__init__(self)
+        TaskGroup.__init__(self)
         self.set_name("Unattended collect")
+        self.context = {}
+        self.reset_context()
+
+    def reset_context(self):
+        self.context = {"found_spots": False}
+
+    def get_data_collection(self):
+        """The data collection of the group."""
+        for child in self.get_children():
+            if isinstance(child, UnattendedDataCollection):
+                return child
+        return None
+
+
+class UnattendedDataCollection(DataCollection):
+    """The data collection of an unattended collect, see UNATTENDED_TASKS."""
+
+    label = "Data collection"
+    method = "collect"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.set_requires_centring(False)
-        # User-edited acquisition subset (osc_start, osc_range, exp_time,
-        # num_images, transmission, resolution). Empty when not set; the
-        # collect path then falls back to the paramCollect.xml defaults.
-        self.acquisition_params = {}
-
-    def set_parameters(self, params):
-        self.acquisition_params = dict(params or {})
-
-    def get_parameters(self):
-        return self.acquisition_params
 
 
-    def get_display_name(self):
-        return "Unattended collect"
+class UnattendedTask(TaskNode):
+    """One step of an unattended collect, run by the unattended_collect object."""
 
-
-class _UnattendedPhase(TaskNode):
-    """Base for the decomposed unattended-collect phase tasks.
-
-    Each phase is one sub-task under the per-sample unattended TaskGroup and is
-    executed by its own queue entry, which calls a public phase method on
-    HWR.beamline.xray_centring. They carry the user-edited acquisition subset
-    (only GridScan actually consumes it, via begin_centring_session) so the
-    tasks remain self-contained when added manually. set_requires_centring is
-    False since the unattended pipeline does its own centring.
-    """
-
-    _display_name = "Unattended phase"
-
-    def __init__(self):
+    def __init__(self, name, method, kwargs=None, needs_spots=False):
         TaskNode.__init__(self)
-        self.set_name(self._display_name)
+        self.set_name(name)
         self.set_requires_centring(False)
-        self.acquisition_params = {}
-
-    def set_parameters(self, params):
-        self.acquisition_params = dict(params or {})
-
-    def get_parameters(self):
-        return self.acquisition_params
+        self.label = name
+        self.method = method
+        self.kwargs = dict(kwargs or {})
+        self.needs_spots = needs_spots
 
     def get_display_name(self):
-        return self._display_name
-
-
-class GridScan(_UnattendedPhase):
-    """Mesh (grid) scan phase: begin the centring session + run the 2D mesh."""
-
-    _display_name = "Grid scan"
-
-
-class LineScan(_UnattendedPhase):
-    """One helical (line) scan phase, identified by its 0-based index."""
-
-    _display_name = "Line scan"
-
-    def __init__(self, index=0):
-        _UnattendedPhase.__init__(self)
-        self.index = index
-
-
-class FinalizeCentring(_UnattendedPhase):
-    """Centring-fit phase: fit accumulated scans, move + register the point."""
-
-    _display_name = "Finalize centring"
-
-
-class UnattendedDataCollection(_UnattendedPhase):
-    """Data-collection phase: snapshots + do_collect (guarded by found_spots)."""
-
-    _display_name = "Data collection"
-
-
-class Unmount(_UnattendedPhase):
-    """Unmount phase: clear graphics and unload the sample (always runs)."""
-
-    _display_name = "Unmount"
+        return self.label
 
 
 class XrayCentring2(TaskNode):
@@ -1510,11 +1484,6 @@ class OpticalCentring(TaskNode):
             self.try_count = 3
         else:
             self.try_count = 1
-        # Optional PX1 zoom level ('zoom1'/'zoom2'). When set, the queue entry
-        # moves the diffractometer zoom before running the automatic centring.
-        self.zoom = None
-        # Optional settle time (s) after the zoom move, before centring.
-        self.zoom_settle = 10
 
     def add_task(self, task_node):
         pass

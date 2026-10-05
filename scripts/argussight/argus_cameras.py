@@ -7,12 +7,11 @@ the ``AddStream`` gRPC call. Once registered, the streams appear in argussight's
 ``GetProcesses`` response, which mxcubeweb discovers to populate the camera
 switcher (see ``mxcubeweb/core/util/argussight_discovery.py``).
 
-PX1 vs PX2: the only camera configured out of the box is the OAV, whose frames
-are published to Redis by ``redis_camera2.py`` running on the **camera server**
-(not on the MXCuBE host, and not startable from here -- see check_frames.py).
-Hutch cameras are listed below but commented out until their URLs are known;
-add them here *and* to ARGUSSIGHT_CAMERAS in server.yaml, where the names must
-match.
+PX1 vs PX2: the OAV frames are published to Redis by ``redis_camera2.py``
+running on the **camera server** (not on the MXCuBE host, and not startable
+from here -- see check_frames.py). The four hutch cameras are MJPEG over http
+from the camera server at CAM_IP. Every camera listed here must also be in
+ARGUSSIGHT_CAMERAS in server.yaml, where the names must match.
 
 Prerequisites (started separately, see start_argus_px1.sh):
   * the PX1 camera publisher running on the camera server
@@ -79,16 +78,14 @@ CAMERAS = [
         "size": "1360,1024",
         "in_redis_channel": OAV_REDIS_CHANNEL,
     },
-    # --- Hutch cameras: placeholders -------------------------------------
-    # Uncomment and fix the hostnames/paths once the PX1 camera URLs are known,
-    # then add matching entries to ARGUSSIGHT_CAMERAS in server.yaml. "0,0"
-    # means "whatever the source is": for an http:// uri video-streamer builds
-    # an MJPEGCamera, which reads the first frame and detects the resolution
-    # itself, so no guess is needed here (unlike the OAV above).
-    {"name": "hutch_1", "port": 9001, "uri": f"http://{CAM_IP}/mjpg/1/video.mjpg", "size": "1920,1080"},
-    {"name": "hutch_2", "port": 9002, "uri": f"http://{CAM_IP}/mjpg/2/video.mjpg", "size":"1920,1080" },
-    {"name": "hutch_3", "port": 9003, "uri": f"http://{CAM_IP}/mjpg/3/video.mjpg", "size": "1920,1080"},
-    {"name": "hutch_4", "port": 9004, "uri": f"http://{CAM_IP}/mjpg/4/video.mjpg", "size": "1920,1080" }
+    # --- Hutch cameras ---------------------------------------------------
+    # "0,0" means "whatever the source is": for an http:// uri video-streamer
+    # builds an MJPEGCamera, which reads the first frame and detects the
+    # resolution itself; a real size here only rescales (and may stretch) it.
+    {"name": "hutch_1", "port": 9001, "uri": f"http://{CAM_IP}/mjpg/1/video.mjpg", "size": "0,0"},
+    {"name": "hutch_2", "port": 9002, "uri": f"http://{CAM_IP}/mjpg/2/video.mjpg", "size": "0,0"},
+    {"name": "hutch_3", "port": 9003, "uri": f"http://{CAM_IP}/mjpg/3/video.mjpg", "size": "0,0"},
+    {"name": "hutch_4", "port": 9004, "uri": f"http://{CAM_IP}/mjpg/4/video.mjpg", "size": "0,0"},
 ]
 
 QUALITY = "10"

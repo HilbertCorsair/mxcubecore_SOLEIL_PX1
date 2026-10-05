@@ -143,15 +143,20 @@ class AbstractCollect(HardwareObject, object):
             beam_divergence_horizontal=beam_div_ver,
             polarisation=self.get_property("polarisation"),
             input_files_server=self.get_property("input_files_server"),
-            goniostatMinOscillationWidth=float(self.get_property("goniostatMinOscillationWidth")),
-            goniostatMaxOscillationSpeed=float(self.get_property("goniostatMaxOscillationSpeed")),
-            maxExpTimePerDataCollection=float(self.get_property("maxExpTimePerDataCollection")),
-            focalSpotSizeAtSample=float(self.get_property("focalSpotSizeAtSample")),
+            goniostatMinOscillationWidth=self._float_property("goniostatMinOscillationWidth"),
+            goniostatMaxOscillationSpeed=self._float_property("goniostatMaxOscillationSpeed"),
+            maxExpTimePerDataCollection=self._float_property("maxExpTimePerDataCollection"),
+            focalSpotSizeAtSample=self._float_property("focalSpotSizeAtSample"),
             minTransmission=self.get_property("minTransmission"),
             undulatorType1=self.get_property("undulatorType1"),
             undulatorType2=self.get_property("undulatorType2"),
             undulatorType3=self.get_property("undulatorType3")
         )
+
+    def _float_property(self, name):
+        """Property name as a float, None when it is not configured."""
+        value = self.get_property(name)
+        return None if value is None else float(value)
 
     def set_beamline_configuration(self, **configuration_parameters) -> None:
         """Sets beamline configuration
