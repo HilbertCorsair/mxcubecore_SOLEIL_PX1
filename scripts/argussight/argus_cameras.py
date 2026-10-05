@@ -36,6 +36,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("argus_cameras")
 
+# IP du serveur des cameras
+CAM_IP = "172.19.11.119"
+
 # --- Configuration ---------------------------------------------------------
 # Host the video-streamers bind to. Must be reachable by the argussight proxy,
 # which always dials the upstream at ``localhost`` (see streamsproxy.add_stream).
@@ -82,8 +85,10 @@ CAMERAS = [
     # means "whatever the source is": for an http:// uri video-streamer builds
     # an MJPEGCamera, which reads the first frame and detects the resolution
     # itself, so no guess is needed here (unlike the OAV above).
-    # {"name": "hutch_1", "port": 9001, "uri": "http://camXX/mjpg/1/video.mjpg", "size": "0,0"},
-    # {"name": "hutch_2", "port": 9002, "uri": "http://camXX/mjpg/2/video.mjpg", "size": "0,0"},
+    {"name": "hutch_1", "port": 9001, "uri": f"http://{CAM_IP}/mjpg/1/video.mjpg", "size": "1920,1080"},
+    {"name": "hutch_2", "port": 9002, "uri": f"http://{CAM_IP}/mjpg/2/video.mjpg", "size":"1920,1080" },
+    {"name": "hutch_3", "port": 9003, "uri": f"http://{CAM_IP}/mjpg/3/video.mjpg", "size": "1920,1080"},
+    {"name": "hutch_4", "port": 9004, "uri": f"http://{CAM_IP}/mjpg/4/video.mjpg", "size": "1920,1080" }
 ]
 
 QUALITY = "10"

@@ -728,7 +728,6 @@ class SampleQueueEntry(BaseQueueEntry):
                         log.error(msg)
                         self.status = QUEUE_ENTRY_STATUS.FAILED
 
-                        if isinstance(e, QueueSkipEntryException):
                         if isinstance(e, (QueueSkipEntryException, QueueAbortedException)):
                             raise
 

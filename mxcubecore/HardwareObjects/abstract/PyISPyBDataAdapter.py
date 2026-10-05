@@ -112,7 +112,7 @@ class PyISPyBDataAdapter:
 
     def __find_proposal_by_id(self, proposal_id: int) -> Proposal:
         return self.__to_proposal(
-            self.client.get("proposals?proposalId=%s" % (proposal_id))[0]
+            self.client.get("proposals?proposalNumber=%s" % (proposal_id))[0]
         )
 
     def get_current_user_data(self) -> dict:
@@ -289,7 +289,9 @@ class PyISPyBDataAdapter:
     def get_samples(self, proposal_id: int) -> list[dict]:
         """Fetches samples for the given proposal id from PyISPyB."""
         try:
-            proposal = self.__find_proposal_by_id(proposal_id)
+            import pdb
+            pdb.set_trace()
+            proposal = self.find_proposal(code = "mx", number = proposal_id)
             samples = self.client.get(
                 "samples?proposal=%s%s&beamLineName=%s"
                 % (proposal.code, proposal.number, self.beamline_name),

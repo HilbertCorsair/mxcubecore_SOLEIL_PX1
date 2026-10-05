@@ -712,6 +712,7 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         self.ldapConnection = self.get_object_by_role("ldapServer")
 
     def _create_data_adapter(self):
+        """
         data_adapter  = CustomISPyBDataAdapter(self.ws_root.strip(),
                                                self.ws_username,
                                                self.ws_password,
@@ -719,7 +720,9 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         if not data_adapter._shipping :
             data_adapter.initialize_services()
          # call rest adapter
+        """
         pyispyb_rest_root = self.get_property("pyispyb_rest_root")
+        print(f"pyispyb_rest_root -- {pyispyb_rest_root}")
         if pyispyb_rest_root:
             client = PyISPyBRestClient(
                     rest_root=pyispyb_rest_root,
@@ -729,13 +732,14 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
                     client_secret=self.get_property("client_secret"),
                 )
             proxy_address = self.get_property("proxy_address")
+            print(f"proxy_address -- {proxy_address}")
             if proxy_address:
                 client.update_proxies({"http": proxy_address, "https": proxy_address})
             return PyISPyBDataAdapter(
                         client,
                         self.beamline_name
                 )
-        return data_adapter
+        raise Exception
 
     def store_data_collection(self, mx_collection, bl_config=None):
         return self.adapter.store_data_collection(mx_collection, bl_config)
@@ -804,18 +808,25 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
             s = b_obj
         return s
 
+        """def find_or_create_session_now(number, beamline, code):
+        todays_session = self.adapter.find_sessions_by_proposal_and_beamline_for_today(number = 20100023, beamline = "proxima1", code ="mx")
+        if not
+        """
+
+
     def login(self, pid):
         self.user_name = pid
         #self.data_adapter = self._create_data_adapter()
-        proposal = self.adapter.get_proposals()
-        todays_session = self.adapter.find_sessions_by_poposal_and_beamline_for_today(proposal)
-        start_datetime_str = self.check_to_string(todays_session["session"]['startDate'])
+        #proposal = self.adapter.get_proposals()
+        #todays_session = self.adapter.find_sessions_by_proposal_and_beamline_for_today(number = int(pid), beamline = self.beamline_name, code ="mx")
+        todays_session = self.adapter.get_sessions_by_code_and_number(number = pid, beamline = self.beamline_name, code ="mx")
+        start_dt_object = self.check_to_string(todays_session.sessions[0].start_datetime )
         # Parse the string into a datetime object
-        start_dt_object = datetime.strptime(start_datetime_str, '%Y-%m-%d %H:%M:%S')
+        #start_dt_object = datetime.strptime(start_datetime_str, '%Y-%m-%d %H:%M:%S')
         start_date_str = start_dt_object.strftime("%Y%m%d")
         start_time_str = start_dt_object.strftime("%H:%M:%S")
-        end_datetime_str = self.check_to_string(todays_session["session"]['endDate'])
-        end_dt_object = datetime.strptime(end_datetime_str, '%Y-%m-%d %H:%M:%S')
+        end_dt_object = self.check_to_string(todays_session.sessions[0].end_datetime)
+        #end_dt_object = datetime.strptime(end_datetime_str, '%Y-%m-%d %H:%M:%S')
         end_date_str = end_dt_object.strftime("%Y%m%d")
         end_time_str = end_dt_object.strftime("%H:%M:%S")
         lims_session_object = lims_Session()
@@ -823,13 +834,13 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         lims_session_object.start_time = start_time_str
         lims_session_object.end_date = end_date_str
         lims_session_object.end_time = end_time_str
-        lims_session_object.session_id = todays_session["session"]['sessionId']
+        lims_session_object.session_id = todays_session.sessions[0].session_id
         lims_session_object.beamline_name = self.beamline_name
-        lims_session_object.proposal_id = todays_session["session"]["proposalId"]
+        lims_session_object.proposal_id = todays_session.sessions[0].proposal_id
         lims_session_object.proposal_name = f"mx{pid}"
-        lims_session_object.title = self.check_to_string(todays_session["session"]["proposalTitle"])
-        lims_session_object.code = self.check_to_string(todays_session["session"]["proposalCode"])
-        lims_session_object.number = self.check_to_string(todays_session["session"]["proposalNumber"])
+        lims_session_object.title = self.check_to_string(todays_session.sessions[0].proposal_name)
+        lims_session_object.code = self.check_to_string(todays_session.sessions[0].code)
+        lims_session_object.number = self.check_to_string(todays_session.sessions[0].proposal_id)
         lims_session_object.actual_start_date = ""
         lims_session_object.actual_start_time = ""
         lims_session_object.actual_end_date = ""
@@ -951,4 +962,3 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
                 image_dict[prop] = ispyb_path
             except:
                 pass
-

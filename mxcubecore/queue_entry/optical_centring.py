@@ -56,7 +56,8 @@ class OpticalCentringQueueEntry(BaseQueueEntry):
             # past and the client shows as a warning.
             try:
                 valid = xc.run_optical_centring(zoom)
-                except Exception as ex:
+            except Exception as ex:
+
                 if getattr(ex, "abort_queue", False):
                     # Murko is gone: no automatic centring, so no unattended
                     # collect either. Stop the queue instead of skipping on.
