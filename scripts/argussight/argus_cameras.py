@@ -92,6 +92,15 @@ QUALITY = "10"
 PORT_WAIT_TIMEOUT = 15.0  # seconds to wait for a streamer's port to open
 PROBE_TIMEOUT = 10.0  # seconds to wait for the first frame in the self-test
 
+# argussight's proxy deletes a stream for good after 4 upstream failures in a
+# row (streamsproxy.upstream_worker), and the count only resets while a viewer
+# is receiving frames -- so a streamer restart with nobody watching leaves that
+# camera refusing every viewer (HTTP 403, black pane) until argussight restarts.
+# AddStream is idempotent ("already exists" for a live stream), so the
+# supervisor re-sends it for every camera this often to bring such streams back.
+REREGISTER_INTERVAL = 30.0
+SUPERVISE_INTERVAL = 5.0  # how often dead streamers are noticed and restarted
+
 # Interpreter that runs the video-streamers. This script needs grpc, argussight
 # and websockets (argussight env); video-streamer lives in the mxcubeweb env,
 # the same one MXCuBE's own RedisMpegVideo uses. start_argus_px1.sh sets it.
@@ -170,18 +179,24 @@ def _streamer_env():
     return env
 
 
+def _start_streamer(cam, env):
+    cmd = _build_command(cam)
+    logger.info("starting %s: %s", cam["name"], " ".join(cmd))
+    return subprocess.Popen(cmd, close_fds=True, env=env)
+
+
 def start_streamers():
     """Launch one video-streamer per camera."""
     env = _streamer_env()
     for cam in CAMERAS:
-        cmd = _build_command(cam)
-        logger.info("starting %s: %s", cam["name"], " ".join(cmd))
-        proc = subprocess.Popen(cmd, close_fds=True, env=env)
-        _processes.append((cam["name"], proc))
+        _processes.append((cam["name"], _start_streamer(cam, env)))
 
 
-def register_streams():
+def register_streams(quiet=False):
     """Register every streamer into the argussight proxy via AddStream gRPC.
+
+    ``quiet`` is the supervisor's periodic re-registration: no waiting for
+    ports and no log line per camera, only failures.
 
     Returns the number of cameras registered.
     """
@@ -200,7 +215,7 @@ def register_streams():
         registered = 0
         for cam in CAMERAS:
             name, port = cam["name"], cam["port"]
-            if not _wait_for_port(STREAM_HOST, port, PORT_WAIT_TIMEOUT):
+            if not quiet and not _wait_for_port(STREAM_HOST, port, PORT_WAIT_TIMEOUT):
                 logger.warning(
                     "%s: port %s did not open in %ss; registering anyway "
                     "(proxy retries the upstream connection)",
@@ -208,9 +223,11 @@ def register_streams():
                 )
             try:
                 resp = stub.AddStream(
-                    pb2.AddStreamRequest(name=name, port=str(port), stream_id=name)
+                    pb2.AddStreamRequest(name=name, port=str(port), stream_id=name),
+                    timeout=5,
                 )
-                logger.info("registered %s -> status=%s", name, resp.status)
+                if not quiet or resp.status != "success":
+                    logger.info("registered %s -> status=%s", name, resp.status)
                 registered += 1
             except grpc.RpcError as exc:
                 # UNAVAILABLE here means nothing is listening on ARGUS_GRPC:
@@ -219,6 +236,8 @@ def register_streams():
                     "failed to register %s: argussight gRPC at %s: %s (%s)",
                     name, ARGUS_GRPC, exc.code().name, exc.details(),
                 )
+                if quiet:
+                    break  # argussight is down: one line per round is enough
             except Exception:
                 logger.exception("failed to register %s", name)
         return registered
@@ -390,14 +409,21 @@ def main():
             "they will not appear in MXCuBE. Supervising streamers anyway.",
             len(CAMERAS) - registered, len(CAMERAS), ARGUS_GRPC,
         )
-    # Supervise: if a streamer dies, log it. The argussight proxy independently
-    # retries/drops the upstream, so we only need to surface the failure here.
+    # Supervise: restart a streamer that died, and keep every stream registered
+    # in the proxy (see REREGISTER_INTERVAL for why it can lose them).
+    env = _streamer_env()
+    cams = {cam["name"]: cam for cam in CAMERAS}
+    next_register = time.monotonic() + REREGISTER_INTERVAL
     while True:
-        for name, proc in _processes:
+        time.sleep(SUPERVISE_INTERVAL)
+        for i, (name, proc) in enumerate(_processes):
             rc = proc.poll()
             if rc is not None:
-                logger.error("streamer %s exited with code %s", name, rc)
-        time.sleep(5)
+                logger.error("streamer %s exited with code %s; restarting", name, rc)
+                _processes[i] = (name, _start_streamer(cams[name], env))
+        if time.monotonic() >= next_register:
+            register_streams(quiet=True)
+            next_register = time.monotonic() + REREGISTER_INTERVAL
 
 
 if __name__ == "__main__":

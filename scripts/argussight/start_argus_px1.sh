@@ -34,16 +34,56 @@ export PX1_REDIS_CHANNEL="${PX1_REDIS_CHANNEL-mxcubeweb}"
 # Override with CONDA_ACTIVATE=/path/to/activate (empty: use the current
 # environment, e.g. on a dev machine), CONDA_ENV, HELPER_PY, MXCUBE_ENV,
 # MXCUBE_PY.
-# Unset: the conda install on PATH (conda info --base), else ~/miniconda3.
-if [ -z "${CONDA_ACTIVATE+x}" ]; then
-    conda_base="$(conda info --base 2>/dev/null || true)"
-    CONDA_ACTIVATE="${conda_base:-$HOME/miniconda3}/bin/activate"
-fi
 # Same default as mxgo.sh's ARGUS_CONDA_ENV; base has no argussight (exit 127).
 CONDA_ENV="${CONDA_ENV-argussight}"
 
-# Interpreter for the video-streamers, called directly (no env switch).
-CONDA_ROOT="$(dirname "$(dirname "$CONDA_ACTIVATE")")"
+in_conda_env() {
+    [ "${CONDA_DEFAULT_ENV:-}" = "$CONDA_ENV" ] \
+        || [ "$(basename "${CONDA_PREFIX:-/}")" = "$CONDA_ENV" ]
+}
+
+# Unset: look for the conda install wherever it can be -- the conda that runs
+# this shell ($CONDA_EXE), the root of the active env, the conda on PATH, then
+# the usual install dirs. The first bin/activate found wins.
+CONDA_ACTIVATE_TRIED=""
+if [ -z "${CONDA_ACTIVATE+x}" ]; then
+    CONDA_ACTIVATE=""
+    for root in \
+        "${CONDA_EXE:+$(dirname "$(dirname "$CONDA_EXE")")}" \
+        "$(case "${CONDA_PREFIX:-}" in */envs/*) echo "${CONDA_PREFIX%/envs/*}" ;; *) echo "${CONDA_PREFIX:-}" ;; esac)" \
+        "$(conda info --base 2>/dev/null || true)" \
+        "$HOME/miniconda3" "$HOME/anaconda3" "$HOME/miniforge3" "$HOME/mambaforge" \
+        /opt/conda /opt/miniconda3 /opt/anaconda3; do
+        [ -n "$root" ] || continue
+        CONDA_ACTIVATE_TRIED="$CONDA_ACTIVATE_TRIED $root/bin/activate"
+        if [ -f "$root/bin/activate" ]; then
+            CONDA_ACTIVATE="$root/bin/activate"
+            break
+        fi
+    done
+    if [ -z "$CONDA_ACTIVATE" ]; then
+        if in_conda_env; then
+            # Started from inside the right env: nothing to activate.
+            echo "no conda activate script found; '$CONDA_ENV' is already active, using it"
+        else
+            echo "ERROR: no conda activate script found (tried:$CONDA_ACTIVATE_TRIED)," \
+                 "and the current env is '${CONDA_DEFAULT_ENV:-none}', not '$CONDA_ENV'." >&2
+            echo "       Activate '$CONDA_ENV' first, or set CONDA_ACTIVATE=<conda root>/bin/activate." >&2
+            exit 1
+        fi
+    fi
+fi
+
+# Interpreter for the video-streamers, called directly (no env switch). The
+# conda root comes from the activate script, else from the active env.
+if [ -n "$CONDA_ACTIVATE" ]; then
+    CONDA_ROOT="$(dirname "$(dirname "$CONDA_ACTIVATE")")"
+else
+    case "${CONDA_PREFIX:-}" in
+        */envs/*) CONDA_ROOT="${CONDA_PREFIX%/envs/*}" ;;
+        *) CONDA_ROOT="${CONDA_PREFIX:-}" ;;
+    esac
+fi
 MXCUBE_ENV="${MXCUBE_ENV-mxcubeweb}"
 MXCUBE_PY="${MXCUBE_PY-$CONDA_ROOT/envs/$MXCUBE_ENV/bin/python}"
 [ -x "$MXCUBE_PY" ] || MXCUBE_PY=python3
@@ -60,19 +100,21 @@ if [ -n "$CONDA_ACTIVATE" ]; then
         set -u
         # A missing env does not always fail the source; carrying on in the
         # wrong env ends in "failed to execute argussight" (exit 127) later.
-        if [ "${CONDA_DEFAULT_ENV:-}" != "$CONDA_ENV" ] \
-            && [ "$(basename "${CONDA_PREFIX:-/}")" != "$CONDA_ENV" ]; then
+        if ! in_conda_env; then
             echo "ERROR: could not activate conda env '$CONDA_ENV' with $CONDA_ACTIVATE" \
                  "(active: '${CONDA_DEFAULT_ENV:-none}')." >&2
             echo "       Check it exists: conda env list. Override with CONDA_ENV=<name>" \
                  "or CONDA_ACTIVATE=<conda root>/bin/activate." >&2
             exit 1
         fi
+    elif in_conda_env; then
+        echo "conda activate script not found ($CONDA_ACTIVATE);" \
+             "'$CONDA_ENV' is already active, using it"
     else
         echo "ERROR: conda activate script not found ($CONDA_ACTIVATE), so env" \
              "'$CONDA_ENV' cannot be activated." >&2
-        echo "       Set CONDA_ACTIVATE=<conda root>/bin/activate, or CONDA_ACTIVATE=" \
-             "to use the current environment." >&2
+        echo "       Set CONDA_ACTIVATE=<conda root>/bin/activate, activate" \
+             "'$CONDA_ENV' first, or CONDA_ACTIVATE= to use the current environment." >&2
         exit 1
     fi
 fi
