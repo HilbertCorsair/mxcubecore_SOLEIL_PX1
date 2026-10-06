@@ -1,95 +1,83 @@
-from mxcubecore.BaseHardwareObjects import HardwareObject
-from mxcubecore.HardwareObjects.abstract.AbstractNState import AbstractNState
-from mxcubecore.Command.Tango import DeviceProxy
+"""The SampleView "backlight" button on PX1.
+
+PX1 has no backlight switch of its own: the backlight comes in with the
+supervisor's VISU_SAMPLE phase. So ON sends PX1Environment to VISU_SAMPLE and
+OFF to DEFAULT, and the value shown is the phase the supervisor reports, not
+the last click.
+
+Configuration (backlight.xml), referenced from minidiff.xml as
+<object role="backlight" href="/backlight"/>:
+
+    <object class="PX1BackLight">
+      <username>Backlight</username>
+      <object role="environment" href="/px1environment"/>
+    </object>
+"""
+
+import logging
+from enum import Enum
+
 import gevent
-class EnvironmentPhase:
-    TRANSFER = 0
-    CENTRING = 1
-    COLLECT = 2
-    DEFAULT = 3
-    BEAMVIEW = 4
-    FLUOX = 5
-    MANUAL_TRANSFER = 6
-    IN_PROGRESS = 7
-    VISU_SAMPLE = 8
 
-    phase_desc = {
-        "TRANSFER": TRANSFER,
-        "CENTRING": CENTRING,
-        "COLLECT": COLLECT,
-        "DEFAULT": DEFAULT,
-        "BEAMVIEW": BEAMVIEW,
-        "FLUOX": FLUOX,
-        "MANUAL_TRANSFER": MANUAL_TRANSFER,
-        "IN_PROGRESS": IN_PROGRESS,
-        "VISU_SAMPLE": VISU_SAMPLE,
-    }
+from mxcubecore.HardwareObjects.abstract.AbstractNState import AbstractNState
 
-    @staticmethod
-    def phase(phase_name):
-        return EnvironmentPhase.phase_desc.get(phase_name)
+log = logging.getLogger("HWR")
 
-class EnvironmentState:
-    UNKNOWN, ON, RUNNING, ALARM, FAULT = (0, 1, 10, 13, 14)
-    state_desc = {ON: "ON", RUNNING: "RUNNING", ALARM: "ALARM", FAULT: "FAULT"}
+# PX1Environment phase numbers (see EnvironmentPhase in PX1Environment.py).
+PHASE_DEFAULT = 3
+PHASE_VISU_SAMPLE = 8
+
 
 class PX1BackLight(AbstractNState):
-    """The name is deceptive.
-    This class changes phases using the PX1Environment HO
-    It is represented on the UI as the light button in the sample view menu.
-    This is a custom PX1 adaptation of the backlight
-    """
+    VALUES = Enum("ValueEnum", {"ON": "ON", "OFF": "OFF", "UNKNOWN": "UNKNOWN"})
+
+    poll_period = 0.5  # s; the phase can also change outside MXCuBE
+
     def __init__(self, name):
         super().__init__(name)
-        self._light_state = "OFF"
+        self.env = None
+        self._poller = None
 
-    def augment(self):
-        self.tangoname = self.get_property("tangoname")
-        self.device = DeviceProxy(self.tangoname)
+    def init(self):
+        super().init()
+        self.env = self.get_object_by_role("environment")
+        if self.env is None:
+            log.error("PX1BackLight: no 'environment' object configured")
+            self.update_state(self.STATES.FAULT)
+            return
+        self._poller = gevent.spawn(self._poll)
 
-    @property
-    def state(self):
-        return self._light_state
-    @state.setter
-    def state(self, l_st):
-        self._light_state = l_st
+    def _read(self):
+        phase = str(self.env.get_phase()).upper().replace("_", "")
+        value = self.VALUES.ON if phase == "VISUSAMPLE" else self.VALUES.OFF
+        env_state = str(self.env.get_state()).upper()
+        busy = env_state in ("MOVING", "RUNNING")
+        return value, self.STATES.BUSY if busy else self.STATES.READY
 
-    def light_switch(self):
-        if self.device.readyForVisuSample:
-            self.device.GoToVisuSamplePhase
-            gevent.sleep(5)
-            self.update_backlight
-        elif self.device.currentPhase == "VISUSAMPLE":
-            self.device.GoToDefaultPhase
-            gevent.sleep(5)
-            self.update_backlight
-
-        """if self.light == "ON":
-            self.px1env_ho.set_phase("VISU_SAMPLE")
-        elif self.light == "OFF":
-            self.px1env_ho.set_phase("DEFAULT")
-        else:
-            print("Trigger must be either ON or OFF")"""
-
-    def update_backlight(self):
-        self.light = "ON" if self.device.currentPhase == "VISUSAMPLE" else "OFF"
-        self.emit("stateChanged", (self.light, ))
+    def _poll(self):
+        failing = False
+        while True:
+            try:
+                value, state = self._read()
+                self.update_value(value)
+                self.update_state(state)
+                failing = False
+            except Exception:
+                if not failing:
+                    log.exception("PX1BackLight: cannot read the supervisor phase")
+                    failing = True
+                self.update_state(self.STATES.UNKNOWN)
+            gevent.sleep(self.poll_period)
 
     def get_value(self):
-        return self._light_state
+        try:
+            return self._read()[0]
+        except Exception:
+            return self.VALUES.UNKNOWN
 
-
-    def _init_commands(self):
-        if self.device is not None:
-            self.cmds = {
-                EnvironmentPhase.TRANSFER: self.device.GoToTransfertPhase,
-                EnvironmentPhase.CENTRING: self.device.GoToCentringPhase,
-                EnvironmentPhase.COLLECT: self.device.GoToCollectPhase,
-                EnvironmentPhase.DEFAULT: self.device.GoToDefaultPhase,
-                EnvironmentPhase.FLUOX: self.device.GoToFluoXPhase,
-                EnvironmentPhase.MANUAL_TRANSFER: self.device.GoToManualTransfertPhase,
-                EnvironmentPhase.VISU_SAMPLE: self.device.GoToVisuSamplePhase,
-            }
-
-    def ready_for_visu_sample(self):
-        return self.device.readyForVisuSample if self.device else None
+    def _set_value(self, value):
+        phase = PHASE_VISU_SAMPLE if value == self.VALUES.ON else PHASE_DEFAULT
+        self.update_state(self.STATES.BUSY)
+        # goto_phase waits for the supervisor to stop moving before sending
+        # the command; the poll above reports the result when it is there.
+        gevent.spawn(self.env.goto_phase, phase)

@@ -48,6 +48,10 @@ status_list = ["SUCCESS", "WARNING", "FAILED", "SKIPPED", "RUNNING", "NOT_EXECUT
 QueueEntryStatusType = namedtuple("QueueEntryStatusType", status_list)
 QUEUE_ENTRY_STATUS = QueueEntryStatusType(0, 1, 2, 3, 4, 5)
 
+#: Seconds to give the sample changer to report the newly mounted pin before
+#: SampleQueueEntry decides the mount put the wrong sample on the goniometer.
+MOUNT_SETTLE_TIMEOUT = 10
+
 
 class QueueExecutionException(Exception):
     def __init__(self, message, origin):
@@ -211,6 +215,11 @@ class BaseQueueEntry(QueueEntryContainer):
         self.set_view(view, view_set_queue_entry)
         self._checked_for_exec = False
         self.status = QUEUE_ENTRY_STATUS.NOT_EXECUTED
+        # Wall-clock (time.time()) start and end of the last run, stamped by
+        # QueueManager. Clients time the queue rows from these, not from when
+        # their own copy of the state change happened to arrive.
+        self.started_at = None
+        self.ended_at = None
         self.type_str = ""
         self._data_model.lims_session_id = HWR.beamline.session.session_id
 
@@ -433,12 +442,18 @@ class TaskGroupQueueEntry(BaseQueueEntry):
                 gid = HWR.beamline.lims._store_data_collection_group(group_data)
                 self.get_data_model().lims_group_id = gid
             except Exception as ex:
+                # Raising here would be caught by QueueManager.__execute_entry
+                # BEFORE the loop that executes this group's children, so a
+                # single LIMS hiccup silently discards every task under the
+                # group - for the unattended pipeline, all eight phases. A
+                # failed ISPyB group costs the grouping, not the collection.
                 msg = (
                     "Could not create the data collection group"
-                    + " in LIMS. Reason: "
+                    + " in LIMS, continuing without one. Reason: "
                     + str(ex)
                 )
-                raise QueueExecutionException(msg, self)
+                logging.getLogger("user_level_log").error(msg)
+                logging.getLogger("HWR").exception(msg)
 
         self.interleave_items = []
         if init_ref_images:
@@ -667,10 +682,34 @@ class SampleQueueEntry(BaseQueueEntry):
                 mount_device = HWR.beamline.sample_changer
 
             if mount_device is not None:
-                log.info("Loading sample " + str(self._data_model.location))
-                sample_mounted = mount_device.is_mounted_sample(
-                    tuple(self._data_model.location)
+                loc = self._normalised_location()
+                loaded = mount_device.get_loaded_sample()
+                log.info(
+                    "Loading sample %s (loc=%s); changer currently reports %s"
+                    % (
+                        self._data_model.loc_str,
+                        loc,
+                        loaded.get_address() if loaded is not None else None,
+                    )
                 )
+
+                if loc is None:
+                    # Sample.location defaults to (None, None) and only the
+                    # client's add_sample() fills it in; an unset one used to
+                    # read as a silent "not mounted". Mount via loc_str, but
+                    # say so.
+                    logging.getLogger("user_level_log").warning(
+                        "Sample %s has no sample-changer location; mounting by "
+                        "address and skipping the mounted-pin check."
+                        % self._data_model.loc_str
+                    )
+                    sample_mounted = False
+                else:
+                    sample_mounted = mount_device.is_mounted_sample(loc)
+
+                if _has_unattended_pipeline(self._data_model):
+                    self._require_murko()
+
                 if not sample_mounted:
                     self.sample_centring_result = gevent.event.AsyncResult()
                     try:
@@ -688,10 +727,40 @@ class SampleQueueEntry(BaseQueueEntry):
                         )
                         log.error(msg)
                         self.status = QUEUE_ENTRY_STATUS.FAILED
-                        if isinstance(e, QueueSkipEntryException):
+
+                        if isinstance(e, (QueueSkipEntryException, QueueAbortedException)):
                             raise
-                        else:
-                            raise QueueExecutionException(str(e), self)
+
+                        if not self._sample_changer_usable(mount_device):
+                            # The changer, not this pin: Disabled / Alarm /
+                            # Fault / Unknown. QueueExecutionException is
+                            # swallowed by QueueManager.__execute_entry, so the
+                            # run would walk the rest of the queue emitting one
+                            # identical error per sample and bury the real
+                            # cause. QueueAbortedException is the one it
+                            # re-raises, which stops the run cleanly.
+                            logging.getLogger("user_level_log").error(
+                                "Sample changer is not usable (%s); "
+                                "stopping the queue." % mount_device.get_status()
+                            )
+                            raise QueueAbortedException(msg, self)
+
+                        raise QueueExecutionException(str(e), self)
+
+                    # mount_sample() only asserts has_loaded_sample(), i.e.
+                    # that SOME pin is on the goniometer. Without this, a
+                    # mis-mount runs the whole pipeline on the wrong crystal.
+                    if loc is not None and not self._wait_mounted(mount_device, loc):
+                        mounted = mount_device.get_loaded_sample()
+                        raise QueueSkipEntryException(
+                            "Sample %s was requested but the changer reports %s "
+                            "on the goniometer; skipping this sample."
+                            % (
+                                self._data_model.loc_str,
+                                mounted.get_address() if mounted is not None else "nothing",
+                            ),
+                            "",
+                        )
                 else:
                     log.info("Sample already mounted")
             else:
@@ -702,6 +771,69 @@ class SampleQueueEntry(BaseQueueEntry):
                 )
                 log.info(msg)
             self.get_view().setText(1, "")
+
+    def _require_murko(self):
+        """Stop the queue before mounting when murko is down.
+
+        The unattended pipeline centres with murko only: without it every
+        sample would be mounted, fail its centring and be unmounted again.
+        """
+        check = getattr(HWR.beamline.diffractometer, "is_murko_available", None)
+        if check is not None and not check():
+            msg = "Murko is not reachable: unattended collect stopped before mounting"
+            logging.getLogger("user_level_log").error(msg)
+            raise QueueAbortedException(msg, self)
+
+    @staticmethod
+    def _wait_mounted(mount_device, loc, timeout=MOUNT_SETTLE_TIMEOUT):
+        """True once the changer reports <loc> on the goniometer.
+
+        Give the changer a few seconds to catch up before calling a mount
+        wrong: the flags are refreshed from the hardware at the end of the
+        load, but the cost of being early here is skipping a sample that is in
+        fact correctly mounted.
+        """
+        deadline = time.time() + timeout
+        while True:
+            if mount_device.is_mounted_sample(loc):
+                return True
+            if time.time() >= deadline:
+                return False
+            gevent.sleep(1)
+            for refresh in ("_do_update_loaded_sample", "update_info"):
+                if hasattr(mount_device, refresh):
+                    try:
+                        getattr(mount_device, refresh)()
+                    except Exception:
+                        logging.getLogger("HWR").exception(
+                            "Could not refresh the sample changer state"
+                        )
+                    break
+
+    def _normalised_location(self):
+        """The (basket, pin) pair as ints, or None if the model has no usable one.
+
+        Sample.location is (None, None) until the client's add_sample() fills it
+        in, and nothing else in the model layer sets it.
+        """
+        try:
+            loc = tuple(int(x) for x in self._data_model.location)
+        except (TypeError, ValueError):
+            return None
+        return loc or None
+
+    @staticmethod
+    def _sample_changer_usable(mount_device):
+        """True when the changer could still mount a different sample.
+
+        A bad pin should cost one sample; a changer in a fault state will fail
+        every remaining sample the same way.
+        """
+        try:
+            return mount_device.is_normal_state()
+        except Exception:
+            # Not every changer implements it; assume the pin was at fault.
+            return True
 
     def centring_done(self, success, centring_info):
         if not success:
@@ -744,11 +876,20 @@ class SampleQueueEntry(BaseQueueEntry):
                         }
                     )
 
+        # Grouped processing is best effort: anything raised here escapes
+        # post_execute, escapes QueueManager.__execute_entry's else clause and
+        # lands in __execute_task, which calls stop() and kills the rest of the
+        # queue. A missing or malformed auto_processing configuration must never
+        # cost the remaining samples.
         try:
             programs = HWR.beamline.collect["auto_processing"]
             autoprocessing.start(programs, "end_multicollect", params)
         except KeyError:
             pass
+        except Exception:
+            logging.getLogger("HWR").exception(
+                "Grouped auto processing could not be started"
+            )
 
         self._set_background_color()
         self._view.setText(1, "")
@@ -763,6 +904,24 @@ class SampleQueueEntry(BaseQueueEntry):
 class BasketQueueEntry(BaseQueueEntry):
     def __init__(self, view=None, data_model=None):
         BaseQueueEntry.__init__(self, view, data_model)
+
+
+#: Seconds to wait for a centring to be accepted during mount_sample. An
+#: unattended collect centres the sample in its own tasks, so this only applies
+#: when the operator selects a queue level centring method.
+QUEUE_CENTRING_TIMEOUT = 180
+
+
+def _has_unattended_pipeline(sample_model):
+    """True when an enabled unattended collect is queued on the sample.
+
+    It centres the sample in its own tasks, a queue level centring in
+    mount_sample() would be a second one.
+    """
+    return any(
+        isinstance(group, queue_model_objects.UnattendedCollect) and group.is_enabled()
+        for group in sample_model.get_children()
+    )
 
 
 def mount_sample(data_model, centring_done_cb, async_result):
@@ -782,8 +941,11 @@ def mount_sample(data_model, centring_done_cb, async_result):
         "startTime": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
-    if not HWR.beamline.sample_changer.load(sample=data_model.loc_str, wait=True):
-        raise QueueSkipEntryException("Sample changer could not load sample", "")
+    # Not every sample changer returns a value from load(): Cats90 historically
+    # returned None even on a perfect mount, which made this a guaranteed skip of
+    # the sample and of every task node under it. has_loaded_sample() below is the
+    # real verification.
+    HWR.beamline.sample_changer.load(sample=data_model.loc_str, wait=True)
 
     robot_action_dict["endTime"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -793,7 +955,16 @@ def mount_sample(data_model, centring_done_cb, async_result):
         robot_action_dict["message"] = "Sample was not loaded"
         robot_action_dict["status"] = "ERROR"
 
-    HWR.beamline.lims.store_robot_action(robot_action_dict)
+    # Bookkeeping, not part of the mount. It sits between load() and the
+    # has_loaded_sample() check below, so anything raised here was reported as
+    # "Error loading sample, please check sample changer:" and, if the changer
+    # happened to look unusable, aborted the whole run.
+    try:
+        HWR.beamline.lims.store_robot_action(robot_action_dict)
+    except Exception:
+        logging.getLogger("HWR").exception(
+            "Could not store the robot action in LIMS"
+        )
 
     if not HWR.beamline.sample_changer.has_loaded_sample():
         HWR.beamline.sample_changer.trigger_progress_message("Sample not loaded")
@@ -802,6 +973,10 @@ def mount_sample(data_model, centring_done_cb, async_result):
         HWR.beamline.sample_changer.trigger_progress_message("Sample loaded")
         dm = HWR.beamline.diffractometer
         centring_method = HWR.beamline.queue_manager.centring_method
+
+        # An unattended collect centres the sample in its own tasks
+        if _has_unattended_pipeline(data_model):
+            centring_method = CENTRING_METHOD.NONE
 
         if centring_method != CENTRING_METHOD.NONE:
             try:
@@ -825,7 +1000,16 @@ def mount_sample(data_model, centring_done_cb, async_result):
                     dm.start_centring_method(dm.MANUAL3CLICK_MODE)
 
                 HWR.beamline.sample_changer.trigger_progress_message("Centring !")
-                centring_result = async_result.get()
+                # Bounded: nothing accepts a centring in the queue-driven (web)
+                # path, so an unbounded get() hangs the whole queue for ever.
+                # gevent.Timeout derives from BaseException, so it has to be
+                # caught here rather than by the enclosing except Exception.
+                try:
+                    centring_result = async_result.get(timeout=QUEUE_CENTRING_TIMEOUT)
+                except gevent.Timeout:
+                    raise RuntimeError(
+                        "Centring timed out after %s s" % QUEUE_CENTRING_TIMEOUT
+                    )
 
                 if centring_result["valid"]:
                     HWR.beamline.sample_changer.trigger_progress_message(

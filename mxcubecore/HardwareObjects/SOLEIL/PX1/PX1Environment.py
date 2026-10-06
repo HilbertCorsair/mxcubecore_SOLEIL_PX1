@@ -1,5 +1,7 @@
 import time
 import logging
+from contextlib import nullcontext
+
 import gevent
 from mxcubecore.HardwareObjects.abstract.AbstractMotor import AbstractMotor
 from mxcubecore.Command.Tango import DeviceProxy
@@ -119,9 +121,84 @@ class PX1Environment(HardwareObject):
         state = self.state_chan.get_value().name
         return not state in ['ON', "STANDBY"]
 
-    def wait_ready(self, timeout=None):
-        print('Waiting in PX1ENV . ................')
-        self._wait_state(["ON"], timeout)
+    def wait_ready(self, timeout=60):
+        """True once the supervisor is idle. Bounded, and never raises.
+
+        Called on the mount path (PX1Cryotong._do_load_operation, before a
+        chained load and again after the transfer), where it used to default
+        to timeout=None - a gevent.Timeout(None) never fires, so a supervisor
+        that settled anywhere but ON stalled the queue greenlet for ever.
+
+        STANDBY counts as ready because is_busy() in this class already treats
+        it that way; requiring exactly ON made the two disagree.
+        """
+        if self.device is None or self.state_chan is None:
+            return True
+
+        ready = ("ON", "STANDBY")
+        t0 = time.time()
+        while True:
+            try:
+                value = self.state_chan.get_value()
+            except Exception:
+                logging.getLogger("HWR").exception(
+                    "PX1Environment: cannot read the supervisor state"
+                )
+                return True
+
+            # Tango hands back a DevState enum here, but _update_state() takes
+            # the str() of the same value, so do not assume either shape.
+            state = getattr(value, "name", None) or str(value)
+
+            if state in ready:
+                return True
+
+            if time.time() - t0 > timeout:
+                logging.getLogger("HWR").warning(
+                    "PX1Environment: supervisor still not ready after %s s "
+                    "(state %s, phase %s), continuing anyway",
+                    timeout,
+                    *self._describe()
+                )
+                return False
+
+            gevent.sleep(0.2)
+
+    def wait_not_moving(self, timeout=60):
+        """True once the supervisor is out of MOVING / RUNNING.
+
+        The device refuses every GoTo*Phase command while it is moving
+        ("GoToTransfertPhase not allowed when the device is in MOVING state").
+        Waiting for "not moving" rather than for ON is deliberate: in FAULT or
+        ALARM the command is still accepted (and fails for a reason worth
+        seeing), so blocking until ON would only turn a visible error into a
+        timeout. Never raises - the caller decides what a False means.
+        """
+        if self.device is None or self.state_chan is None:
+            return True
+
+        busy = ("MOVING", "RUNNING")
+        t0 = time.time()
+        while True:
+            try:
+                value = self.state_chan.get_value()
+            except Exception:
+                logging.getLogger("HWR").exception(
+                    "PX1Environment: cannot read the supervisor state"
+                )
+                return True
+
+            # Tango hands back a DevState enum here, but _update_state() takes
+            # the str() of the same value, so do not assume either shape.
+            state = getattr(value, "name", None) or str(value)
+
+            if state not in busy:
+                return True
+
+            if time.time() - t0 > timeout:
+                return False
+
+            gevent.sleep(0.2)
 
     def _wait_state(self, states, timeout=None):
         if self.device is None:
@@ -168,12 +245,119 @@ class PX1Environment(HardwareObject):
     def ready_for_visu_sample(self):
         return self.device.readyForVisuSample if self.device else None
 
-    def goto_phase(self, phase):
+    def _describe(self):
+        """State and current phase for a log line, never raising.
+
+        Used from the goto_phase warnings, which fire exactly when the device is
+        unhappy - a raising read there would replace the diagnostic with its own
+        traceback.
+        """
+        try:
+            state = self.get_state()
+        except Exception:
+            state = "<unreadable>"
+        try:
+            phase = self.get_current_phase()
+        except Exception:
+            phase = "<unreadable>"
+        return state, phase
+
+    # ------------------------------------------------------------------
+    # A phase change moves the Smargon too: it is a goniometer procedure.
+    # ------------------------------------------------------------------
+
+    phase_start_timeout = 1.5  # s for the supervisor to report MOVING
+
+    def _smargon(self):
+        try:
+            from mxcubecore import HardwareRepository as HWR
+
+            smargon = HWR.beamline.diffractometer.smargon
+        except Exception:
+            return None
+        return smargon if hasattr(smargon, "procedure") else None
+
+    def _supervisor_moving(self):
+        # The device itself, not the polled channel: right after the command
+        # the channel still holds the state from before it.
+        try:
+            state = self.device.State()
+        except Exception:
+            state = self.state_chan.get_value()
+        return (getattr(state, "name", None) or str(state)) in ("MOVING", "RUNNING")
+
+    def _run_phase(self, label, send, timeout=60):
+        """Send a phase command and wait until the phase change is over.
+
+        Holds the goniometer gate from before the command until the
+        supervisor has stopped moving and the Smargon has settled, so no
+        goniometer command is sent in the middle of a phase move - which
+        goes through STANDBY between its steps. Over = seen moving (or not
+        within phase_start_timeout: nothing to move) and then not moving.
+        """
+        smargon = self._smargon()
+        ctx = smargon.procedure("phase %s" % label) if smargon else nullcontext()
+        with ctx:
+            self.wait_not_moving(timeout)
+            send()
+            t0 = time.time()
+            while not self._supervisor_moving():
+                if time.time() - t0 > self.phase_start_timeout:
+                    break
+                gevent.sleep(0.05)
+            if not self.wait_not_moving(timeout):
+                logging.getLogger("HWR").warning(
+                    "PX1Environment: phase %s still moving after %s s", label, timeout
+                )
+
+    def goto_phase(self, phase, timeout=60):
+        """Send the supervisor to <phase>, waiting until it can accept it.
+
+        Every phase change in PX1 goes through here, so this is the one place
+        the "not allowed when the device is in MOVING state" DevFailed can be
+        kept out of the queue. It used to log the state and then send the
+        command anyway; the queue's next mount calls env_send_transfer()
+        straight after the previous sample's motion, which is exactly when the
+        supervisor is still moving.
+        """
         logging.debug(f"PX1environment.goto_phase {phase}")
         cmd = self.cmds.get(phase)
-        if cmd is not None:
-            logging.debug(f"PX1environment.goto_phase state {self.get_state()}")
-            cmd()
+        if cmd is None:
+            return
+
+        log = logging.getLogger("HWR")
+
+        def send():
+            if not self.wait_not_moving(timeout):
+                state, current = self._describe()
+                log.warning(
+                    "PX1Environment: still %s after %s s (phase %s); sending phase "
+                    "%s anyway",
+                    state,
+                    timeout,
+                    current,
+                    phase,
+                )
+
+            try:
+                cmd()
+            except Exception:
+                # One retry: the state can go MOVING between the check and the
+                # call, and the supervisor rejects the command outright rather
+                # than queueing it.
+                state, current = self._describe()
+                log.warning(
+                    "PX1Environment: phase %s refused while %s (phase %s); "
+                    "retrying once",
+                    phase,
+                    state,
+                    current,
+                    exc_info=True,
+                )
+                self.wait_not_moving(timeout)
+                cmd()
+
+        self._run_phase(phase, send, timeout)
 
     def set_phase(self, phase, timeout=120):
         self.goto_phase(phase)
@@ -202,23 +386,23 @@ class PX1Environment(HardwareObject):
 
     def goto_centring_phase(self):
         if not self.ready_for_centring() or self.get_phase() != "CENTRING":
-            self.get_command_object("GoToCentringPhase")()
-            time.sleep(0.1)
+            # Same DevFailed as GoToTransfertPhase: the supervisor rejects a
+            # phase command while it is moving. These two helpers bypass
+            # goto_phase (they go through get_command_object), so the wait has
+            # to be repeated here.
+            self._run_phase("CENTRING", self.get_command_object("GoToCentringPhase"))
 
     def goto_collect_phase(self):
 
         if not self.ready_for_collect() or self.get_phase() != "COLLECT":
-            self.get_command_object("GoToCollectPhase")
-            if not self.get_command_object("GoToCollectPhase"):
+            cmd = self.get_command_object("GoToCollectPhase")
+            if not cmd:
                 try :
-                    self._collect = self.add_command( {"type": "tango", "name": "GoToCollectPhase", "tangoname": self.tangoname}, "GoToCollectPhase", )
-                    self._collect()
-                    time.sleep(0.1)
+                    cmd = self._collect = self.add_command( {"type": "tango", "name": "GoToCollectPhase", "tangoname": self.tangoname}, "GoToCollectPhase", )
                 except :
-                    print("EXEPTION GTCP 5")
-                    pass
-            else:
-                self.get_command_object("GoToCollectPhase")()
+                    logging.getLogger("HWR").exception("PX1Environment: no GoToCollectPhase command")
+                    return
+            self._run_phase("COLLECT", cmd)
 
 
     def goto_loading_phase(self):
@@ -233,18 +417,15 @@ class PX1Environment(HardwareObject):
 
     def goto_default_phase(self):
         if not self.ready_for_default_position():
-            self.get_command_object("GoToDefaultPhase")()
-            time.sleep(0.1)
+            self._run_phase("DEFAULT", self.get_command_object("GoToDefaultPhase"))
 
     def goto_sample_view_phase(self):
         if not self.ready_for_visu_sample():
-            self.get_command_object("GoToVisuSamplePhase")()
-            time.sleep(0.1)
+            self._run_phase("VISU_SAMPLE", self.get_command_object("GoToVisuSamplePhase"))
 
     def goto_fluo_scan_phase(self):
         if not self.ready_for_fluo_scan():
-            self.get_command_object("GoToFluoScanPhase")()
-            time.sleep(0.1)
+            self._run_phase("FLUO_SCAN", self.get_command_object("GoToFluoScanPhase"))
 
     def _set_authorization_flag(self, value):
         if value != self.auth:

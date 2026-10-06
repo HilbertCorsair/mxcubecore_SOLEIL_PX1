@@ -1,10 +1,11 @@
 from __future__ import print_function
 import logging
 import gevent
+import gevent.event
 import time
+from contextlib import nullcontext
 from mxcubecore.HardwareObjects.abstract.sample_changer import Container
 import PyTango
-import math
 
 
 from Cats90 import (
@@ -28,19 +29,29 @@ class PX1Cryotong(Cats90):
     def __init__(self, *args, **kwargs):
 
         super(PX1Cryotong, self).__init__(*args, **kwargs)
-        # Generates a list of baskets
-        self.components = [ Container.Basket(self, i +1, 16) for i in range(16) ]
+        # No baskets are built here. _init_sc_contents() is the single place
+        # that builds them; doing it here as well left the changer holding 22
+        # Basket objects with duplicate sample addresses, which every lookup
+        # then resolved by list order rather than by address.
         self._safeNeeded = None
         self._homeOpened = None
         self.dry_and_soak_needed = False
         self.count_down = None
-        self.no_of_samples_in_basket = 16
         self.soft_auth = None
         self.incoherent_state = None
+        # Post-mount souflette (blower) drying settle. Run in the background so
+        # the queue greenlet is released as soon as the pin is physically on the
+        # goniometer; see _start_souflette.
+        self._souflette_task = None
+        self._souflette_done = gevent.event.Event()
+        self._souflette_done.set()
+        self._souflette_deadline = 0.0
+        self.souflette_seconds = 45.0
+        self.souflette_blocking = False
+        self.transfer_ready_timeout = 180.0
 
     def init(self):
         super(PX1Cryotong, self).init()
-        self._num_loaded = self._chnNumLoadedSample.value if self._chnNumLoadedSample.value != -1 else None
         self.environment = self.get_object_by_role("environment")
         self.tangoname = self.get_property("tangoname")
         if self.environment is None:
@@ -99,17 +110,27 @@ class PX1Cryotong(Cats90):
                 }, "ResetError")
 
 
-        for i in range(self.no_of_baskets):
-            basket = Container.Basket(
-                self, i + 1, samples_num = self.no_of_samples_in_basket
-            )
-            self._add_component(basket)
-        self._chnNumLoadedSample.connect_signal("update", self._update_num_loaded)
+        # _chnNumLoadedSample is already connected in Cats90.init(), to
+        # cats_loaded_num_changed -> _update_loaded_sample. A second handler on
+        # the same channel only raced with it.
+
+        # <souflette_time>45</souflette_time> / <souflette_blocking>False</...>
+        # souflette_blocking restores the legacy behaviour (the queue waits out
+        # the drying time) without a code change.
+        self.souflette_seconds = float(self.get_property("souflette_time", 45))
+        self.souflette_blocking = self.is_string_true(
+            self.get_property("souflette_blocking", False)
+        )
+        # How long _wait_transfer_ready may wait for the changer to leave its
+        # post-transfer drying cycle before giving up.
+        self.transfer_ready_timeout = float(
+            self.get_property("transfer_ready_timeout", 180)
+        )
 
         self._init_sc_contents()
         self._do_update_state()
         self._update_state()
-        self._update_loaded_list()
+        self._do_update_loaded_sample()
 
     # ## CRYOTONG SPECIFIC METHODS ###
     def is_string_true (self, val):
@@ -120,31 +141,6 @@ class PX1Cryotong(Cats90):
 
     def cats_basket_presence_changed(self, value):
         pass
-
-    def _update_num_loaded(self, value):
-        if self._num_loaded:
-            self._num_loaded = value if not value == -1 else None
-            self._update_loaded_list()
-
-
-    def _update_loaded_list (self):
-        """Upsdates the list of sample objects by changing their loaded property
-        """
-        if self._num_loaded :
-            smp = self._num_loaded % 16
-            comp_no = math.ceil(int(self._num_loaded) / 16) -1
-            smp_no = smp-1 if smp != 0 else 15
-            # reset all previous load
-            for sample in self.components[comp_no].get_sample_list():
-                sample.loaded = False
-            # update loaded for new sample
-            self.components[comp_no].get_sample_list()[smp_no].loaded = True
-
-        else:
-            for puck in range(3):
-                for sample in self.components[puck].get_sample_list():
-                    sample.loaded = False
-
 
     def _do_update_state(self):
         """
@@ -396,30 +392,57 @@ class PX1Cryotong(Cats90):
         #self.videohub_ho.select_camera("Robot", process="mount")
         #self.videohub_ho.start_recording(file_prefix="mount")
 
-        if self.has_loaded_sample() :
-            if selected==self.get_loaded_sample() and not wash:
-                msg = "Load aborted. Reason: \nSample " + str(self.get_loaded_sample().get_address()) + " already loaded"
-                logging.getLogger("user_level_log").info(msg)
-                self.emit("catsError", msg)
-                self._update_state()
-                raise Exception(msg)
-            else:
-                logging.getLogger("HWR").warning("  ==========CATS=== chained load sample, sending to cats:  %s" % argin)
-                self.environment.wait_ready()
-                self._execute_server_task(self._cmdChainedLoad, argin)
-        else:
-            print(f'NO LOADED SAMPLE -- {self.has_loaded_sample()}')
-            if self.cats_sample_on_diffr():
-                logging.getLogger("HWR").warning("  ==========CATS=== trying to load sample, but sample detected on diffr. Exchanging samples")
-                self._update_state() # remove software flags like Loading.
-                self._execute_server_task(self._cmdChainedLoad, argin)
-            else:
-                logging.getLogger("HWR").warning("  ==========CATS=== load sample, sending to cats:  %s" % argin)
-                self._execute_server_task(self._cmdLoad, argin)
+        # Chained load (Exchange) vs plain load is decided by the goniometer
+        # detector, not by our own loaded flag. Sending an Exchange to an empty
+        # goniometer is rejected by the CATS and leaves it in Alarm/Disabled,
+        # which then kills the whole queue run - and a stale flag is exactly
+        # what used to put us there. The flag is only used to name the pin.
+        on_diff = self.cats_sample_on_diffr() == 1
+        loaded = self.get_loaded_sample()
 
-        self.environment.wait_ready()
-        HWR.beamline.diffractometer.mount_finished()
+        if loaded is not None and not on_diff:
+            logging.getLogger("HWR").warning(
+                "  ==========CATS=== %s is flagged loaded but nothing is detected"
+                " on the goniometer; loading %s:%s as a plain load"
+                % (loaded.get_address(), basketno, sampleno)
+            )
+
+        if on_diff and loaded is not None and selected == loaded and not wash:
+            msg = "Load aborted. Reason: \nSample " + str(loaded.get_address()) + " already loaded"
+            logging.getLogger("user_level_log").info(msg)
+            self.emit("catsError", msg)
+            self._update_state()
+            raise Exception(msg)
+
+        # The robot works at the goniometer: hold it until the pin is on and
+        # moved to its pin length, so no goniometer command lands meanwhile.
+        with self._gonio_procedure("sample load %s:%s" % (basketno, sampleno)):
+            self._send_load(on_diff, argin)
+            self.environment.wait_ready()
+            HWR.beamline.diffractometer.mount_finished()
         #self.videohub_ho.select_camera("OAV", process="mount")
+
+    def _gonio_procedure(self, name):
+        smargon = getattr(HWR.beamline.diffractometer, "smargon", None)
+        if smargon is None or not hasattr(smargon, "procedure"):
+            return nullcontext()
+        return smargon.procedure(name)
+
+    def _send_load(self, on_diff, argin):
+        if on_diff:
+            logging.getLogger("HWR").warning("  ==========CATS=== chained load sample, sending to cats:  %s" % argin)
+            self.environment.wait_ready()
+            self._execute_server_task(self._cmdChainedLoad, argin)
+        else:
+            if self.cats_sample_on_diffr() == -1:
+                # Conflicting loaded-sample info from the CATS. Loading blind
+                # here is how a pin gets crushed; make the operator resolve it.
+                raise Exception(
+                    "CATS reports conflicting loaded-sample information. "
+                    "Please clear it (AckIncoherentGonioSampleState) before loading."
+                )
+            logging.getLogger("HWR").warning("  ==========CATS=== load sample, sending to cats:  %s" % argin)
+            self._execute_server_task(self._cmdLoad, argin)
 
     def wait_countdown(self, timeout=20):
         t0 = time.time()
@@ -483,17 +506,217 @@ class PX1Cryotong(Cats90):
                 "CATS: Load/Unload Error. Please try again."
             )
             self.emit("loadError", incoherentSample)
-        self._update_loaded_list()
-
-        print("Waiting 45 sec befor final update of loaded sample")
-        if souflette_time:
-            gevent.sleep(45)
-
-
+        # Must stay synchronous: base_queue_entry.mount_sample() gates on
+        # has_loaded_sample(), and AbstractSampleChanger._run's update_info()
+        # needs fresh flags to emit loadedSampleChanged. Reads both CATS
+        # attributes with a real read_attribute, not the 1 s poll cache.
         self._do_update_loaded_sample()
+
+        # The drying time is not a data-freshness wait: _do_load_operation has
+        # already waited for the CATS path, environment.wait_ready() and
+        # diffractometer.mount_finished(). Backgrounding it lets the next queue
+        # phase (optical centring) overlap the blower.
+        if souflette_time:
+            if self.souflette_blocking:
+                gevent.sleep(self.souflette_seconds)
+                self._do_update_loaded_sample()
+            else:
+                self._start_souflette(self.souflette_seconds)
+
+        return True
+
+    # ## SOUFLETTE (post-mount drying settle) ###
+
+    def _start_souflette(self, seconds):
+        """Arm the background drying timer. Returns immediately.
+
+        Cancels any timer still pending from a previous load, so at most one
+        souflette greenlet exists at a time.
+        """
+        self.cancel_souflette(reason="new load")
+        self._souflette_done.clear()
+        self._souflette_deadline = time.time() + seconds
+        task = gevent.spawn(self._souflette_run, seconds)
+        self._souflette_task = task
+        # Identity-checked: kill(block=False) is asynchronous, so a cancelled
+        # timer's callback can still fire after a newer one was armed and must
+        # not signal that the new drying time is over.
+        task.link(self._souflette_finished)
+        logging.getLogger("HWR").info(
+            "PX1Cryotong: souflette drying running in background for %s s", seconds
+        )
+
+    def _souflette_finished(self, task):
+        """Release wait_souflette() when the current timer ends."""
+        if self._souflette_task is task:
+            self._souflette_done.set()
+
+    def _souflette_run(self, seconds):
+        """Sleep out the drying time, then re-confirm the CATS bookkeeping.
+
+        The re-confirmation is skipped when this greenlet is no longer the
+        current timer (a newer load, an unload or an abort took over), so a
+        stale timer can never re-flag a sample that has since been unmounted.
+        """
+        try:
+            gevent.sleep(seconds)
+        except gevent.GreenletExit:
+            return
+
+        if self._souflette_task is not gevent.getcurrent():
+            logging.getLogger("HWR").info(
+                "PX1Cryotong: stale souflette timer, skipping late update"
+            )
+            return
+
+        try:
+            self._do_update_loaded_sample()
+        except Exception:
+            logging.getLogger("HWR").exception(
+                "PX1Cryotong: souflette final update failed"
+            )
+
+    def cancel_souflette(self, reason=""):
+        """Kill a pending drying timer. Idempotent."""
+        task, self._souflette_task = self._souflette_task, None
+
+        if task is not None and not task.ready():
+            logging.getLogger("HWR").info(
+                "PX1Cryotong: cancelling souflette timer (%s)", reason
+            )
+            task.kill(block=False)
+
+        self._souflette_done.set()
+        self._souflette_deadline = 0.0
+
+    def souflette_remaining(self):
+        """Seconds of drying time left; 0.0 when nothing is pending."""
+        if self._souflette_done.is_set():
+            return 0.0
+
+        return max(0.0, self._souflette_deadline - time.time())
+
+    def wait_souflette(self, timeout=None):
+        """Block until the drying settle time elapsed.
+
+        :returns: True if the wait completed or nothing was pending, False on
+                  timeout.
+        """
+        self._souflette_done.wait(timeout)
+        return self._souflette_done.is_set()
+
+    def abort(self):
+        self.cancel_souflette(reason="abort")
+        super(PX1Cryotong, self).abort()
+
+    # ## TRANSFER READINESS BARRIER ###
+
+    def _wait_transfer_ready(self, timeout=None):
+        """Block until the CATS can actually accept a transfer command.
+
+        After every Put/Get the pathRunning handler fires do_dry_and_soak() and
+        the CATS reports DevState DISABLE for the whole drying cycle; a command
+        sent in that window is rejected by assert_can_execute_task() with
+        "bad state (Disabled)". Every readiness check this class owns
+        (wait_countdown, check_power_on, check_drysoak, env_send_transfer) lives
+        inside _do_load, i.e. AFTER that assert, so the barrier has to sit here,
+        in front of it.
+
+        The authoritative signal is the CATS state, not our souflette timer: the
+        drying cycle's real length is a hardware property. In a normal queue run
+        this costs nothing - the previous sample's phases take minutes, so the
+        changer is long since idle by the time the next transfer starts.
+        """
+        log = logging.getLogger("HWR")
+        timeout = self.transfer_ready_timeout if timeout is None else timeout
+
+        remaining = self.souflette_remaining()
+        if remaining > 0:
+            log.info(
+                "PX1Cryotong: waiting %.0f s for the post-mount drying to finish",
+                remaining,
+            )
+
+        t0 = time.time()
+        # One budget for the whole barrier, not one per step.
+        with gevent.Timeout(
+            timeout,
+            RuntimeError(
+                "Sample changer not ready for a transfer after %s s" % timeout
+            ),
+        ):
+            self.wait_souflette()
+            # The CATS dry/soak countdown, if one is running.
+            self.wait_countdown(timeout)
+
+            # The PX1 supervisor is the other half of "can a transfer start
+            # now": _do_load/_do_unload send it to the transfer phase, and it
+            # refuses that command outright while it is moving. Non-raising, so
+            # a busy supervisor still reaches env_send_transfer and produces the
+            # message that names it.
+            if not self.environment.wait_not_moving(timeout):
+                log.warning(
+                    "PX1Cryotong: environment still busy (%s), continuing anyway",
+                    self.environment._describe(),
+                )
+
+            while True:
+                # Nothing else refreshes these synchronously: _do_update_state()
+                # is otherwise only called once at init, and self.state is left
+                # at Loading after a task because _run's _set_state(Ready) is
+                # commented out. Without this the barrier would decide on
+                # whatever the 300 ms poller last cached.
+                self._do_update_state()
+                self._update_state()
+
+                if self.is_ready():
+                    break
+
+                gevent.sleep(0.5)
+
+        waited = time.time() - t0
+        if waited > 1:
+            log.info(
+                "PX1Cryotong: sample changer ready after %.0f s (%s)",
+                waited,
+                SampleChangerState.tostring(self.state),
+            )
+
+        self.check_power_on()
+
+    def load(self, sample=None, wait=True, wash=True):
+        """Load, waiting first for the changer to be able to accept the command.
+
+        Cats90.load() goes straight to _execute_task, whose
+        assert_can_execute_task() rejects anything sent during the post-mount
+        drying cycle. See _wait_transfer_ready.
+        """
+        self._wait_transfer_ready()
+
+        return Cats90.load(self, sample=sample, wait=wait, wash=wash)
+
+    def unload(self, sample=None, wait=True, wash=False):
+        """Unload through the sample changer state machine.
+
+        AbstractSampleChanger.unload() cannot be reused here: it raises when
+        nothing is loaded and drops the PX1 specific wash flag. Going through
+        _execute_task is what makes update_info() run and the web client learn
+        that the goniometer is empty again.
+        """
+        self._wait_transfer_ready()
+        self.cancel_souflette(reason="unload")
+        self._update_state()
+        sample = self._resolve_component(sample)
+        self.assert_not_charging()
+
+        return self._execute_task(
+            SampleChangerState.Unloading, wait, self._do_unload, sample, wash
+        )
 
     def _do_unload(self, sample=None, wash=None):
         print("\nDoing unload ... ")
+        # The pin the pending timer is about to re-confirm is being removed.
+        self.cancel_souflette(reason="unload")
 
         ret = self.check_power_on()
         if ret is False:
@@ -513,7 +736,12 @@ class PX1Cryotong(Cats90):
             )
 
         self._do_unload_operation(sample)
-        self._update_loaded_list()
+        # Symmetric with _do_load: refresh the flags from the CATS attributes so
+        # has_loaded_sample() and the loadedSampleChanged signal are correct as
+        # soon as the unload returns.
+        self._do_update_loaded_sample()
+
+        return True
 
     def _do_unload_operation(self,sample_slot=None, shifts=None):
         # if not self.hasLoadedSample() or not self._chnSampleIsDetected.getValue():
@@ -536,7 +764,8 @@ class PX1Cryotong(Cats90):
         #self.videohub_ho.select_camera("Robot", process="unmount")
         #self.videohub_ho.start_recording(file_prefix="unmount")
         logging.getLogger("HWR").warning("  ==========CATS=== unload sample, sending to cats:  %s" % argin)
-        self._execute_server_task(self._cmdUnload, argin)
+        with self._gonio_procedure("sample unload"):
+            self._execute_server_task(self._cmdUnload, argin)
         #self.videohub_ho.select_camera("OAV", process="unmount")
         self.update_info()
 
@@ -559,10 +788,9 @@ class PX1Cryotong(Cats90):
                 )
                 break
 
-        if self._chnPowered.get_value():
-            return False
-
-        return True
+        # Inverted until 2026-09-08: a successful PowerOn returned False, i.e.
+        # "cannot be powered", and _do_load/_do_unload both abort on a False.
+        return bool(self._chnPowered.get_value())
 
 
     def _init_sc_contents(self):
@@ -577,8 +805,23 @@ class PX1Cryotong(Cats90):
             for tag, val in self["test_sample_names"].get_properties().items():
                 named_samples[val] = tag
 
+        # This override shadows Cats90._init_sc_contents, which is where the
+        # baskets and basket_presence are normally set up - so do both here,
+        # and only here. Both counts come from cryotong.xml (<no_of_baskets>,
+        # <samples_per_basket>) and Cats90.init() has already resolved them by
+        # the time it calls us. Without basket_presence, _update_cats_contents
+        # raises AttributeError the first time anything connects to infoChanged.
+        self.basket_presence = [None] * self.number_of_baskets
 
-        for basket_index in range(self.no_of_baskets):
+        self._clear_components()
+        for basket_index in range(self.number_of_baskets):
+            self._add_component(
+                Container.Basket(
+                    self, basket_index + 1, samples_num=self.samples_per_basket
+                )
+            )
+
+        for basket_index in range(self.number_of_baskets):
             basket = self.components[basket_index]
             datamatrix = None
             present = True
@@ -586,8 +829,8 @@ class PX1Cryotong(Cats90):
             basket._set_info(present, datamatrix, scanned)
 
         sample_list = []
-        for basket_index in range(self.no_of_baskets):
-            for sample_index in range(16):
+        for basket_index in range(self.number_of_baskets):
+            for sample_index in range(self.samples_per_basket):
                 sample_list.append(
                     (
                         "",
@@ -643,7 +886,18 @@ class PX1Cryotong(Cats90):
         logging.getLogger("user_level_log").warning(
             "CRYOTONG: Not ready for transfer. sending it"
         )
-        self.environment.set_phase(EnvironmentPhase.TRANSFER)
+        try:
+            self.environment.set_phase(EnvironmentPhase.TRANSFER)
+        except Exception:
+            # A refused phase command used to propagate out of load() and be
+            # reported as "Error loading sample, please check sample changer",
+            # which named the wrong device. Returning False gets the caller's
+            # "Cryotong cannot get to transfer phase" message instead.
+            logging.getLogger("HWR").exception(
+                "CRYOTONG: could not send the environment to transfer phase (%s)",
+                self.environment._describe(),
+            )
+            return False
         timeout = 10
         t0 = time.time()
         while not self.environment.ready_for_transfer():

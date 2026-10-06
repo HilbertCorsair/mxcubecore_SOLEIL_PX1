@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Argussight glimpse</title>
+<style>
+  body { font: 14px sans-serif; background: #222; color: #eee; margin: 16px; }
+  input { width: min(40em, 90%); }
+  canvas { display: block; margin-top: 8px; max-width: 100%; background: #000; }
+  #st { margin-left: 1em; }
+</style>
+<form id="f"><input id="u"> <button>Play</button><span id="st">idle</span></form>
+<canvas id="c"></canvas>
+<script type="module">
+  import { JSMpeg } from "./jsmpeg.min.js";
+  const u = document.getElementById("u"), st = document.getElementById("st"),
+        c = document.getElementById("c");
+  u.value = new URLSearchParams(location.search).get("url")
+            || `ws://${location.hostname}:7000/ws/oav`;
+  let player, frames = 0, timer, watchdog;
+
+  function play() {
+    if (player) player.destroy();
+    clearInterval(timer); clearTimeout(watchdog);
+    frames = 0;
+    st.textContent = "connecting…";
+    player = new JSMpeg.Player(u.value, {
+      canvas: c, decodeFirstFrame: false, protocols: [], reconnectInterval: 0,
+      onSourceEstablished: () => { st.textContent = "connected, waiting for video…"; },
+      onVideoDecode: () => { frames++; },
+    });
+    watchdog = setTimeout(() => {
+      if (!frames) st.textContent = "no video after 5 s: wrong URL, port closed, or no data";
+    }, 5000);
+    timer = setInterval(() => {
+      if (frames) st.textContent = `playing ${c.width}×${c.height}, ${frames} fps`;
+      frames = 0;
+    }, 1000);
+  }
+  document.getElementById("f").onsubmit = (e) => { e.preventDefault(); play(); };
+  play();
+</script>

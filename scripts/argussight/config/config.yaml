@@ -1,0 +1,59 @@
+---
+# argussight configuration for PROXIMA-1.
+#
+# argussight >= 0.3.2 reads its root config from `argussight -c <dir>`, as
+# <dir>/config.yaml; start_argus_px1.sh passes this directory. Without -c it
+# looks for ./config.yaml in the current directory and dies with
+# FileNotFoundError before binding :50051 or :7000.
+#
+# Based on upstream 0.3.2's argussight/core/configurations/config.yaml, with
+# two changes:
+#   * log_dir is set. 0.3.2 requires it (every logger and the proxy's Uvicorn
+#     logs use it) but the shipped file does not define it. Relative, so it
+#     resolves under the directory argussight is started in
+#     (ARGUS_WORKDIR in start_argus_px1.sh, ~/MXCuBElogs/argussight).
+#   * processes is empty. PX1's cameras are external video-streamers
+#     registered into the proxy via the AddStream gRPC (argus_cameras.py); the
+#     default Saver/Recorder would only subscribe to argussight's own redis
+#     channel, which nothing publishes to at PX1.
+#
+# The per-process configs upstream keeps in configurations/processes/ are only
+# read when a worker is started, and PX1 starts none, so they are not copied.
+
+# Directory for argussight's own logs (Shared_logs.log, Spawner.log, Uvicorn/).
+log_dir: logs
+
+# This indicates the path to the files of the process classes
+modules_path: argussight.core.video_processes
+
+# List of available processes and their file locations from modules_path
+# If accessible=true then process can be started via grpc call
+worker_classes:
+  test:
+    location: vprocess.Test
+    accessible: true
+  flow_detection:
+    location: streamer.optical_flow_detection.OpticalFlowDetection
+    accessible: true
+  stream_buffer:
+    location: savers.stream_buffer.StreamBuffer
+    accessible: false
+  video_recorder:
+    location: savers.video_recorder.Recorder
+    accessible: false
+
+# Processes started by argussight at startup (restarted if they stop
+# responding). None at PX1, see above.
+processes: []
+
+# This indicates the maximal waiting time (s),
+# the spawner waits on responds from processes, before killing them
+wait_time: 5
+
+# This is the port for the rerouting of the streams
+streams_layer_port: 7000
+
+# Argussight is configured to run streams on different ports
+# It will check for free ports, whenever a new streaming process starts
+# The value below indicates at which port the search for a free port begins,
+streams_starting_port: 9000

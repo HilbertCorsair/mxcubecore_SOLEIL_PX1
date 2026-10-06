@@ -1,0 +1,4 @@
+<object class="SOLEIL.PX1.PX1UnattendedCollect">
+  <scan_attempts>2</scan_attempts>
+  <object href="/px1-xray-centring" role="xray_centring"/>
+</object>

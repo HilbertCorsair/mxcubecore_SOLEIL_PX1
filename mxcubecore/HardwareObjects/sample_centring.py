@@ -266,35 +266,18 @@ def wait_ready(motor_positions_dict, timeout=None):
             time.sleep(0.1)
 
 def move_motors(motor_positions_dict):
+    """Move the centring motors back (abort) or to a reference position.
+
+    Through the diffractometer, which sends it as one goniometer command
+    through the Smargon gate. This used to write the sgonaxis device
+    directly, and called its inner wait_ready() without its argument - a
+    TypeError, so an aborted centring never restored the initial position.
+    """
     if not motor_positions_dict:
         return
+    from mxcubecore import HardwareRepository as HWR
 
-    if "sampx" in motor_positions_dict:
-        sgonaxis_dev = motor_positions_dict["sampx"]
-    else:
-        from PyTango import DeviceProxy as dp
-        sgonaxis_dev = dp('i10-c-cx1/ex/sgonaxis')
-
-    def wait_ready(motor_positions_dict, timeout=None):
-        with gevent.Timeout(timeout):
-            while not ready(*motor_positions_dict.keys()):
-                gevent.sleep(0.03)
-
-    wait_ready(timeout=30)
-
-    if not ready(*motor_positions_dict.keys()):
-        raise RuntimeError("Motors not ready")
-
-    if sgonaxis_dev:
-        sgonaxis_dev.freeze = True
-
-    for motor, position in motor_positions_dict.items():
-        motor.move(position)
-
-    if sgonaxis_dev:
-        sgonaxis_dev.freeze = False
-
-    wait_ready()
+    HWR.beamline.diffractometer.move_motors(dict(motor_positions_dict))
 
 def user_click(x, y, wait=False):
     print(f"THE USER JUST CLICKED !\nSENDING x and y resp : {x}, {y}, wait is {wait}")

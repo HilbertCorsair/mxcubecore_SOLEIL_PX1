@@ -749,6 +749,17 @@ class Beamline(ConfiguredObject):
 
     __content_roles.append("xray_centring")
 
+    @property
+    def unattended_collect(self):
+        """Unattended collect hardware object.
+
+        Returns:
+            Optional[AbstractUnattendedCollect]:
+        """
+        return self._objects.get("unattended_collect")
+
+    __content_roles.append("unattended_collect")
+
     # Analysis (combines processing and data analysis)
 
     @property

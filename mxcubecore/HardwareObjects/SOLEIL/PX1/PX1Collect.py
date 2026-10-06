@@ -249,8 +249,34 @@ class PX1Collect(AbstractCollect):
         self.emit("collectReady", (True, ))
 
     def data_collection_hook(self):
-        """Main collection hook
+        """Main collection hook: one goniometer procedure, start to end.
+
+        The collect server drives the Smargon during the collection, and
+        data_collection_end() sends omega back: holding the goniometer gate
+        from the preparation to that return keeps every other command off it.
         """
+        smargon = getattr(self.diffractometer_hwobj, "smargon", None)
+        if smargon is None or not hasattr(smargon, "procedure"):
+            return self._data_collection_hook()
+        with smargon.procedure("data collection"):
+            return self._data_collection_hook()
+
+    def _wait_devices_settled(self, timeout=60):
+        """What the fixed 10 s after prepare_devices_for_collection waited for.
+
+        The collect phase change, the goniometer and the detector distance,
+        each waited on until it has actually finished.
+        """
+        self.px1env_hwobj.wait_ready(timeout)
+        self.diffractometer_hwobj.wait_device_ready(timeout)
+        try:
+            self.resolution_hwobj._hwr_detector.distance.wait_ready(timeout)
+        except Exception:
+            logging.getLogger("HWR").exception(
+                "PX1Collect: could not wait for the detector distance"
+            )
+
+    def _data_collection_hook(self):
         collection_type = self.current_dc_parameters['experiment_type']
         logging.getLogger("HWR").info("PX1Collect: Running PX1 data collection hook. Type is %s" % collection_type )
         self.emit("collectStarted", (None, 1))
@@ -263,7 +289,8 @@ class PX1Collect(AbstractCollect):
 
         ready = self.prepare_devices_for_collection()
 
-        time.sleep(10)
+        if ready:
+            self._wait_devices_settled()
 
         if not ready:
             self.collection_failed("Cannot prepare collection")
@@ -330,6 +357,7 @@ class PX1Collect(AbstractCollect):
             log = logging.getLogger("HWR")
             if collection_type != 'Characterization':  # standard or helical
                 self.start_standard_collection()
+                self._wait_collect_started()
                 log.debug("Waiting for collect to finish. max time waiting: %s" % max_wait_time)
                 if not self.wait_collect_ready(timeout=max_wait_time):
                     log.debug("Timeout waiting for end of Collection")
@@ -343,6 +371,7 @@ class PX1Collect(AbstractCollect):
             else:
                 # CHARACTERIZATION
                 self.start_characterization()
+                self._wait_collect_started()
                 if not self.wait_collect_ready(timeout=max_wait_time):
                     log.debug("Timeout waiting for end of Collection")
                     raise BaseException("Timeout waiting for collection end")
@@ -588,7 +617,6 @@ class PX1Collect(AbstractCollect):
             # Hack to bypass store_image_in_lims
             #try:
             image_id, img_info = self.store_image_in_lims(imgno)
-            HWR.beamline.lims.prepare_image_for_lims(img_info)
             """except:
                 info = {'image_id': "_007",
                     'image_no': 5,
@@ -605,8 +633,8 @@ class PX1Collect(AbstractCollect):
                     'nb_images': nb_images,
                     'thumb_path': img_info['jpegThumbnailFileOrigPath'],
                     'jpeg_path': img_info['jpegFileOrigPath'],
-                    'thumb_ispyb': img_info['jpegThumbnailFileFullPath'],
-                    'jpeg_ispyb': img_info['jpegFileFullPath'],
+                    'thumb_ispyb': img_info.get('jpegThumbnailFileFullPath'),
+                    'jpeg_ispyb': img_info.get('jpegFileFullPath'),
                     }
             return info
 
@@ -905,14 +933,27 @@ class PX1Collect(AbstractCollect):
         #if True:  # run it always. relay on 'auto_processing' to decide if really needs to be done
                    # or only file transfer and thumbnail generation
         if runit:
+            if collect_pars.get("_autoproc_launched"):
+                # AbstractCollect.collection_finished() already triggered this
+                # collection (OSC/Helical, overlap 0, more than 19 frames).
+                # Launching a second, identical pipeline used to be masked by
+                # the blocking call; backgrounded, the two race on the same
+                # PROCESSED_DATA directory.
+                log.info("Autoprocessing already launched for this collection")
+                return
+
             try:
                 log.debug("Launching autoprocessing")
                 self.autoprocessing_hwobj.start_autoprocessing(collect_pars)
+                collect_pars["_autoproc_launched"] = True
                 log.debug("Done.")
-            except:
+            except Exception:
                 import traceback
-                logging.getLogger("HWR").debug(" Something went wrong with autoprocessing")
-                logging.getLogger("HWR").debug( traceback.format_exc() )
+                logging.getLogger("HWR").error("Autoprocessing could not be launched")
+                logging.getLogger("HWR").error(traceback.format_exc())
+                logging.getLogger("user_level_log").error(
+                    "Autoprocessing could not be launched (see log)"
+                )
 
     ## generate snapshots and data thumbnails ##
     @task
@@ -983,6 +1024,7 @@ class PX1Collect(AbstractCollect):
                           'machineMessage': self.get_machine_message(),
                           'temperature': self.get_cryo_temperature()}
             archive_directory = self.current_dc_parameters['fileinfo']['archive_directory']
+            jpeg_full_path = jpeg_thumbnail_full_path = None
             if archive_directory:
                 jpeg_filename = "%s.jpeg" % os.path.splitext(filename)[0]
                 thumb_filename = "%s.thumb.jpeg" % os.path.splitext(filename)[0] # a verifier
@@ -996,10 +1038,11 @@ class PX1Collect(AbstractCollect):
             if motor_position_id:
                 lims_image['motorPositionId'] = motor_position_id
 
-            image_id = HWR.beamline.lims.adapter.store_image(lims_image)
-            # saving changed the FullPath to the ispyb path (ruche). keep original
+            # ISPyB gets the ruche paths; the local ones are kept for the thumbnails
             lims_image['jpegFileOrigPath'] = jpeg_full_path
             lims_image['jpegThumbnailFileOrigPath'] = jpeg_thumbnail_full_path
+            HWR.beamline.lims.prepare_image_for_lims(lims_image)
+            image_id = HWR.beamline.lims.adapter.store_image(lims_image)
             return image_id, lims_image
 
 
@@ -1341,6 +1384,18 @@ class PX1Collect(AbstractCollect):
                 return False
             gevent.sleep(0.05)
         return True
+
+    def _wait_collect_started(self, timeout=10):
+        """The collect server must be seen RUNNING before its end is believed.
+
+        Right after Start() the polled state can still read STANDBY from
+        before: wait_collect_ready() would return at once and the hook would
+        send omega back while the collect server still drives it.
+        """
+        if not self.wait_collect_moving(timeout):
+            logging.getLogger("HWR").warning(
+                "PX1Collect: collect server not seen RUNNING %s s after Start()", timeout
+            )
 
     def wait_collect_ready(self, timeout=10):
         collection_type = self.current_dc_parameters['experiment_type']

@@ -721,7 +721,7 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
     def store_data_collection(self, mx_collection, bl_config=None):
         return self.adapter.store_data_collection(mx_collection, bl_config)
 
-    def get_samples(self): #, lims_name):
+    def get_samples(self, lims_name=None):
 
         response_samples = None
         proposal_id = self.session_manager.active_session.proposal_id
