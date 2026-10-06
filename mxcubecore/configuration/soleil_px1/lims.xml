@@ -46,15 +46,6 @@
 
   <connectionTimeout>360</connectionTimeout>
 
-
-    <!-- Keycloak connection to get token to authorize to call pyispyb backend api-->
-  <pyispyb_rest_root>https://pyispyb.example.org/ispyb/api/v1/</pyispyb_rest_root>
-  <keycloak_url>https://keycloak.example.org/realms/realmName/protocol/openid-connect/token</keycloak_url>
-  <grant_type>client_credentials</grant_type>
-  <client_id>CLIENT_ID</client_id>
-  <client_secret>CLIENT_SECRET</client_secret>
-
-
   <loginType>proposal</loginType>
   <object role="session" href="/session"/>
 </object>
