@@ -55,6 +55,7 @@ _objects:
   - gphl_workflow: gphl-workflow.xml
   - gphl_connection: gphl-setup.xml
   - workflow: ednaparams.xml
+  - unattended_collect: px1-unattended-collect.xml
   # - centring: centring.xml
   # Analysis:
   # - offline_processing: auto-processing.xml
