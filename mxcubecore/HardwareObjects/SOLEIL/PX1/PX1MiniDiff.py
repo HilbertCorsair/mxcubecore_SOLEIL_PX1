@@ -416,15 +416,12 @@ class PX1MiniDiff(GenericDiffractometer):
 
         # OBTAIN CLICKS
         while True:
-            USER_CLICKED_EVENT = gevent.event.AsyncResult()
-            user_info = USER_CLICKED_EVENT.get()
+            # The clicks arrive through sample_centring.user_click
+            sample_centring.USER_CLICKED_EVENT = gevent.event.AsyncResult()
+            user_info = sample_centring.USER_CLICKED_EVENT.get()
             if user_info == "abort":
-                sample_centring.bort_centring()
-                return None
-            else:
-                x, y = user_info
-
-            USER_CLICKED_EVENT = gevent.event.AsyncResult()
+                raise gevent.GreenletExit()  # _px1_center restores the start
+            x, y = user_info
 
             X.append(x) # X needed later
             Y.append(y) # Y needed later
@@ -664,7 +661,7 @@ class PX1MiniDiff(GenericDiffractometer):
             if automatic:
                 self.px1_center_murko(X, Y, phi_positions, phi, n_points, PHI_ANGLE_START, phi_incr)
             else:
-                self.px1_center_user_input(X, Y, phi_positions, phi, n_points, PHI_ANGLE_START, phi_incr) # Wrong but not reached here so don't touch if no break :)
+                self.px1_center_user_input(X, Y, phi_positions, phi, n_points, PHI_ANGLE_START, phi_incr)
 
             # COMPUTATIONS
             echantillon = self.px1_center_computations(X, Y, beam_x, beam_y, phi_positions, PhiCamera, n_points)
@@ -873,7 +870,7 @@ class PX1MiniDiff(GenericDiffractometer):
         centring_phi_incr = self.px1conf_ho.get_centring_phi_increment()
         centring_sample_type = self.px1conf_ho.get_centring_sample_type()
         self.current_centring_procedure = \
-                sample_centring.px1_start({"phi": self.centring_phi,
+                self.px1_start({"phi": self.centring_phi,
                                  "phiy": self.centring_phiy,
                                  "sampx": self.centring_sampx,
                                  "sampy": self.centring_sampy,

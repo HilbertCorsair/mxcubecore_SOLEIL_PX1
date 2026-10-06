@@ -515,6 +515,9 @@ class PyISPyBDataAdapter:
             if detector:
                 detector_id = detector.get("detectorId", 0)
 
+        self.logger.debug(
+            "POST datacollections/datacollection, keys: %s", sorted(mx_collection)
+        )
         response = self.client.post(
             "datacollections/datacollection",
             json={**mx_collection, "detectorId": detector_id}
