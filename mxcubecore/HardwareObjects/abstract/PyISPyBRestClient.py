@@ -83,23 +83,28 @@ class PyISPyBRestClient:
 
     @staticmethod
     def decode_json_response(response):
+        request = getattr(response, "request", None)
+        method = getattr(request, "method", "")
         log.debug(
-            "Received response from. Status code: %s, Response text: %s",
+            "Received response from %s %s. Status code: %s, Response text: %s",
+            method,
+            response.url,
             response.status_code,
             response.text,
         )
         if response.status_code not in (200, 201):
             msg = (
-                f"Request failed with code: {response.status_code}. "
-                f"Response: {response.text}"
+                f"Request {method} {response.url} failed with code: "
+                f"{response.status_code}. Response: {response.text}"
             )
             raise PyISPyBUnsuccessfulResponse(msg)
         try:
             response_json = response.json()
         except JSONDecodeError:
             log.exception(
-                "Failed to decode JSON response from. "
+                "Failed to decode JSON response from %s. "
                 "Status code: %s, Response text: %s",
+                response.url,
                 response.status_code,
                 response.text,
             )
