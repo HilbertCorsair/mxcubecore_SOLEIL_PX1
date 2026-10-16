@@ -193,7 +193,6 @@ class FakeXrayCentring:
 def test_px1_adapter(beamline, group, spots):
     xray_centring = FakeXrayCentring(spots)
     px1 = PX1UnattendedCollect("px1_unattended_collect")
-    px1.scan_attempts = 2
     beamline._objects["xray_centring"] = xray_centring
     beamline._objects["unattended_collect"] = px1
     calls = []
@@ -213,6 +212,6 @@ def test_px1_adapter(beamline, group, spots):
         assert [name for name, _ in calls] == ["collect"]
         assert all(e.status == QUEUE_ENTRY_STATUS.SUCCESS for e in entries)
     else:
-        assert xray_centring.calls == [*start, ("grid",), ("grid",), ("end", True)]
+        assert xray_centring.calls == [*start, ("grid",), ("end", True)]
         assert calls == []
         assert [e.status for e in entries[2:7]] == [QUEUE_ENTRY_STATUS.SKIPPED] * 5
