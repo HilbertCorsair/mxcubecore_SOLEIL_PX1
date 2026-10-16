@@ -164,19 +164,27 @@ class PX1TangoLight(HardwareObject):
             self._adjust_light_level()
 
     def _adjust_light_level(self) -> None:
-        """Adjust light level based on zoom position properties."""
+        """Set the light level of the current zoom position (zoom.xml lightLevel).
+
+        zoom.positions is keyed by position name, while get_value() may give
+        the Enum member of that name: look it up by either. A zoom without a
+        level is logged, it used to return silently.
+        """
         if not all([self.zoom_hwo, self.light_hwo]):
             logger.debug("Cannot adjust light level - missing hardware objects")
             return
 
         try:
-            props = self.zoom_hwo.get_properties()
-            if 'lightLevel' not in props:
+            zoom = self.zoom_hwo.get_value()
+            positions = self.zoom_hwo.positions
+            props = positions.get(zoom) or positions.get(getattr(zoom, "value", None))
+            if not props or 'lightLevel' not in props:
+                logger.warning("PX1TangoLight: no lightLevel for zoom %s", zoom)
                 return
             light_level = float(props['lightLevel'])
-            current_light = self.light_hwo.position_value   
+            current_light = self.light_hwo.position_value
             if current_light != light_level:
-                logger.debug(f"Setting light level to {light_level}")
-                self.light_hwo.set_value(light_level)       
+                logger.info("PX1TangoLight: light level %s for %s", light_level, zoom)
+                self.light_hwo.set_value(light_level)
         except Exception as e:
             logger.exception("Error adjusting light level: %s", str(e))

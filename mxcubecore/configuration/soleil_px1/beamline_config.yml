@@ -71,6 +71,9 @@ _objects:
 tunable_wavelength: true
 disable_num_passes: false
 run_number: 1
+# Grid results as one RGB colour per cell: the unattended collect colours the
+# cells on/off the crystal and by number of spots
+mesh_result_format: RGB
 
 default_acquisition_parameters:
   default:

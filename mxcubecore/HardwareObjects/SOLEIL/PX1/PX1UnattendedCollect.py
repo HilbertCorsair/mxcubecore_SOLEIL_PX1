@@ -25,8 +25,6 @@ Configuration, role unattended_collect:
 Without the xray_centring role HWR.beamline.xray_centring is used.
 """
 
-import logging
-
 from mxcubecore import HardwareRepository as HWR
 from mxcubecore.HardwareObjects.abstract.AbstractUnattendedCollect import (
     AbstractUnattendedCollect,
@@ -35,15 +33,9 @@ from mxcubecore.HardwareObjects.abstract.AbstractUnattendedCollect import (
 __copyright__ = """ Copyright © by MXCuBE Collaboration """
 __license__ = "LGPLv3+"
 
-log = logging.getLogger("HWR")
-
 
 class PX1UnattendedCollect(AbstractUnattendedCollect):
-    """Configuration property: scan_attempts, attempts at each scan (default 2)."""
-
-    def init(self):
-        super().init()
-        self.scan_attempts = int(self.get_property("scan_attempts", 2))
+    """Each scan runs once: a sample that shows no spots is not scanned again."""
 
     @property
     def xray_centring(self):
@@ -54,15 +46,11 @@ class PX1UnattendedCollect(AbstractUnattendedCollect):
 
     def grid_scan(self, context):
         self.xray_centring.begin_centring_session(self._prefix())
-        context["found_spots"] = self._scan(
-            "grid scan", self.xray_centring.run_grid_scan
-        )
+        context["found_spots"] = self.xray_centring.run_grid_scan()
         return context["found_spots"]
 
     def line_scan(self, context, index):
-        return self._scan(
-            f"line scan {index + 1}", lambda: self.xray_centring.run_line_scan(index)
-        )
+        return self.xray_centring.run_line_scan(index)
 
     def finalize_centring(self, context):
         self.xray_centring.finalize_centring()
@@ -72,19 +60,6 @@ class PX1UnattendedCollect(AbstractUnattendedCollect):
 
     def unmount(self, context, unload=True):
         self.xray_centring.finalize_session(unload=unload)
-
-    def _scan(self, name, scan):
-        """Run scan until it finds spots, at most scan_attempts times."""
-        for attempt in range(1, self.scan_attempts + 1):
-            if scan():
-                return True
-            log.warning(
-                "[UC] %s attempt %d/%d found no spots",
-                name,
-                attempt,
-                self.scan_attempts,
-            )
-        return False
 
     @staticmethod
     def _prefix():

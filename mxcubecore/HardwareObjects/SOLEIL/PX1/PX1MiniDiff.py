@@ -5,6 +5,7 @@ import gevent.event
 import time
 import os
 import cv2
+import numpy as np
 from redis_camera import camera
 from imageio import imwrite
 try:
@@ -67,6 +68,10 @@ class PX1MiniDiff(GenericDiffractometer):
         self._centring_idle.set()
         # Why the last centring failed, if it raised (see centring_done).
         self.last_centring_error = None
+        # The crystal murko saw in the last image it analysed, as a 0/1 mask
+        # in the pixels of that image; None when it saw none or this murko
+        # sends no mask. The grid task colours its cells from it.
+        self.crystal_mask = None
 
         #Attribute that holsd the "ON" "OFF" state for the light UI button
         #The button has in fact nothing to do with the light direcly
@@ -261,6 +266,16 @@ class PX1MiniDiff(GenericDiffractometer):
         mhost, mport = self._murko_address()
         analysis = self.__get_predictions__(request_args, host=mhost, port = mport)
         descriptions = analysis['descriptions'][0]
+
+        crystal = descriptions.get("crystal")
+        self.crystal_mask = None
+        if isinstance(crystal, dict) and crystal.get("present") and crystal.get("notion_mask") is not None:
+            # notion_mask is at murko's prediction size: scale it to the image
+            self.crystal_mask = cv2.resize(
+                np.asarray(crystal["notion_mask"], dtype=np.uint8),
+                (int(os.getenv("MURKO_SIZEX")), int(os.getenv("MURKO_SIZEY"))),
+                interpolation=cv2.INTER_NEAREST,
+            )
 
         analysis_good = descriptions['present']
         y_center_aoi, x_center_aoi = -1, -1

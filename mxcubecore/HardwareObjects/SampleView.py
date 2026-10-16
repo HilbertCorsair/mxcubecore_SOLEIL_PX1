@@ -22,6 +22,7 @@ __license__ = "LGPLv3+"
 
 
 import base64
+import logging
 import copy
 from functools import reduce
 from io import BytesIO
@@ -90,9 +91,8 @@ class SampleView(AbstractSampleView):
                 shape.update_position(HWR.beamline.diffractometer.motor_positions_to_screen)
 
             self.emit("shapesChanged")
-        except :
-            print ('c'*50, 'ERROR')
-            #import pdb ; pdb.set.trace()
+        except Exception:
+            logging.getLogger("HWR").exception("SampleView: could not update the shapes")
 
         '''def _update_shape_positions(self, *args, **kwargs):
             shapes_updated = False
@@ -691,6 +691,9 @@ class Grid(Shape):
         self.beam_width = 0
         self.beam_height = 0
         self.hide_threshold = 5
+        # A pinned grid (unattended collect overlay) stays drawn where it was
+        # when omega turns away from its angle, instead of being hidden
+        self.pinned = False
         self.update_pixel_per_mm()
         print(f"INIt Grig shape: \n{self.label}\n{self.select}\n{self.pixels_per_mm}")
         self.set_id(Grid.SHAPE_COUNT)
@@ -709,7 +712,7 @@ class Grid(Shape):
             return
 
         if min(_d, 360 - _d) > self.shapes_hw_object.hide_grid_threshold:
-            self.state = "HIDDEN"
+            self.state = "SAVED" if self.pinned else "HIDDEN"
         else:
             super(Grid, self).update_position(transform)
             self.state = "SAVED"
