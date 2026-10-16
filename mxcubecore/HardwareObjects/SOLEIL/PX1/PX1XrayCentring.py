@@ -320,6 +320,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         # ---- build the grid shape from murko analysis (zoom2 centred) ----
         # The grid is drawn on this image: it must show the sample after the
         # centring's last rotation and XYZ move, not a frame from before.
+        t0 = time.time()
         self.smargon_hwo.wait_ready()
         self.minidiff.wait_fresh_frame()
         log.info("[UC] grid drawn at omega %.2f", self.omega_mot.get_position())
@@ -357,6 +358,11 @@ class PX1XrayCentring(AbstractXrayCentring):
         grid1.selected = False
         self.graphics_manager_hwo.add_shape(grid1)
         self.flag_is_centring = True
+        log.info(
+            "[UC-time] grid: murko grid %.1f s (%d x %d cells)",
+            time.time() - t0, number_lines, number_colums,
+        )
+        t0 = time.time()
 
         # ---- prepare report + snapshots (setup half of do_xcentring) ----
         self.Y = []
@@ -365,12 +371,16 @@ class PX1XrayCentring(AbstractXrayCentring):
         HWR.beamline.transmission.set_value(self.default_transmission_xray)
         self.prepare()
         self.prepare_report()
+        log.info("[UC-time] grid: prepare + report figure %.1f s", time.time() - t0)
+        t0 = time.time()
         output_directory = self.get_process_directory()
         self.moved = True
         self.collect_snapshots(output_directory)
         self.snapshots_to_report()
         self.minidiff.wait_ready()
         self.omega_mot.sync_move(self.omega_saved)
+        log.info("[UC-time] grid: report snapshots + omega back %.1f s", time.time() - t0)
+        t0 = time.time()
         if not self.wait_envready():
             self.emit('xcentringInfo', 'running',
                       'Error waiting for environment. Cannot continue')
@@ -643,13 +653,23 @@ class PX1XrayCentring(AbstractXrayCentring):
         """
         if not self.only_helical:
             self.emit('xcentringInfo', 'running', 'Running mesh scan')
+            t0 = time.time()
             self.run_mesh()
             self.minidiff.wait_device_ready(timeout=20)
             self.zero_sgonaxis()
+            log.info(
+                "[UC-time] grid: mesh %.1f s (%d images, %.3f s each)",
+                time.time() - t0, self.mesh_nb_lines * self.mesh_img_per_line,
+                self.mesh_exptime,
+            )
+            t0 = time.time()
             x, y, spots = self.do_mesh_analysis()
+            log.info("[UC-time] grid: spot finding %.1f s", time.time() - t0)
+            t0 = time.time()
             axsnap = self.ax_snap[0]
             axheat = self.ax_heat[0]
             self.mesh_heatmap_report(axsnap, axheat, spots)
+            log.info("[UC-time] grid: heatmap report %.1f s", time.time() - t0)
 
             if None in [x, y]:
                 self.emit('xcentringInfo', 'running', 'No result from mesh analysis')
@@ -686,8 +706,12 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.emit('xcentringInfo', 'running', 'Running helical scan %s' % (index + 1))
         omega = self.omega_saved + self.omega_relative * (index + 1)
 
+        t0 = time.time()
         self.run_helical(omega, index + 1)
+        log.info("[UC-time] line %d: scan %.1f s", index + 1, time.time() - t0)
+        t0 = time.time()
         best_y, spots = self.do_helical_analysis(index)
+        log.info("[UC-time] line %d: spot finding %.1f s", index + 1, time.time() - t0)
 
         # 0.0 is a valid result (peak on the axis); only None means no spots.
         if best_y is None:

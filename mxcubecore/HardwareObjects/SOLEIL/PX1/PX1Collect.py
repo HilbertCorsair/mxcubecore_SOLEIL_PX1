@@ -287,10 +287,15 @@ class PX1Collect(AbstractCollect):
         if self.check_aborted():
             return
 
+        t0 = time.time()
         ready = self.prepare_devices_for_collection()
 
         if ready:
             self._wait_devices_settled()
+        logging.getLogger("HWR").info(
+            "[UC-time] hook: prepare devices + settle %.1f s", time.time() - t0
+        )
+        t0 = time.time()
 
         if not ready:
             self.collection_failed("Cannot prepare collection")
@@ -343,6 +348,11 @@ class PX1Collect(AbstractCollect):
             return
 
         self.prepare_directories()
+        logging.getLogger("HWR").info(
+            "[UC-time] hook: prepare collection (collect server, energy calibration) %.1f s",
+            time.time() - t0,
+        )
+        t0 = time.time()
         if self.check_aborted(): return
 
         self.latest_imgnum = 0
@@ -364,6 +374,11 @@ class PX1Collect(AbstractCollect):
                     raise BaseException("Timeout waiting for collection end")
 
                 log.debug("Collect is now finished")
+                log.info(
+                    "[UC-time] hook: acquisition %.1f s (exposure %.1f s)",
+                    time.time() - t0, self.total_exposure_time,
+                )
+                t0 = time.time()
 
                 thumblist = self.thumbnails_standard()
 
@@ -387,10 +402,15 @@ class PX1Collect(AbstractCollect):
                 log.info("Waiting for last image in disk...")
                 log.debug("   directory: %s" % directory)
             self.data_collection_end()
+            log.info("[UC-time] hook: data collection end (omega back) %.1f s", time.time() - t0)
+            t0 = time.time()
 
             HWR.beamline.lims.prepare_collect_for_lims(self.current_dc_parameters)
             self.generate_thumbnails(thumblist)
+            log.info("[UC-time] hook: thumbnails + LIMS images %.1f s", time.time() - t0)
+            t0 = time.time()
             self.collection_finished()
+            log.info("[UC-time] hook: collection finished (LIMS, autoprocessing) %.1f s", time.time() - t0)
 
         except:
             log.warning("Error during data collection. ABORTED. Check app log")

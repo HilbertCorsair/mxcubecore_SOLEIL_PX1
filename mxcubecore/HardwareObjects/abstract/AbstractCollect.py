@@ -201,6 +201,9 @@ class AbstractCollect(HardwareObject, object):
         )
         self.emit("progressInit", ("Collection", 100, False))
         self.collection_id = None
+        # [UC-time]: seconds per step, to tell acquisition from overhead
+        timing = logging.getLogger("HWR")
+        t0 = time.time()
 
         try:
             # ----------------------------------------------------------------
@@ -209,6 +212,8 @@ class AbstractCollect(HardwareObject, object):
             self.open_detector_cover()
             self.open_safety_shutter()
             self.open_fast_shutter()
+            timing.info("[UC-time] collect: cover + shutters %.1f s", time.time() - t0)
+            t0 = time.time()
 
             # ----------------------------------------------------------------
             # Store information in LIMS
@@ -235,6 +240,8 @@ class AbstractCollect(HardwareObject, object):
 
             log.info("Collection: Storing sample info in LIMS")
             self.store_sample_info_in_lims()
+            timing.info("[UC-time] collect: LIMS store + directories %.1f s", time.time() - t0)
+            t0 = time.time()
 
             if all(
                 item is None for item in self.current_dc_parameters["motors"].values()
@@ -256,6 +263,8 @@ class AbstractCollect(HardwareObject, object):
             self.move_to_centered_position()
             self.take_crystal_snapshots()
             self.move_to_centered_position()
+            timing.info("[UC-time] collect: centred position + snapshots %.1f s", time.time() - t0)
+            t0 = time.time()
 
             # ----------------------------------------------------------------
             # Set data collection parameters
@@ -315,13 +324,19 @@ class AbstractCollect(HardwareObject, object):
             # before update_data_collection_in_lims changes them
             # TODO check why this happens
 
+            timing.info("[UC-time] collect: transmission/energy/resolution %.1f s", time.time() - t0)
+            t0 = time.time()
+
             self.data_collection_hook()
+            timing.info("[UC-time] collect: data collection hook %.1f s", time.time() - t0)
+            t0 = time.time()
 
             # ----------------------------------------------------------------
             # Store information in LIMS
 
             log.info("Collection: Updating data collection in LIMS")
             self.update_data_collection_in_lims()
+            timing.info("[UC-time] collect: LIMS update %.1f s", time.time() - t0)
 
         except RuntimeError as e:
             failed_msg = "Data collection failed!\n%s" % str(e)
