@@ -64,6 +64,7 @@ from mxcubecore.TaskUtils import *
 from mxcubecore.HardwareObjects.abstract.AbstractCollect import AbstractCollect
 from CreateDirClient import CreateDirectoryClient
 from mxcubecore import HardwareRepository as HWR
+from mxcubecore.HardwareObjects.SOLEIL.PX1.px1_wait import wait_until
 
 
 __author__ = "Vicente Rey Bakaikoa"
@@ -265,12 +266,15 @@ class PX1Collect(AbstractCollect):
         """What the fixed 10 s after prepare_devices_for_collection waited for.
 
         The collect phase change, the goniometer and the detector distance,
-        each waited on until it has actually finished.
+        each waited on until it has actually finished. The distance is polled
+        on its Tango state: PX1DetectorDistance never sets the ready event
+        that wait_ready() waits on, so that always ran out its full timeout.
         """
         self.px1env_hwobj.wait_ready(timeout)
         self.diffractometer_hwobj.wait_device_ready(timeout)
         try:
-            self.resolution_hwobj._hwr_detector.distance.wait_ready(timeout)
+            distance = self.resolution_hwobj._hwr_detector.distance
+            wait_until(lambda: not distance.is_moving(), timeout, what="detector distance")
         except Exception:
             logging.getLogger("HWR").exception(
                 "PX1Collect: could not wait for the detector distance"
@@ -981,9 +985,10 @@ class PX1Collect(AbstractCollect):
         """
         Descript. :
         """
-        if not self.is_sampleview_phase():
-            #self.go_to_sampleview()
-            #time.sleep(2) # allow time to refresh display after
+        # After the line scans the supervisor is in COLLECT, light arm out:
+        # bring the light in for the snapshot (go_to_sampleview sets its
+        # level). prepare_devices_for_collection goes back to COLLECT.
+        if not self.is_sampleview_phase() and not self.go_to_sampleview():
             logging.getLogger("HWR").debug("PX1Collect:  - not taking snapshot: LIGHTARM not DOWN.")
             logging.getLogger("HWR").debug("PX1Collect:  - PX1Env state is:  %s" % self.px1env_hwobj.get_state())
             self.current_dc_parameters["take_snapshots"] = 0

@@ -19,6 +19,7 @@ from enum import Enum
 
 import gevent
 
+from mxcubecore import HardwareRepository as HWR
 from mxcubecore.HardwareObjects.abstract.AbstractNState import AbstractNState
 
 log = logging.getLogger("HWR")
@@ -80,4 +81,10 @@ class PX1BackLight(AbstractNState):
         self.update_state(self.STATES.BUSY)
         # goto_phase waits for the supervisor to stop moving before sending
         # the command; the poll above reports the result when it is there.
-        gevent.spawn(self.env.goto_phase, phase)
+        # VISU_SAMPLE brings the light in but not to the zoom's level, which
+        # only the centring set: set it here too, as the centring does.
+        task = gevent.spawn(self.env.goto_phase, phase)
+        if value == self.VALUES.ON:
+            task.link_value(
+                lambda _: HWR.beamline.diffractometer.light_arm._adjust_light_level()
+            )
