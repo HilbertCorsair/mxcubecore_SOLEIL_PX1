@@ -311,6 +311,9 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.sample_prefix = prefix
         self.found_spots = False
         self.line_grids = []  # the line scan strips, added after the mesh
+        # The shapes must go to the sample view the web client listens to
+        # (not loaded yet when init runs)
+        self.graphics_manager_hwo = HWR.beamline.sample_view or self.graphics_manager_hwo
 
         # Clear the shape store here rather than relying on mount_sample's
         # sample_view.clear_all() and finalize_session's clear having run in the
@@ -362,13 +365,16 @@ class PX1XrayCentring(AbstractXrayCentring):
         grid1.num_cols = number_colums
         grid1.num_rows = number_lines
         grid1.selected = False
+        grid1.pinned = True
         self.graphics_manager_hwo.add_shape(grid1)
         self.show_crystal_on_grid(grid1, beam_size_x, beam_size_y)
         self.graphics_manager_hwo.emit("shapesChanged")
         self.flag_is_centring = True
         log.info(
-            "[UC-time] grid: murko grid %.1f s (%d x %d cells)",
-            time.time() - t0, number_lines, number_colums,
+            "[UC-time] grid: murko grid %.1f s (%d x %d cells, screen x %d..%d y %d..%d "
+            "of %s x %s)",
+            time.time() - t0, number_lines, number_colums, x1, x2n, y1, y2n,
+            os.getenv("MURKO_SIZEX"), os.getenv("MURKO_SIZEY"),
         )
         t0 = time.time()
 
@@ -562,6 +568,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         grid.num_cols = 1
         grid.num_rows = self.helical_nimgs
         grid.selected = False
+        grid.pinned = True
         self.graphics_manager_hwo.add_shape(grid)
         return grid
 
