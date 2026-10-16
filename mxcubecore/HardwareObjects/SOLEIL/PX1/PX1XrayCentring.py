@@ -14,6 +14,7 @@ from enum import (
     Enum,
     unique,)
 from shutil import copyfile
+import cv2
 import numpy as np
 from scipy import optimize
 from scipy.ndimage.filters import gaussian_filter
@@ -83,6 +84,8 @@ class PX1XrayCentring(AbstractXrayCentring):
     minspots = 10 # minimum number of spots for image to be considered
 
     mpl_colormap = 'hot' # matplotlib colormap used for heatmap
+    on_crystal_rgb = [0, 200, 0]    # grid cell murko sees on the crystal
+    off_crystal_rgb = [220, 0, 0]   # grid cell off the crystal
 
     processing_classes = {
         'simulated': SimulatedProcessing,
@@ -127,6 +130,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.proc_display = None
         self.only_helical = False
         self.shape = None
+        self.line_grids = []
         self.found_spots = False
         self.sample_prefix = None
 
@@ -306,6 +310,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         """
         self.sample_prefix = prefix
         self.found_spots = False
+        self.line_grids = []  # the line scan strips, added after the mesh
 
         # Clear the shape store here rather than relying on mount_sample's
         # sample_view.clear_all() and finalize_session's clear having run in the
@@ -348,15 +353,18 @@ class PX1XrayCentring(AbstractXrayCentring):
         grid1.width = x2n - x1
         grid1.height = y2n - y1
         grid1.cell_count_fun = "zig-zag"
-        grid1.cell_h_space = -1
-        grid1.cell_height = beam_size_y
-        grid1.cell_v_space = -1
-        grid1.cell_width = beam_size_x
+        # Cell size and spacing in microns, as the web client draws them
+        grid1.cell_h_space = 0
+        grid1.cell_height = HWR.beamline.beam.get_beam_size()[1] * 1000
+        grid1.cell_v_space = 0
+        grid1.cell_width = HWR.beamline.beam.get_beam_size()[0] * 1000
         grid1.label = "Grid"
         grid1.num_cols = number_colums
         grid1.num_rows = number_lines
         grid1.selected = False
         self.graphics_manager_hwo.add_shape(grid1)
+        self.show_crystal_on_grid(grid1, beam_size_x, beam_size_y)
+        self.graphics_manager_hwo.emit("shapesChanged")
         self.flag_is_centring = True
         log.info(
             "[UC-time] grid: murko grid %.1f s (%d x %d cells)",
@@ -460,6 +468,102 @@ class PX1XrayCentring(AbstractXrayCentring):
         x2 = int((c + (w / 2) * RATIO) * og_w)
 
         return x1, y1, x2, y2
+
+    def show_crystal_on_grid(self, grid, cell_width, cell_height):
+        """Colour the grid cells green on the crystal murko saw, red off it.
+
+        For display only: the whole grid is still scanned and analysed. A
+        cell is on the crystal when any pixel of it is. The crystal outline
+        is kept on the grid (crystal_outline, points relative to its top-left
+        corner) so the web client draws it with the grid and moves it along.
+        cell_width/cell_height are in pixels. Without a crystal mask from
+        murko every cell is green.
+        """
+        mask = self.minidiff.crystal_mask
+        x1, y1 = grid.screen_coord[:2]
+        on = np.ones((grid.num_rows, grid.num_cols), dtype=bool)
+        grid.crystal_outline = []
+
+        if mask is not None:
+            for (row, col), _ in np.ndenumerate(on):
+                top = max(int(y1 + row * cell_height), 0)
+                left = max(int(x1 + col * cell_width), 0)
+                on[row, col] = mask[
+                    top:max(int(y1 + (row + 1) * cell_height), 0),
+                    left:max(int(x1 + (col + 1) * cell_width), 0),
+                ].any()
+            contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[-2]
+            if contours:
+                outline = cv2.approxPolyDP(max(contours, key=cv2.contourArea), 1.5, True)
+                grid.crystal_outline = [
+                    [int(x - x1), int(y - y1)] for x, y in outline.reshape(-1, 2)
+                ]
+
+        log.info(
+            "[UC] %d of %d grid cells on the crystal%s",
+            on.sum(), on.size, "" if mask is not None else " (murko gave no crystal mask)",
+        )
+        self.graphics_manager_hwo.set_grid_data(
+            grid.id,
+            {
+                index: [index, self.on_crystal_rgb if cell else self.off_crystal_rgb]
+                for index, cell in enumerate(on.flat, start=1)
+            },
+            None,
+        )
+
+    def show_spots_on_grid(self, grid, spots):
+        """Colour the cells of grid that have spots, by number of spots.
+
+        spots has one value per cell, row by row from the top-left corner,
+        the order the report uses. Cells without spots keep their colour.
+        """
+        spots = np.asarray(spots).reshape(-1)
+        most = spots.max() if spots.size else 0
+        if most <= 0:
+            return
+        cmap = cm.get_cmap(self.mpl_colormap)
+        # Few spots dark red, most spots white-yellow: readable on the video
+        result = {
+            index: [index, [int(255 * c) for c in cmap(0.35 + 0.65 * value / most)[:3]]]
+            for index, value in enumerate(spots, start=1)
+            if value > 0
+        }
+        self.graphics_manager_hwo.set_grid_data(grid.id, result, None)
+
+    def add_line_grid(self, index):
+        """A one-column grid right of the mesh for the spots of line scan index.
+
+        The line scans run at other omegas, so they are shown beside the mesh
+        rather than over it: one cell per image, over the scanned height,
+        centred on the beam (the best mesh position, where the line scans
+        start). Added at the mesh omega, so it shows with the mesh.
+        """
+        mesh = self.shape
+        right, _ = self.minidiff.motor_positions_to_screen(mesh.cp_list[1].as_dict())
+        _, beam_y = HWR.beamline.beam.get_beam_position_on_screen()
+        cell_width = mesh.width / mesh.num_cols
+        x1 = right + (0.5 + 1.5 * index) * cell_width
+        y1 = beam_y - mesh.height / 2.0
+
+        mpos_list = [
+            self.minidiff.get_centred_point_from_coord(x1, y1),
+            self.minidiff.get_centred_point_from_coord(x1 + cell_width, y1 + mesh.height),
+        ]
+        grid = Grid(mpos_list, [x1, y1])
+        grid.width = cell_width
+        grid.height = mesh.height
+        grid.cell_count_fun = "zig-zag"
+        grid.cell_h_space = 0
+        grid.cell_v_space = 0
+        grid.cell_width = mesh.cell_width
+        grid.cell_height = mesh.cell_height * mesh.num_rows / self.helical_nimgs
+        grid.label = "+%d" % (self.omega_relative * (index + 1))
+        grid.num_cols = 1
+        grid.num_rows = self.helical_nimgs
+        grid.selected = False
+        self.graphics_manager_hwo.add_shape(grid)
+        return grid
 
     def is_user_enabled(self):
         return self.user_enabled
@@ -670,6 +774,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             axheat = self.ax_heat[0]
             self.mesh_heatmap_report(axsnap, axheat, spots)
             log.info("[UC-time] grid: heatmap report %.1f s", time.time() - t0)
+            self.show_spots_on_grid(self.shape, spots)
 
             if None in [x, y]:
                 self.emit('xcentringInfo', 'running', 'No result from mesh analysis')
@@ -680,6 +785,8 @@ class PX1XrayCentring(AbstractXrayCentring):
             log.debug('PX1XrayCentring  obtaining mesh results x / y = %s / %s' % (x, y))
             self.emit('xcentringInfo', 'running', 'Moving to best position. x=%s/y=%s' % (x, y))
             self.move_best_position(omega=self.omega_saved)
+            self.line_grids = [self.add_line_grid(i) for i in range(self.nb_helical_scans)]
+            self.graphics_manager_hwo.emit("shapesChanged")
 
         # save positions for centre calculation and seed the accumulators
         self.x_saved = self.phiy_mot.get_position()
@@ -729,6 +836,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         ax_snap = self.ax_snap[index + 1]
         ax_heat = self.ax_heat[index + 1]
         self.helical_heatmap_report(ax_snap, ax_heat, index, spots)
+        if index < len(self.line_grids):
+            self.show_spots_on_grid(self.line_grids[index], spots)
         return True
 
     def finalize_centring(self):
@@ -1359,6 +1468,7 @@ class PX1XrayCentring(AbstractXrayCentring):
 
             point = self.graphics_manager_hwo.add_shape_from_mpos([cpos.as_dict()], screen_pos ,"P")
             self.graphics_manager_hwo.add_shape(point)
+            self.graphics_manager_hwo.emit("shapesChanged")
             #cpos.set_index(point.index)
             return point
 
