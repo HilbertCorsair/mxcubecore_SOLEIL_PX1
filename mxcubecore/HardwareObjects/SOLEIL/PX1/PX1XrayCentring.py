@@ -129,7 +129,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.waiting_grid = False
         self.proc_display = None
         self.only_helical = False
-        self.shape = None
+        self.mesh_grid = None
         self.line_grids = []
         self.found_spots = False
         self.sample_prefix = None
@@ -321,7 +321,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         # sample, whatever the mount/unmount interleaving was.
         try:
             self.graphics_manager_hwo.clear_all()
-            self.graphics_manager_hwo._shapes = {}
         except Exception:
             log.exception("[UC] could not clear shapes before building the grid")
 
@@ -383,7 +382,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.errmsg = ""
         self.emit('xcentringInfo', 'running', 'Preparing')
         HWR.beamline.transmission.set_value(self.default_transmission_xray)
-        self.prepare()
+        self.prepare(grid1)
         self.prepare_report()
         log.info("[UC-time] grid: prepare + report figure %.1f s", time.time() - t0)
         t0 = time.time()
@@ -410,7 +409,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         """
         try:
             self.graphics_manager_hwo.clear_all()
-            self.graphics_manager_hwo._shapes = {}
         except Exception:
             log.exception("Error clearing graphics at end of unattended collect")
         self.found_spots = False
@@ -545,7 +543,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         centred on the beam (the best mesh position, where the line scans
         start). Added at the mesh omega, so it shows with the mesh.
         """
-        mesh = self.shape
+        mesh = self.mesh_grid
         right, _ = self.minidiff.motor_positions_to_screen(mesh.cp_list[1].as_dict())
         _, beam_y = HWR.beamline.beam.get_beam_position_on_screen()
         cell_width = mesh.width / mesh.num_cols
@@ -601,8 +599,8 @@ class PX1XrayCentring(AbstractXrayCentring):
     def get_xcentring_deltas_start_end_mm(self):
         # Offset must be measured from the BEAM CENTER (not shape center) to each corner of the grid in pixels
         beam_pos = HWR.beamline.beam.get_beam_position_on_screen()
-        extent_dx_pix = self.shape.width
-        extent_dy_pix = self.shape.height
+        extent_dx_pix = self.mesh_grid.width
+        extent_dy_pix = self.mesh_grid.height
 
         start_dx_pix = self.shape_coords[0] - beam_pos[0]
         start_dy_pix =  self.shape_coords[1] - beam_pos[1]
@@ -610,20 +608,20 @@ class PX1XrayCentring(AbstractXrayCentring):
         end_dx_pix = self.shape_coords[0] + extent_dx_pix - beam_pos[0]
         end_dy_pix = self.shape_coords[1] + extent_dy_pix - beam_pos[1]
 
-        """extent_dy_pix =  self.shape.height
+        """extent_dy_pix =  self.mesh_grid.height
         cent_x_pix = self.shape_coords[0] + extent_dx_pix/2
         cent_y_pix = self.shape_coords[1] + extent_dy_pix/2
         start_dx_pix = self.shape_coords[0] - cent_x_pix
         start_dy_pix = self.shape_coords[1] - cent_y_pix
-        end_dx_pix = self.shape_coords[0] + self.shape.width - cent_x_pix
-        end_dy_pix = self.shape_coords[1] + self.shape.height - cent_y_pix"""
+        end_dx_pix = self.shape_coords[0] + self.mesh_grid.width - cent_x_pix
+        end_dy_pix = self.shape_coords[1] + self.mesh_grid.height - cent_y_pix"""
 
-        start_dx_mm = -start_dx_pix / float(self.shape.pixels_per_mm[0])
-        start_dy_mm = start_dy_pix / float(self.shape.pixels_per_mm[1])
-        end_dx_mm = -end_dx_pix / float(self.shape.pixels_per_mm[0])
-        end_dy_mm = end_dy_pix / float(self.shape.pixels_per_mm[1])
-        extent_dx_mm = extent_dx_pix / float(self.shape.pixels_per_mm[0])
-        extent_dy_mm = extent_dy_pix / float(self.shape.pixels_per_mm[1])
+        start_dx_mm = -start_dx_pix / float(self.mesh_grid.pixels_per_mm[0])
+        start_dy_mm = start_dy_pix / float(self.mesh_grid.pixels_per_mm[1])
+        end_dx_mm = -end_dx_pix / float(self.mesh_grid.pixels_per_mm[0])
+        end_dy_mm = end_dy_pix / float(self.mesh_grid.pixels_per_mm[1])
+        extent_dx_mm = extent_dx_pix / float(self.mesh_grid.pixels_per_mm[0])
+        extent_dy_mm = extent_dy_pix / float(self.mesh_grid.pixels_per_mm[1])
 
         return start_dx_mm, start_dy_mm, end_dx_mm, end_dy_mm, extent_dx_mm, extent_dy_mm
 
@@ -631,8 +629,8 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         self.waiting_grid = False
 
-        nlines = self.shape.num_rows
-        nimgs = self.shape.num_cols # per line
+        nlines = self.mesh_grid.num_rows
+        nimgs = self.mesh_grid.num_cols # per line
 
         start_dx, start_dy, end_dx, end_dy, extent_x, extent_y = \
               self.get_xcentring_deltas_start_end_mm()
@@ -648,7 +646,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             return
 
         self.mesh_nb_lines = nlines
-        self.mesh_img_per_line = self.shape.num_cols
+        self.mesh_img_per_line = self.mesh_grid.num_cols
 
         self.mesh_dx_start = start_dx
         self.mesh_dy_start = start_dy
@@ -781,7 +779,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             axheat = self.ax_heat[0]
             self.mesh_heatmap_report(axsnap, axheat, spots)
             log.info("[UC-time] grid: heatmap report %.1f s", time.time() - t0)
-            self.show_spots_on_grid(self.shape, spots)
+            self.show_spots_on_grid(self.mesh_grid, spots)
 
             if None in [x, y]:
                 self.emit('xcentringInfo', 'running', 'No result from mesh analysis')
@@ -861,6 +859,11 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.move_motors(cpos)
         self.emit('xcentringInfo', 'running', 'Registering centered position')
         self.register_center_position(cpos)
+        shapes = self.graphics_manager_hwo.get_shapes()
+        log.info(
+            "[UC] overlay: %d shapes on the sample view (%s)",
+            len(shapes), ", ".join(shape.id for shape in shapes),
+        )
         self.flag_is_centring = False
         if not self.only_helical and self.fig:
             self.fig.savefig(self.report_image)
@@ -950,17 +953,13 @@ class PX1XrayCentring(AbstractXrayCentring):
         return p1
 
     # run functions
-    def prepare(self):
+    def prepare(self, grid):
+        """Set up the scans of the mesh grid begin_centring_session built."""
         self.set_base_directories()
 
-        self.shape = self.graphics_manager_hwo.shapes
-        grid_names = [name for name in self.shape.keys() if name.startswith("G")]
-        if not grid_names:
-            raise RuntimeError ("PX1XrayCentring: no grid found in SampleView")
-        self.shape_name = grid_names[-1]
-        self.shape_coords = self.shape[self.shape_name].screen_coord
-
-        self.shape = self.shape[self.shape_name]
+        self.mesh_grid = grid
+        # Screen position at the mesh omega, before any rotation moves it
+        self.shape_coords = list(grid.screen_coord)
 
         self.best_position = None
         self.mesh_results = None
@@ -972,12 +971,12 @@ class PX1XrayCentring(AbstractXrayCentring):
         # calculate scene range in motor coordinates
         #self.scene_size = self.graphics_manager_hwo.get_scene_size_mm()
 
-        self.left = self.phiy_saved + self.shape.width/2.0
-        self.right = self.phiy_saved - self.shape.width/2.0
+        self.left = self.phiy_saved + self.mesh_grid.width/2.0
+        self.right = self.phiy_saved - self.mesh_grid.width/2.0
 
 
-        self.top = self.ps_y_saved + self.shape.height/2.0
-        self.bottom = self.ps_y_saved - self.shape.height/2.0
+        self.top = self.ps_y_saved + self.mesh_grid.height/2.0
+        self.bottom = self.ps_y_saved - self.mesh_grid.height/2.0
         self.total_range=[self.left, self.right, self.top, self.bottom]
         snapshot_0 = {'name': 'mesh', 'ps_y_saved': self.ps_y_saved, 'top': self.top, 'bottom': self.bottom, 'range': self.total_range }
 
@@ -986,8 +985,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         for i in range(self.nb_helical_scans):
             omega = self.omega_saved +  self.omega_relative * (i+1)
             ps_y_saved, ps_z_saved = self.calc_pseudo(self.sampy_saved, self.sampx_saved, omega_pos=omega)
-            top = ps_y_saved + self.shape.height/2.0
-            bottom = ps_y_saved - self.shape.height/2.0
+            top = ps_y_saved + self.mesh_grid.height/2.0
+            bottom = ps_y_saved - self.mesh_grid.height/2.0
             total_range=[self.left, self.right, top, bottom]
             snapshot_info = {'name': 'helical%d' % (i+1),'ps_y_saved': ps_y_saved, 'top': top, 'bottom': bottom, 'range': total_range }
             self.snapshot_info.append(snapshot_info)
@@ -1460,8 +1459,8 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         self.emit("centringInProgress", False)
         if p_dict:
-            p_dict["beam_x"] = self.shape.beam_pos[0]
-            p_dict["beam_y"] = self.shape.beam_pos[1]
+            p_dict["beam_x"] = self.mesh_grid.beam_pos[0]
+            p_dict["beam_y"] = self.mesh_grid.beam_pos[1]
             p_dict["zoom"] = HWR.beamline.diffractometer.zoom.get_value()
             cpos = queue_model_objects.CentredPosition(p_dict)
 
@@ -1618,7 +1617,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.lightarm_hwo.adjustLightLevel()
         gevent.sleep(2) # allow time to refresh display after
         '''
-        snapshot_name = '%s_snapshot_0.png' % self.get_prefix()
+        snapshot_name = '%s_snapshot_0.jpg' % self.get_prefix()
         snapshot_filename = os.path.join(output_directory, snapshot_name)
 
         self.save_snapshot(snapshot_filename)
@@ -1627,7 +1626,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         for i in range(self.nb_helical_scans):
             self.move_omega(self.omega_relative)
             gevent.sleep(0.1)
-            snapshot_name = '%s_snapshot_%d.png' % (self.get_prefix(), self.omega_relative * (i+1))
+            snapshot_name = '%s_snapshot_%d.jpg' % (self.get_prefix(), self.omega_relative * (i+1))
             snapshot_filename = os.path.join(output_directory, snapshot_name)
             self.save_snapshot(snapshot_filename)
             self.snapshot_files.append(snapshot_filename)

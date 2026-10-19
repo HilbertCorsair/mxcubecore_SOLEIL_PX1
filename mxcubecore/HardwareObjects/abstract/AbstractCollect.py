@@ -882,9 +882,11 @@ class AbstractCollect(HardwareObject, object):
                     "xtalSnapshotFullPath%i" % (snapshot_index + 1)
                 ] = snapshot_filename
 
-                #self._take_crystal_snapshot(snapshot_filename)
-                #if number_of_snapshots > 1:
-                #    HWR.beamline.diffractometer.move_omega_relative(90)
+                self._take_crystal_snapshot(snapshot_filename)
+                # 90 degrees between snapshots; do_collect moves back to the
+                # centred position after the last one
+                if snapshot_index < number_of_snapshots - 1:
+                    HWR.beamline.diffractometer.move_omega_relative(90)
 
         #if (
         #    not HWR.beamline.diffractometer.in_plate_mode()

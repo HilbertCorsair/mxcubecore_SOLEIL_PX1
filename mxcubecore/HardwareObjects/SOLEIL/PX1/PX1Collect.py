@@ -994,7 +994,8 @@ class PX1Collect(AbstractCollect):
             self.current_dc_parameters["take_snapshots"] = 0
             return
         self.lightarm_hwobj._adjust_light_level()
-        gevent.sleep(0.3) # allow time to refresh display after
+        # a frame taken after the light change and the last omega move
+        self.diffractometer_hwobj.wait_fresh_frame()
         self.graphics_manager_hwobj.save_snapshot(filename)
         filename_noshape = filename.replace("snapshot.jpeg", "snapshot_noshape.jpeg")
         self.graphics_manager_hwobj.save_snapshot(filename_noshape)     #, include_items=False)
