@@ -32,4 +32,7 @@
   <imgtojpeg>/nfs/ruche/share-dev/px1dev/MXCuBE/tools/adxv_makejpeg.sh</imgtojpeg>
   <chooch_cmd>/nfs/ruche/share-dev/px1dev/MXCuBE/tools/run_chooch.sh</chooch_cmd>
 
+  <!-- crystal snapshots before each collection, 90 degrees apart -->
+  <num_snapshots>2</num_snapshots>
+
 </object>
