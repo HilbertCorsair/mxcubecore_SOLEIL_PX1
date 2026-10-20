@@ -310,7 +310,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         """
         self.sample_prefix = prefix
         self.found_spots = False
-        self.lines = []  # the line scan Lines, one added by each line scan
+        self.lines = []  # the 1D grids of the line scans, one added by each
         # The shapes must go to the sample view the web client listens to
         # (not loaded yet when init runs)
         self.graphics_manager_hwo = HWR.beamline.sample_view or self.graphics_manager_hwo
@@ -517,11 +517,10 @@ class PX1XrayCentring(AbstractXrayCentring):
         )
 
     def show_spots_on_shape(self, shape, spots):
-        """Colour the cells of a grid, or the images of a line, by spots.
+        """Colour the cells of a grid (mesh, or the 1D grid of a line) by spots.
 
         spots has one value per cell, row by row from the top-left corner
-        (the order the report uses), or one per image down a line. Cells
-        without spots keep their colour.
+        (the order the report uses). Cells without spots keep their colour.
         """
         spots = np.asarray(spots).reshape(-1)
         most = spots.max() if spots.size else 0
@@ -534,36 +533,45 @@ class PX1XrayCentring(AbstractXrayCentring):
             for index, value in enumerate(spots, start=1)
             if value > 0
         }
-        if isinstance(shape, Grid):
-            self.graphics_manager_hwo.set_grid_data(shape.id, result, None)
-        else:
-            shape.result = {**(shape.result or {}), **result}
-            self.graphics_manager_hwo.emit("shapesChanged")
+        self.graphics_manager_hwo.set_grid_data(shape.id, result, None)
 
     def add_line(self, index, omega):
-        """The Line of line scan index, as run_helical programmed it.
+        """The Line of line scan index and its 1D grid, as run_helical programmed it.
 
-        From the programmed start to the programmed end (top and bottom of
-        the scanned line) at the scan's omega: in the camera plane during
-        the scan, then locked on the sample and drawn as its projection.
-        One segment per image (num_images), coloured by show_spots_on_shape.
+        The Line goes from the programmed start to the programmed end (top
+        and bottom of the scanned line) at the scan's omega; the grid over
+        it is one column as wide as the beam, one cell per image, for the
+        heatmap. Both are in the camera plane during the scan, then locked
+        on the sample and drawn as their projection. Returns the grid.
         """
         (x, y_start, z_start), (_, y_end, z_end) = self.helical_start, self.helical_end
         mpos_list = [
             {"phi": omega, "phiy": x, "sampy": y_start, "phiz": y_start, "sampx": z_start},
             {"phi": omega, "phiy": x, "sampy": y_end, "phiz": y_end, "sampx": z_end},
         ]
-        screen_coord = [
-            pos for mpos in mpos_list for pos in self.minidiff.motor_positions_to_screen(mpos)
+        beam_width = HWR.beamline.beam.get_beam_size()[0]
+        # The grid's top-left and bottom-right corners: a larger phiy is
+        # further left on screen
+        corners = [
+            dict(mpos_list[0], phiy=x + beam_width / 2.0),
+            dict(mpos_list[1], phiy=x - beam_width / 2.0),
         ]
-        line = Line(mpos_list, screen_coord)
-        line.label = line.name = "+%d" % (self.omega_relative * (index + 1))
-        line.num_images = self.helical_nimgs
-        line.result = None
-        line.selected = False
-        line.pinned = True
-        self.graphics_manager_hwo.add_shape(line)
-        return line
+        to_screen = self.minidiff.motor_positions_to_screen
+        line = Line(mpos_list, [pos for mpos in mpos_list for pos in to_screen(mpos)])
+        grid = Grid(corners, [pos for mpos in corners for pos in to_screen(mpos)])
+        # Sizes in pixels and, for the cells, in microns
+        grid.width = beam_width * self.minidiff.pixels_per_mm_x
+        grid.height = self.helical_y_extent * self.minidiff.pixels_per_mm_y
+        grid.cell_width = beam_width * 1000
+        grid.cell_height = self.helical_y_extent / self.helical_nimgs * 1000
+        grid.cell_h_space = grid.cell_v_space = 0
+        grid.num_cols, grid.num_rows = 1, self.helical_nimgs
+        grid.name = "+%d" % (self.omega_relative * (index + 1))
+        for shape in (line, grid):
+            shape.selected = False
+            shape.pinned = True
+            self.graphics_manager_hwo.add_shape(shape)
+        return grid
 
     def is_user_enabled(self):
         return self.user_enabled
