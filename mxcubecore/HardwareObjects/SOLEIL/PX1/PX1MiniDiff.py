@@ -1301,9 +1301,18 @@ class PX1MiniDiff(GenericDiffractometer):
 
         phi_angle = self.get_omega_position()
 
-        sampx_pos = self.motor_hwobj_dict['sampx'].get_position()
-        sampy_pos = self.motor_hwobj_dict['sampy'].get_position()
-        phiy_pos = self.motor_hwobj_dict['phiy'].get_position()
+        # The collect server rasters the mesh on the Smargon x/y/z axes, on
+        # top of the offsets (zero_sgonaxis puts them back to 0 after it):
+        # the sample is at offset + x/y/z. The last polled values: no device
+        # read, and not get_position, which would update the cache
+        # Smargon.position_changed compares against.
+        x, y, z = (
+            self.smargon.motor_channels[axis].value or 0.0
+            for axis in ("x", "y", "z")
+        )
+        sampx_pos = self.motor_hwobj_dict['sampx'].get_position() + z
+        sampy_pos = self.motor_hwobj_dict['sampy'].get_position() + y
+        phiy_pos = self.motor_hwobj_dict['phiy'].get_position() + x
 
         sampx = sampx_c -sampx_pos
         sampy = sampy_c -sampy_pos

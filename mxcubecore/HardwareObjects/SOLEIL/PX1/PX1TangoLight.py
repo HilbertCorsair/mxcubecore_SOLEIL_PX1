@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, Any
 import gevent
 from mxcubecore.BaseHardwareObjects import HardwareObject
 from mxcubecore.Command.Tango import DeviceProxy
+from mxcubecore.HardwareObjects.SOLEIL.PX1.px1_wait import wait_until
 
 logger = logging.getLogger("HWR")
 
@@ -169,6 +170,11 @@ class PX1TangoLight(HardwareObject):
         zoom.positions is keyed by position name, while get_value() may give
         the Enum member of that name: look it up by either. A zoom without a
         level is logged, it used to return silently.
+
+        The level is always sent and waited for: the polled position_value
+        can still hold the zoom level after the supervisor dimmed the light
+        on a phase change, and a snapshot right after a set would catch the
+        light before it got there.
         """
         if not all([self.zoom_hwo, self.light_hwo]):
             logger.debug("Cannot adjust light level - missing hardware objects")
@@ -182,9 +188,16 @@ class PX1TangoLight(HardwareObject):
                 logger.warning("PX1TangoLight: no lightLevel for zoom %s", zoom)
                 return
             light_level = float(props['lightLevel'])
-            current_light = self.light_hwo.position_value
-            if current_light != light_level:
-                logger.info("PX1TangoLight: light level %s for %s", light_level, zoom)
-                self.light_hwo.set_value(light_level)
+            current_light = self.light_hwo.get_value()
+            self.light_hwo.set_value(light_level)
+            wait_until(
+                lambda: abs(float(self.light_hwo.get_value()) - light_level) <= 1,
+                3,
+                what="light at level %s" % light_level,
+            )
+            logger.info(
+                "PX1TangoLight: light %s -> %s (%s)",
+                current_light, self.light_hwo.get_value(), zoom,
+            )
         except Exception as e:
             logger.exception("Error adjusting light level: %s", str(e))
