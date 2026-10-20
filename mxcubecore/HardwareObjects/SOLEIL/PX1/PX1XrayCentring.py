@@ -818,6 +818,17 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.graphics_manager_hwo.emit("shapesChanged")
         self._run_collect_server("helical %d" % (index + 1))
         log.info("[UC-time] line %d: scan %.1f s", index + 1, time.time() - t0)
+        # Grid and line projected at the same omega: both locked on the
+        # sample, the line must fall inside the grid's projected height
+        log.info(
+            "[UC] line %d at omega %.1f: grid y %s, line y %s", index + 1,
+            self.omega_mot.get_position(),
+            *(
+                ["%.0f" % self.minidiff.motor_positions_to_screen(cp.as_dict())[1]
+                 for cp in shape.cp_list]
+                for shape in (self.mesh_grid, self.lines[-1])
+            ),
+        )
         t0 = time.time()
         best_y, spots = self.do_helical_analysis(index)
         log.info("[UC-time] line %d: spot finding %.1f s", index + 1, time.time() - t0)
@@ -999,6 +1010,25 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         self.set_grid_and_continue()
         self.calculate_mesh()
+
+        # Lock the grid on the plane the mesh scans: its corners from the mesh
+        # program, as add_line builds the lines from the helical one. The
+        # corners get_centred_point_from_coord gave the clicked rectangle
+        # stayed on the camera plane when omega turned.
+        corners = []
+        for x, y in ((self.mesh_x_start, self.mesh_y_start), (self.mesh_x_end, self.mesh_y_end)):
+            sampy, sampx = self.calc_y_z(y, self.ps_z_saved, omega_pos=self.omega_saved)
+            corners.append(
+                {"phi": self.omega_saved, "phiy": x, "sampy": sampy, "phiz": sampy, "sampx": sampx}
+            )
+        log.info(
+            "[UC] grid corners: clicked %s -> scanned %s",
+            [cp.as_dict() for cp in grid.cp_list], corners,
+        )
+        grid.move_to_mpos(corners)
+        grid.cp_list[0].index = grid.name
+        grid.update_position(self.minidiff.motor_positions_to_screen)
+        self.graphics_manager_hwo.emit("shapesChanged")
 
         self.print_current_positions(title="INITIAL")
         self.fill_position_grid()
