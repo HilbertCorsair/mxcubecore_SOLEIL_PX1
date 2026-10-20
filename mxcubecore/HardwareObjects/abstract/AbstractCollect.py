@@ -851,9 +851,13 @@ class AbstractCollect(HardwareObject, object):
 
     def take_crystal_snapshots(self) -> None:
         """Take crystal snapshots of the currently loaded sample."""
-        number_of_snapshots = self.current_dc_parameters["take_snapshots"]
+        number_of_snapshots = int(self.current_dc_parameters["take_snapshots"] or 0)
         if self.current_dc_parameters["experiment_type"] == "Mesh":
             number_of_snapshots = 1
+        logging.getLogger("HWR").info(
+            "Collection: %d crystal snapshot(s)%s", number_of_snapshots,
+            "" if number_of_snapshots else ", none taken",
+        )
 
         snapshot_directory = self.current_dc_parameters["fileinfo"]["archive_directory"]
         if number_of_snapshots > 0 or self.current_dc_parameters.get("take_video"):

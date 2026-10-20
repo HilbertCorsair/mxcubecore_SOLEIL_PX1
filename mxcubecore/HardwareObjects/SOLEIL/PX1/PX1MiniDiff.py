@@ -1347,15 +1347,13 @@ class PX1MiniDiff(GenericDiffractometer):
         cosphi = math.cos(math.radians(phi_angle))
         sinphi = math.sin(math.radians(phi_angle))
 
-        #rot_matrix = np.matrix([cosphi, -sinphi, sinphi, cosphi])
-#
-#        rot_matrix.shape = (2,2)
-#        inv_matrix = np.array(rot_matrix.I)
-
-        dsampx = dx * cosphi + dy * sinphi
-        dsampy = -dx * sinphi + dy * cosphi
-
-        #dsampx, dsampy = np.dot( np.array([0,dy]), inv_matrix )
+        # The point in the camera plane: the horizontal offset is along the
+        # rotation axis (phiy) only, the vertical one is shared by sampx and
+        # sampy by the omega angle - as move_to_beam does. Putting dx into
+        # sampx/sampy as well gave the point a depth, invisible at this omega
+        # but wrong in projection at any other.
+        dsampx = dy * sinphi
+        dsampy = dy * cosphi
 
         sampx += dsampx
         sampy += dsampy

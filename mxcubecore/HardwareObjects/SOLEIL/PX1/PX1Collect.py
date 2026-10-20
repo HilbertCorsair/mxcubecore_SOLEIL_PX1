@@ -982,24 +982,37 @@ class PX1Collect(AbstractCollect):
     ## generate snapshots and data thumbnails ##
     @task
     def _take_crystal_snapshot(self, filename):
+        """A lit crystal snapshot, the way the 3-click centring lights the sample.
+
+        After the line scans the supervisor is in COLLECT, light arm out.
+        prepare_centring (CENTRING phase, then the zoom's light level, waited
+        for) is what the 3-click centring does, and that lights the sample;
+        the phase change may move the goniometer, so the centred position is
+        restored after it. prepare_devices_for_collection goes back to
+        COLLECT. Saved like the X-ray centring report snapshots.
         """
-        Descript. :
-        """
-        # After the line scans the supervisor is in COLLECT, light arm out:
-        # bring the light in for the snapshot (go_to_sampleview sets its
-        # level). prepare_devices_for_collection goes back to COLLECT.
-        if not self.is_sampleview_phase() and not self.go_to_sampleview():
-            logging.getLogger("HWR").debug("PX1Collect:  - not taking snapshot: LIGHTARM not DOWN.")
-            logging.getLogger("HWR").debug("PX1Collect:  - PX1Env state is:  %s" % self.px1env_hwobj.get_state())
-            self.current_dc_parameters["take_snapshots"] = 0
-            return
-        self.lightarm_hwobj._adjust_light_level()
+        log = logging.getLogger("HWR")
+        if not self.px1env_hwobj.ready_for_centring():
+            self.diffractometer_hwobj.prepare_centring()
+            if not self.px1env_hwobj.ready_for_centring():
+                logging.getLogger("user_level_log").warning(
+                    "Collection: snapshot %s not taken, the supervisor did not reach "
+                    "the centring phase (%s)", filename, self.px1env_hwobj.get_state()
+                )
+                return
+            self.move_to_centered_position()
+        else:
+            self.lightarm_hwobj._adjust_light_level()
         # a frame taken after the light change and the last omega move
         self.diffractometer_hwobj.wait_fresh_frame()
-        self.graphics_manager_hwobj.save_snapshot(filename)
-        filename_noshape = filename.replace("snapshot.jpeg", "snapshot_noshape.jpeg")
-        self.graphics_manager_hwobj.save_snapshot(filename_noshape)     #, include_items=False)
-        logging.getLogger("HWR").debug("PX1Collect:  - snapshot saved to %s" % filename)
+        self.diffractometer_hwobj.takePictureAnalysis(path=filename)
+        if os.path.exists(filename):
+            log.info(
+                "[UC] snapshot %s: phase %s, %d bytes",
+                filename, self.px1env_hwobj.get_current_phase(), os.path.getsize(filename),
+            )
+        else:
+            log.warning("[UC] snapshot %s: no file written", filename)
 
     def generate_thumbnails_old(self, filename, jpeg_filename, thumbnail_filename):
         #

@@ -130,7 +130,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.proc_display = None
         self.only_helical = False
         self.mesh_grid = None
-        self.line_grids = []
+        self.lines = []
         self.found_spots = False
         self.sample_prefix = None
 
@@ -310,7 +310,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         """
         self.sample_prefix = prefix
         self.found_spots = False
-        self.line_grids = []  # the line scan strips, one added by each line scan
+        self.lines = []  # the line scan Lines, one added by each line scan
         # The shapes must go to the sample view the web client listens to
         # (not loaded yet when init runs)
         self.graphics_manager_hwo = HWR.beamline.sample_view or self.graphics_manager_hwo
@@ -516,11 +516,12 @@ class PX1XrayCentring(AbstractXrayCentring):
             None,
         )
 
-    def show_spots_on_grid(self, grid, spots):
-        """Colour the cells of grid that have spots, by number of spots.
+    def show_spots_on_shape(self, shape, spots):
+        """Colour the cells of a grid, or the images of a line, by spots.
 
-        spots has one value per cell, row by row from the top-left corner,
-        the order the report uses. Cells without spots keep their colour.
+        spots has one value per cell, row by row from the top-left corner
+        (the order the report uses), or one per image down a line. Cells
+        without spots keep their colour.
         """
         spots = np.asarray(spots).reshape(-1)
         most = spots.max() if spots.size else 0
@@ -533,41 +534,36 @@ class PX1XrayCentring(AbstractXrayCentring):
             for index, value in enumerate(spots, start=1)
             if value > 0
         }
-        self.graphics_manager_hwo.set_grid_data(grid.id, result, None)
+        if isinstance(shape, Grid):
+            self.graphics_manager_hwo.set_grid_data(shape.id, result, None)
+        else:
+            shape.result = {**(shape.result or {}), **result}
+            self.graphics_manager_hwo.emit("shapesChanged")
 
-    def add_line_grid(self, index, omega):
-        """A one-column grid on the line scan index, as run_helical programmed it.
+    def add_line(self, index, omega):
+        """The Line of line scan index, as run_helical programmed it.
 
-        Its corners are the programmed start and end (top and bottom of the
-        scanned line), half a beam width either side, at the scan's omega:
-        it lies on the scanned line and follows the sample like the mesh.
-        One cell per image.
+        From the programmed start to the programmed end (top and bottom of
+        the scanned line) at the scan's omega: in the camera plane during
+        the scan, then locked on the sample and drawn as its projection.
+        One segment per image (num_images), coloured by show_spots_on_shape.
         """
-        mesh = self.mesh_grid
-        half_width = HWR.beamline.beam.get_beam_size()[0] / 2.0
         (x, y_start, z_start), (_, y_end, z_end) = self.helical_start, self.helical_end
         mpos_list = [
-            {"phi": omega, "phiy": x + half_width, "sampy": y_start, "phiz": y_start, "sampx": z_start},
-            {"phi": omega, "phiy": x - half_width, "sampy": y_end, "phiz": y_end, "sampx": z_end},
+            {"phi": omega, "phiy": x, "sampy": y_start, "phiz": y_start, "sampx": z_start},
+            {"phi": omega, "phiy": x, "sampy": y_end, "phiz": y_end, "sampx": z_end},
         ]
         screen_coord = [
             pos for mpos in mpos_list for pos in self.minidiff.motor_positions_to_screen(mpos)
         ]
-        grid = Grid(mpos_list, screen_coord)
-        grid.width = mesh.width / mesh.num_cols
-        grid.height = self.helical_y_extent * mesh.pixels_per_mm[1]
-        grid.cell_count_fun = "zig-zag"
-        grid.cell_h_space = 0
-        grid.cell_v_space = 0
-        grid.cell_width = mesh.cell_width
-        grid.cell_height = self.helical_y_extent * 1000 / self.helical_nimgs
-        grid.label = "+%d" % (self.omega_relative * (index + 1))
-        grid.num_cols = 1
-        grid.num_rows = self.helical_nimgs
-        grid.selected = False
-        grid.pinned = True
-        self.graphics_manager_hwo.add_shape(grid)
-        return grid
+        line = Line(mpos_list, screen_coord)
+        line.label = line.name = "+%d" % (self.omega_relative * (index + 1))
+        line.num_images = self.helical_nimgs
+        line.result = None
+        line.selected = False
+        line.pinned = True
+        self.graphics_manager_hwo.add_shape(line)
+        return line
 
     def is_user_enabled(self):
         return self.user_enabled
@@ -778,7 +774,7 @@ class PX1XrayCentring(AbstractXrayCentring):
             axheat = self.ax_heat[0]
             self.mesh_heatmap_report(axsnap, axheat, spots)
             log.info("[UC-time] grid: heatmap report %.1f s", time.time() - t0)
-            self.show_spots_on_grid(self.mesh_grid, spots)
+            self.show_spots_on_shape(self.mesh_grid, spots)
 
             if None in [x, y]:
                 self.emit('xcentringInfo', 'running', 'No result from mesh analysis')
@@ -818,7 +814,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         t0 = time.time()
         self.run_helical(omega, index + 1)
         # Drawn on the line about to be scanned, before the scan
-        self.line_grids.append(self.add_line_grid(index, omega))
+        self.lines.append(self.add_line(index, omega))
         self.graphics_manager_hwo.emit("shapesChanged")
         self._run_collect_server("helical %d" % (index + 1))
         log.info("[UC-time] line %d: scan %.1f s", index + 1, time.time() - t0)
@@ -842,8 +838,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         ax_snap = self.ax_snap[index + 1]
         ax_heat = self.ax_heat[index + 1]
         self.helical_heatmap_report(ax_snap, ax_heat, index, spots)
-        if index < len(self.line_grids):
-            self.show_spots_on_grid(self.line_grids[index], spots)
+        if index < len(self.lines):
+            self.show_spots_on_shape(self.lines[index], spots)
         return True
 
     def finalize_centring(self):

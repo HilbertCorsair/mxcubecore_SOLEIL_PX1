@@ -525,6 +525,12 @@ class Shape(object):
         self.selected = False
         self.refs = []
         self.shapes_hw_object = None
+        # How far omega is from the shape's own: 0 within hide_grid_threshold,
+        # 1 facing away. A grid is hidden when it is not 0, unless pinned
+        # (unattended collect overlay): then it keeps following the sample,
+        # drawn faded by it.
+        self.fade = 0.0
+        self.pinned = False
 
         self.add_cp_from_mp(mpos_list)
         print("Init Shape")
@@ -552,6 +558,16 @@ class Shape(object):
         spos_list = [transform(cp.as_dict()) for cp in self.cp_list]
         spos_list = tuple([pos for l in spos_list for pos in l])
         self.screen_coord = spos_list
+
+        phi = self.cp_list[0].phi
+        if phi is None:  # a shape without an omega has nothing to fade by
+            self.fade = 0.0
+            return
+        phi_pos = HWR.beamline.diffractometer.omega.get_value() % 360
+        _d = abs((phi % 360) - phi_pos)
+        _d = min(_d, 360 - _d)
+        threshold = getattr(self.shapes_hw_object, "hide_grid_threshold", 5)
+        self.fade = 0.0 if _d <= threshold else _d / 180.0
 
     def add_cp_from_mp(self, mpos_list):
         for mp in mpos_list:
@@ -691,11 +707,6 @@ class Grid(Shape):
         self.beam_width = 0
         self.beam_height = 0
         self.hide_threshold = 5
-        # A pinned grid (unattended collect overlay) keeps following the
-        # sample when omega turns away from its angle, instead of being
-        # hidden, and is faded by that angle: 0 at its omega, 1 facing away
-        self.pinned = False
-        self.fade = 0.0
         self.update_pixel_per_mm()
         print(f"INIt Grig shape: \n{self.label}\n{self.select}\n{self.pixels_per_mm}")
         self.set_id(Grid.SHAPE_COUNT)
@@ -706,22 +717,13 @@ class Grid(Shape):
 
 
     def update_position(self, transform):
-        phi_pos = HWR.beamline.diffractometer.omega.get_value() % 360
-        _d = abs((self.get_centred_position().phi % 360) - phi_pos)
-
         if self.user_state == "HIDDEN":
             self.state = "HIDDEN"
             return
 
-        _d = min(_d, 360 - _d)
-        if _d > self.shapes_hw_object.hide_grid_threshold and not self.pinned:
-            self.state = "HIDDEN"
-        else:
-            super(Grid, self).update_position(transform)
-            self.state = "SAVED"
-            self.fade = (
-                0.0 if _d <= self.shapes_hw_object.hide_grid_threshold else _d / 180.0
-            )
+        super(Grid, self).update_position(transform)
+        # Hidden away from its omega, unless pinned (see Shape.fade)
+        self.state = "HIDDEN" if self.fade and not self.pinned else "SAVED"
 
     def get_centred_position(self):
         return self.cp_list[0]
