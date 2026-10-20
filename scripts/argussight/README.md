@@ -406,8 +406,15 @@ python check_frames.py --uri redis://localhost:6399 --timeout 5   # -> exit 3
    one with the centring overlay.
 
 For `http://` sources leave `size` as `"0,0"`; video-streamer detects the real
-resolution. Only the OAV needs a real size, because `RedisCamera` locks ffmpeg's
-source size to it and a wrong value kills ffmpeg with a broken pipe.
+resolution. For every camera `size` is the size of the **stream**, not of the
+camera: `-s` only scales ffmpeg's output. The OAV's `RedisCamera` takes its
+source size from the Redis frames themselves (video-streamer `main_px1`).
+
+The OAV is streamed at 3/4 scale, `1020,768`: about half the pixels to encode
+and to decode in the browser, for a more fluid video. The page stretches it to
+the canvas sized from server.yaml's `width`/`height` (keep those at the native
+1360x1024: pixelsPerMm is per native pixel), so centring is unchanged. Full
+size: `PX1_OAV_STREAM_SIZE=1360,1024` in the environment of `start_argus_px1.sh`.
 
 | Symptom | Cause | Check / fix |
 |---|---|---|

@@ -70,12 +70,14 @@ CAMERAS = [
         "name": "oav",
         "port": 9000,
         "uri": REDIS_URI,
-        # Native camera frame size. RedisCamera locks ffmpeg's source size to
-        # this -s value, so it MUST equal the published frame size or ffmpeg
-        # aborts with a broken pipe. Must match the width/height in the camera's
-        # hardware-object config, which is also what pixelsPerMm is calibrated
-        # against.
-        "size": "1360,1024",
+        # The size of the STREAM, not of the camera. RedisCamera reads the
+        # frame size (1360x1024) from the Redis frames and gives it to ffmpeg
+        # as the source size; -s only scales ffmpeg's output. The browser
+        # stretches the video to the canvas sized from server.yaml, and
+        # clicks/pixelsPerMm use that canvas, so a smaller stream only costs
+        # sharpness. 3/4 scale: about half the pixels to encode in the
+        # streamer and to decode in the browser. "1360,1024" for full size.
+        "size": os.environ.get("PX1_OAV_STREAM_SIZE", "1020,768"),
         "in_redis_channel": OAV_REDIS_CHANNEL,
     },
     # --- Hutch cameras ---------------------------------------------------
