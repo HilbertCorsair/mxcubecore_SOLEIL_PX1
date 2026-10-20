@@ -691,9 +691,11 @@ class Grid(Shape):
         self.beam_width = 0
         self.beam_height = 0
         self.hide_threshold = 5
-        # A pinned grid (unattended collect overlay) stays drawn where it was
-        # when omega turns away from its angle, instead of being hidden
+        # A pinned grid (unattended collect overlay) keeps following the
+        # sample when omega turns away from its angle, instead of being
+        # hidden, and is faded by that angle: 0 at its omega, 1 facing away
         self.pinned = False
+        self.fade = 0.0
         self.update_pixel_per_mm()
         print(f"INIt Grig shape: \n{self.label}\n{self.select}\n{self.pixels_per_mm}")
         self.set_id(Grid.SHAPE_COUNT)
@@ -711,11 +713,15 @@ class Grid(Shape):
             self.state = "HIDDEN"
             return
 
-        if min(_d, 360 - _d) > self.shapes_hw_object.hide_grid_threshold:
-            self.state = "SAVED" if self.pinned else "HIDDEN"
+        _d = min(_d, 360 - _d)
+        if _d > self.shapes_hw_object.hide_grid_threshold and not self.pinned:
+            self.state = "HIDDEN"
         else:
             super(Grid, self).update_position(transform)
             self.state = "SAVED"
+            self.fade = (
+                0.0 if _d <= self.shapes_hw_object.hide_grid_threshold else _d / 180.0
+            )
 
     def get_centred_position(self):
         return self.cp_list[0]

@@ -310,7 +310,7 @@ class PX1XrayCentring(AbstractXrayCentring):
         """
         self.sample_prefix = prefix
         self.found_spots = False
-        self.line_grids = []  # the line scan strips, added after the mesh
+        self.line_grids = []  # the line scan strips, one added by each line scan
         # The shapes must go to the sample view the web client listens to
         # (not loaded yet when init runs)
         self.graphics_manager_hwo = HWR.beamline.sample_view or self.graphics_manager_hwo
@@ -535,33 +535,32 @@ class PX1XrayCentring(AbstractXrayCentring):
         }
         self.graphics_manager_hwo.set_grid_data(grid.id, result, None)
 
-    def add_line_grid(self, index):
-        """A one-column grid right of the mesh for the spots of line scan index.
+    def add_line_grid(self, index, omega):
+        """A one-column grid on the line scan index, as run_helical programmed it.
 
-        The line scans run at other omegas, so they are shown beside the mesh
-        rather than over it: one cell per image, over the scanned height,
-        centred on the beam (the best mesh position, where the line scans
-        start). Added at the mesh omega, so it shows with the mesh.
+        Its corners are the programmed start and end (top and bottom of the
+        scanned line), half a beam width either side, at the scan's omega:
+        it lies on the scanned line and follows the sample like the mesh.
+        One cell per image.
         """
         mesh = self.mesh_grid
-        right, _ = self.minidiff.motor_positions_to_screen(mesh.cp_list[1].as_dict())
-        _, beam_y = HWR.beamline.beam.get_beam_position_on_screen()
-        cell_width = mesh.width / mesh.num_cols
-        x1 = right + (0.5 + 1.5 * index) * cell_width
-        y1 = beam_y - mesh.height / 2.0
-
+        half_width = HWR.beamline.beam.get_beam_size()[0] / 2.0
+        (x, y_start, z_start), (_, y_end, z_end) = self.helical_start, self.helical_end
         mpos_list = [
-            self.minidiff.get_centred_point_from_coord(x1, y1),
-            self.minidiff.get_centred_point_from_coord(x1 + cell_width, y1 + mesh.height),
+            {"phi": omega, "phiy": x + half_width, "sampy": y_start, "phiz": y_start, "sampx": z_start},
+            {"phi": omega, "phiy": x - half_width, "sampy": y_end, "phiz": y_end, "sampx": z_end},
         ]
-        grid = Grid(mpos_list, [x1, y1])
-        grid.width = cell_width
-        grid.height = mesh.height
+        screen_coord = [
+            pos for mpos in mpos_list for pos in self.minidiff.motor_positions_to_screen(mpos)
+        ]
+        grid = Grid(mpos_list, screen_coord)
+        grid.width = mesh.width / mesh.num_cols
+        grid.height = self.helical_y_extent * mesh.pixels_per_mm[1]
         grid.cell_count_fun = "zig-zag"
         grid.cell_h_space = 0
         grid.cell_v_space = 0
         grid.cell_width = mesh.cell_width
-        grid.cell_height = mesh.cell_height * mesh.num_rows / self.helical_nimgs
+        grid.cell_height = self.helical_y_extent * 1000 / self.helical_nimgs
         grid.label = "+%d" % (self.omega_relative * (index + 1))
         grid.num_cols = 1
         grid.num_rows = self.helical_nimgs
@@ -790,8 +789,6 @@ class PX1XrayCentring(AbstractXrayCentring):
             log.debug('PX1XrayCentring  obtaining mesh results x / y = %s / %s' % (x, y))
             self.emit('xcentringInfo', 'running', 'Moving to best position. x=%s/y=%s' % (x, y))
             self.move_best_position(omega=self.omega_saved)
-            self.line_grids = [self.add_line_grid(i) for i in range(self.nb_helical_scans)]
-            self.graphics_manager_hwo.emit("shapesChanged")
 
         # save positions for centre calculation and seed the accumulators
         self.x_saved = self.phiy_mot.get_position()
@@ -820,6 +817,10 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         t0 = time.time()
         self.run_helical(omega, index + 1)
+        # Drawn on the line about to be scanned, before the scan
+        self.line_grids.append(self.add_line_grid(index, omega))
+        self.graphics_manager_hwo.emit("shapesChanged")
+        self._run_collect_server("helical %d" % (index + 1))
         log.info("[UC-time] line %d: scan %.1f s", index + 1, time.time() - t0)
         t0 = time.time()
         best_y, spots = self.do_helical_analysis(index)
@@ -1148,6 +1149,8 @@ class PX1XrayCentring(AbstractXrayCentring):
 
         start_pos = x_start, y_start, z_start
         end_pos = x_end, y_end, z_end
+        # kept for the strip run_line_scan draws on this line
+        self.helical_start, self.helical_end = start_pos, end_pos
 
         image_width = 1.0/self.helical_nimgs
 
@@ -1194,7 +1197,6 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.log_msg("          nimgs:  %d" % self.collect_dev.nimages)
         self.log_msg("     imageWidth:  %d" % self.collect_dev.imageWidth)
         self.log_msg(" exposurePeriod:  %d" % self.collect_dev.exposurePeriod)
-        self._run_collect_server("helical %d" % scan_no)
 
     collect_start_timeout = 10  # s for the collect server to report RUNNING
 
@@ -1216,6 +1218,11 @@ class PX1XrayCentring(AbstractXrayCentring):
         leaving RUNNING - after it was seen entering it, so a state read just
         after start() cannot pass for the end.
         """
+        # The axes the scan moves, before and after: the overlay follows
+        # xOffset/yOffset/zOffset + x/y/z (PX1MiniDiff.motor_positions_to_screen)
+        axes = ("xOffset", "yOffset", "zOffset", "x", "y", "z")
+        log.info("[UC] %s axes before: %s", what, ", ".join(
+            "%s=%.4f" % (a, self.smargon_hwo.get_position(a)) for a in axes))
         with self.smargon_hwo.procedure(what):
             self.collect_dev.prepareCollect()
             self.collect_dev.start()
@@ -1232,6 +1239,8 @@ class PX1XrayCentring(AbstractXrayCentring):
                 what="collect server done (%s)" % what,
             ):
                 raise RuntimeError("PX1XrayCentring: %s did not end in %s s" % (what, timeout))
+        log.info("[UC] %s axes after: %s", what, ", ".join(
+            "%s=%.4f" % (a, self.smargon_hwo.get_position(a)) for a in axes))
 
     def wait_collect_ready(self,timeout=480):
         t0 = time.time()
