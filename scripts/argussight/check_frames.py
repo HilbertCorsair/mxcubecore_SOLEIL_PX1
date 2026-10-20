@@ -52,8 +52,12 @@ PROMPT_TEXT = (
 )
 
 
-def wait_for_frames(uri, channel, timeout):
+def wait_for_frames(uri, channel, timeout, rate=False):
     """Return True once a frame is seen on ``channel``, else False after ``timeout``.
+
+    With ``rate``, keep counting for the whole ``timeout`` instead and log the
+    publish rate: frames per second, gaps between frames, payload and frame
+    size. That is the most fps the video can have, whatever the streamer does.
 
     A frame counts when the message carries a non-empty ``data`` field, matching
     what ``redis_camera2.py`` publishes (``{"data": <b64 jpeg>, "size": [h, w]}``)
@@ -70,7 +74,9 @@ def wait_for_frames(uri, channel, timeout):
     # NTP step on the wall clock could otherwise shorten or hang the wait.
     from time import monotonic
 
-    deadline = monotonic() + timeout
+    start = monotonic()
+    deadline = start + timeout
+    times, sizes, frame_size = [], [], None
     try:
         while monotonic() < deadline:
             message = pubsub.get_message(timeout=1.0)
@@ -82,17 +88,30 @@ def wait_for_frames(uri, channel, timeout):
             try:
                 frame = json.loads(payload)
             except (ValueError, TypeError):
+                frame = None
+            if isinstance(frame, dict) and not frame.get("data"):
+                continue
+            if not rate:
                 return True
-            if isinstance(frame, dict) and frame.get("data"):
-                return True
-            if not isinstance(frame, dict):
-                return True
+            times.append(monotonic())
+            sizes.append(len(payload))
+            if isinstance(frame, dict):
+                frame_size = frame.get("size", frame_size)
     finally:
         try:
             pubsub.close()
         except Exception:
             logger.debug("ignoring error while closing pubsub", exc_info=True)
-    return False
+    if rate and times:
+        gaps = [b - a for a, b in zip(times, times[1:])] or [0.0]
+        logger.info(
+            "%d frames in %.1f s: %.1f fps; gaps mean %.0f ms, max %.0f ms; "
+            "payload mean %.0f kB; frame size (h, w) %s",
+            len(times), timeout, len(times) / timeout,
+            1000 * sum(gaps) / len(gaps), 1000 * max(gaps),
+            sum(sizes) / len(sizes) / 1000, frame_size,
+        )
+    return bool(times)
 
 
 def _ask_zenity():
@@ -190,11 +209,23 @@ def main(argv=None):
         "--timeout", type=float, default=DEFAULT_TIMEOUT,
         help="seconds to wait for a frame on each attempt",
     )
+    parser.add_argument(
+        "--rate", type=float, metavar="SECONDS",
+        help="only measure: count the frames published over SECONDS and log the "
+        "rate (no dialog)",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
+
+    if args.rate:
+        logger.info("counting frames on %s (%s) for %ss ...", args.channel, args.uri, args.rate)
+        found = wait_for_frames(args.uri, args.channel, args.rate, rate=True)
+        if not found:
+            logger.warning("no frames in %ss", args.rate)
+        return EXIT_OK if found else EXIT_NO_FRAMES
 
     logger.info("waiting up to %ss for frames on %s (%s) ...", args.timeout, args.channel, args.uri)
     if wait_for_frames(args.uri, args.channel, args.timeout):
