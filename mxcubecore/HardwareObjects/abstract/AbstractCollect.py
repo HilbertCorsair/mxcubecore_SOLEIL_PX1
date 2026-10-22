@@ -327,16 +327,10 @@ class AbstractCollect(HardwareObject, object):
             timing.info("[UC-time] collect: transmission/energy/resolution %.1f s", time.time() - t0)
             t0 = time.time()
 
+            # The hook ends in collection_finished/collection_failed, which
+            # make the one LIMS update of this data collection.
             self.data_collection_hook()
             timing.info("[UC-time] collect: data collection hook %.1f s", time.time() - t0)
-            t0 = time.time()
-
-            # ----------------------------------------------------------------
-            # Store information in LIMS
-
-            log.info("Collection: Updating data collection in LIMS")
-            self.update_data_collection_in_lims()
-            timing.info("[UC-time] collect: LIMS update %.1f s", time.time() - t0)
 
         except RuntimeError as e:
             failed_msg = "Data collection failed!\n%s" % str(e)
@@ -696,13 +690,13 @@ class AbstractCollect(HardwareObject, object):
             #added :
             self.current_dc_parameters["imageSuffix"] = "h5"# self.get_image_suffix()
 
-            """try:
+            try:
                 HWR.beamline.lims.update_data_collection(params)
                 logging.getLogger("HWR").info("+++++ In update_data_collection: %s" % params["collection_id"])
             except BaseException:
                 logging.getLogger("HWR").exception(
                     "Could not update data collection in LIMS"
-                )"""
+                )
 
     def store_sample_info_in_lims(self):
         """Store current sample information in LIMS database."""
@@ -875,7 +869,7 @@ class AbstractCollect(HardwareObject, object):
             for snapshot_index in range(number_of_snapshots):
                 snapshot_filename = os.path.join(
                     snapshot_directory,
-                    "%s_%s_%04d.jpeg"
+                    "%s_%s_%s.snapshot.jpeg"
                     % (
                         self.current_dc_parameters["fileinfo"]["prefix"],
                         self.current_dc_parameters["fileinfo"]["run_number"],
