@@ -875,7 +875,7 @@ class AbstractCollect(HardwareObject, object):
             for snapshot_index in range(number_of_snapshots):
                 snapshot_filename = os.path.join(
                     snapshot_directory,
-                    "%s_%s_%s.snapshot.jpeg"
+                    "%s_%s_%04d.jpeg"
                     % (
                         self.current_dc_parameters["fileinfo"]["prefix"],
                         self.current_dc_parameters["fileinfo"]["run_number"],
