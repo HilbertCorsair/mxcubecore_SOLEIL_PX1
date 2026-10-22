@@ -409,7 +409,9 @@ class ISPyBDataAdapter():
         mx_collection["group_id"] = group_id
 
     def _update_data_collection(self, mx_collection):
-        mx_collection["collection_id"] = None
+        # Update the collection stored at the start; create one only if
+        # that store failed.
+        mx_collection.setdefault("collection_id", None)
         if "collection_id" in mx_collection:
             try:
                 # Update the data collection group

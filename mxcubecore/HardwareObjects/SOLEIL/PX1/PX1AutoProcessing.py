@@ -153,7 +153,7 @@ class PX1AutoProcessing(HardwareObject):
        mutated (thumbnails, lims preparation) after collection_finished()
        returns, and is replaced outright by the next sample.
 
-       The slow half - the LIMS update, the temp file and the processing
+       The slow half - the temp file and the processing
        program itself - runs in a background greenlet so the queue can go on to
        unmount the sample and load the next one.
 
@@ -209,13 +209,12 @@ class PX1AutoProcessing(HardwareObject):
        return payload
 
    def _run_job(self, payload, prefix):
-       """Update LIMS, write the parameter file and run the processing program."""
+       """Write the parameter file and run the processing program."""
        from mxcubecore import HardwareRepository as HWR
 
        tmpfile = None
 
        try:
-           HWR.beamline.lims.update_data_collection(payload)
            jsonstr = json.dumps(payload, default=str)
 
            fd, tmpfile = tempfile.mkstemp(
