@@ -363,7 +363,7 @@ class SampleView(AbstractSampleView):
         Returns:
             (list[Shape]) All the shapes
         """
-        return self.shapes.values()
+        return list(self.shapes.values())
 
     def get_points(self):
         """
