@@ -185,6 +185,8 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.smargon_hwo = self.get_object_by_role('smargon')
         self.beaminfo_hwo = self.get_object_by_role('beaminfo')
         self.gevent_event = gevent.event.Event()
+        # AbstractXrayCentring.pre_execute runs only when READY
+        self.update_state(self.STATES.READY)
 
     def define_state(self):
         motstate = self.get_channel_object("state").get_value() #self.collect_state_chan.get_value()
@@ -301,12 +303,14 @@ class PX1XrayCentring(AbstractXrayCentring):
         )
         return valid
 
-    def begin_centring_session(self, prefix):
-        """Build the grid shape and prepare the report + snapshots, for ONE sample.
+    def begin_centring_session(self, prefix, grid=None):
+        """Prepare the grid scan of ONE sample, before run_grid_scan().
 
-        Run by the grid scan task of an unattended collect, before
-        run_grid_scan(). prefix names the result directories. The grid shape
-        must be added before prepare(), which reads it from SampleView.
+        Without grid (unattended collect): build the grid shape from murko,
+        then the report + snapshots. With grid (drawn by the user, X-ray
+        centring task): scan that grid, without report or snapshots.
+        prefix names the result directories. The grid shape must be added
+        before prepare(), which reads it from SampleView.
         """
         self.sample_prefix = prefix
         self.found_spots = False
@@ -314,86 +318,90 @@ class PX1XrayCentring(AbstractXrayCentring):
         # The shapes must go to the sample view the web client listens to
         # (not loaded yet when init runs)
         self.graphics_manager_hwo = HWR.beamline.sample_view or self.graphics_manager_hwo
-
-        # Clear the shape store here rather than relying on mount_sample's
-        # sample_view.clear_all() and finalize_session's clear having run in the
-        # right order: the grid must never inherit a shape from a previous
-        # sample, whatever the mount/unmount interleaving was.
-        try:
-            self.graphics_manager_hwo.clear_all()
-        except Exception:
-            log.exception("[UC] could not clear shapes before building the grid")
-
-        # ---- build the grid shape from murko analysis (zoom2 centred) ----
-        # The grid is drawn on this image: it must show the sample after the
-        # centring's last rotation and XYZ move, not a frame from before.
         t0 = time.time()
-        self.smargon_hwo.wait_ready()
-        self.minidiff.wait_fresh_frame()
-        log.info("[UC] grid drawn at omega %.2f", self.omega_mot.get_position())
-        x1, y1, x2, y2 = self.generateGridFromAnalysis(
-            self.minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False
-        )
-        zoom_position = self.minidiff.zoom.get_value()
-        beam_size_x = HWR.beamline.beam.get_beam_size()[0] * self.minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmY']
-        number_colums = math.ceil((x2 - x1) / beam_size_x)
-        x2n = x1 + number_colums * beam_size_x
-        beam_size_y = HWR.beamline.beam.get_beam_size()[1] * self.minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmZ']
-        number_lines = math.ceil((y2 - y1) / beam_size_y)
-        y2n = y1 + number_lines * beam_size_y
+        report = grid is None  # a grid drawn by the user: no report
 
-        mpos_left_top = self.minidiff.get_centred_point_from_coord(x1, y1)
-        mpos_right_bottom = self.minidiff.get_centred_point_from_coord(x2n, y2n)
-        mpos_list = [mpos_left_top, mpos_right_bottom]
-        # screen_coord is the grid's top-left corner: that is what
-        # get_xcentring_deltas_start_end_mm, Grid.as_dict and the web
-        # client's DrawGridPlugin read. The centre put the mesh half a grid
-        # right of and below the loop.
-        screen_coords = [x1, y1]
+        if report:
+            # Clear the shape store here rather than relying on mount_sample's
+            # sample_view.clear_all() and finalize_session's clear having run in the
+            # right order: the grid must never inherit a shape from a previous
+            # sample, whatever the mount/unmount interleaving was.
+            try:
+                self.graphics_manager_hwo.clear_all()
+            except Exception:
+                log.exception("[UC] could not clear shapes before building the grid")
 
-        grid1 = Grid(mpos_list, screen_coords)
-        grid1.width = x2n - x1
-        grid1.height = y2n - y1
-        grid1.cell_count_fun = "zig-zag"
-        # Cell size and spacing in microns, as the web client draws them
-        grid1.cell_h_space = 0
-        grid1.cell_height = HWR.beamline.beam.get_beam_size()[1] * 1000
-        grid1.cell_v_space = 0
-        grid1.cell_width = HWR.beamline.beam.get_beam_size()[0] * 1000
-        grid1.label = "Grid"
-        grid1.num_cols = number_colums
-        grid1.num_rows = number_lines
-        grid1.selected = False
-        grid1.pinned = True
-        self.graphics_manager_hwo.add_shape(grid1)
-        self.show_crystal_on_grid(grid1, beam_size_x, beam_size_y)
-        self.graphics_manager_hwo.emit("shapesChanged")
+            # ---- build the grid shape from murko analysis (zoom2 centred) ----
+            # The grid is drawn on this image: it must show the sample after the
+            # centring's last rotation and XYZ move, not a frame from before.
+            self.smargon_hwo.wait_ready()
+            self.minidiff.wait_fresh_frame()
+            log.info("[UC] grid drawn at omega %.2f", self.omega_mot.get_position())
+            x1, y1, x2, y2 = self.generateGridFromAnalysis(
+                self.minidiff, RATIO=1, forceSquaredGrid=False, useInsideLoop=False
+            )
+            zoom_position = self.minidiff.zoom.get_value()
+            beam_size_x = HWR.beamline.beam.get_beam_size()[0] * self.minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmY']
+            number_colums = math.ceil((x2 - x1) / beam_size_x)
+            x2n = x1 + number_colums * beam_size_x
+            beam_size_y = HWR.beamline.beam.get_beam_size()[1] * self.minidiff.zoom.positions[zoom_position]['calibrationData']['pixelsPerMmZ']
+            number_lines = math.ceil((y2 - y1) / beam_size_y)
+            y2n = y1 + number_lines * beam_size_y
+
+            mpos_left_top = self.minidiff.get_centred_point_from_coord(x1, y1)
+            mpos_right_bottom = self.minidiff.get_centred_point_from_coord(x2n, y2n)
+            mpos_list = [mpos_left_top, mpos_right_bottom]
+            # screen_coord is the grid's top-left corner: that is what
+            # get_xcentring_deltas_start_end_mm, Grid.as_dict and the web
+            # client's DrawGridPlugin read. The centre put the mesh half a grid
+            # right of and below the loop.
+            screen_coords = [x1, y1]
+
+            grid = Grid(mpos_list, screen_coords)
+            grid.width = x2n - x1
+            grid.height = y2n - y1
+            grid.cell_count_fun = "zig-zag"
+            # Cell size and spacing in microns, as the web client draws them
+            grid.cell_h_space = 0
+            grid.cell_height = HWR.beamline.beam.get_beam_size()[1] * 1000
+            grid.cell_v_space = 0
+            grid.cell_width = HWR.beamline.beam.get_beam_size()[0] * 1000
+            grid.label = "Grid"
+            grid.num_cols = number_colums
+            grid.num_rows = number_lines
+            grid.selected = False
+            grid.pinned = True
+            self.graphics_manager_hwo.add_shape(grid)
+            self.show_crystal_on_grid(grid, beam_size_x, beam_size_y)
+            self.graphics_manager_hwo.emit("shapesChanged")
+            log.info(
+                "[UC-time] grid: murko grid %.1f s (%d x %d cells, screen x %d..%d y %d..%d "
+                "of %s x %s)",
+                time.time() - t0, number_lines, number_colums, x1, x2n, y1, y2n,
+                os.getenv("MURKO_SIZEX"), os.getenv("MURKO_SIZEY"),
+            )
+            t0 = time.time()
+        else:
+            log.info("[UC] X-ray centring on %s (%d x %d cells)", grid.id, grid.num_rows, grid.num_cols)
         self.flag_is_centring = True
-        log.info(
-            "[UC-time] grid: murko grid %.1f s (%d x %d cells, screen x %d..%d y %d..%d "
-            "of %s x %s)",
-            time.time() - t0, number_lines, number_colums, x1, x2n, y1, y2n,
-            os.getenv("MURKO_SIZEX"), os.getenv("MURKO_SIZEY"),
-        )
-        t0 = time.time()
 
         # ---- prepare report + snapshots (setup half of do_xcentring) ----
         self.Y = []
         self.errmsg = ""
         self.emit('xcentringInfo', 'running', 'Preparing')
         HWR.beamline.transmission.set_value(self.default_transmission_xray)
-        self.prepare(grid1)
-        self.prepare_report()
-        log.info("[UC-time] grid: prepare + report figure %.1f s", time.time() - t0)
-        t0 = time.time()
-        output_directory = self.get_process_directory()
+        self.prepare(grid)
         self.moved = True
-        self.collect_snapshots(output_directory)
-        self.snapshots_to_report()
-        self.minidiff.wait_ready()
-        self.omega_mot.sync_move(self.omega_saved)
-        log.info("[UC-time] grid: report snapshots + omega back %.1f s", time.time() - t0)
-        t0 = time.time()
+        if report:
+            self.prepare_report()
+            log.info("[UC-time] grid: prepare + report figure %.1f s", time.time() - t0)
+            t0 = time.time()
+            output_directory = self.get_process_directory()
+            self.collect_snapshots(output_directory)
+            self.snapshots_to_report()
+            self.minidiff.wait_ready()
+            self.omega_mot.sync_move(self.omega_saved)
+            log.info("[UC-time] grid: report snapshots + omega back %.1f s", time.time() - t0)
         if not self.wait_envready():
             self.emit('xcentringInfo', 'running',
                       'Error waiting for environment. Cannot continue')
@@ -707,53 +715,36 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.close_report_display()
 
     # MAIN CENTRING routine
-    def  do_xcentring(self, showReport=True, transmission=25):
-        """Thin orchestrator: mesh + helical scans + centring fit.
+    def do_xcentring(self):
+        """Mesh + line scans + centring fit, the centred point ends on the beam.
 
-        Kept for backward compatibility / manual use. Assumes
-        begin_centring_session() has already prepared the grid, report and
-        snapshots. Preserves the legacy one-shot retry (re-runs the scans, not
-        the setup) and the no-spots early returns. The decomposed queue
-        pipeline calls run_grid_scan/run_line_scan/finalize_centring directly
-        instead, with per-phase retry in the entries.
+        Run by execute() (X-ray centring task) after begin_centring_session().
+        The unattended collect runs the same steps as separate tasks.
+        Raises when a scan finds no spots.
         """
         try:
             if not self.run_grid_scan():
-                self.finish_centring()
-                HWR.beamline.sample_changer._wait_device_ready(200)
-                return
+                raise RuntimeError("X-ray centring: no spots in the grid scan")
 
             self.emit('xcentringInfo', 'running', 'Helical phase')
             for i in range(self.nb_helical_scans):
                 if not self.run_line_scan(i):
-                    self.found_spots = False
-                    return
-
-            if None in self.Y:
-                self.emit('xcentringInfo', 'running', 'No spots in helical analysis')
-                self.finish_centring()
-                self.found_spots = False
-                self.log_msg("NO SPOTS IN HELICAL ????? !!!!!! This shouldn't happen !")
-                HWR.beamline.sample_changer._wait_device_ready(200)
-                return
+                    raise RuntimeError("X-ray centring: no spots in line scan %d" % (i + 1))
 
             self.finalize_centring()
-
-        except BaseException as e:
-            import traceback
-            self.errmsg = str(e)
-            self.errmsg = traceback.format_exc()
-            log.debug(self.errmsg)
-            #try again :
-            try :
-                log.warning("First attempt at do_xraycentring failed. Attempting a secound time .... ")
-                self.do_xcentring(showReport=False)
-            except:
-                raise(e)
-            # raising error only after a secound attempt at do_xcentring
-
         finally:
             self.flag_is_centring = False
+
+    def execute(self):
+        """X-ray centring task: centre the sample on the grid the user drew."""
+        model = self._queue_entry.get_data_model()
+        grid = HWR.beamline.sample_view.get_shape(model.shape)
+        if grid is None:
+            raise RuntimeError("X-ray centring: grid %s not found" % model.shape)
+        self.begin_centring_session(model.path_template.get_prefix(), grid=grid)
+        self.do_xcentring()
+        # Back to the camera, with its light, to show the centred sample
+        self.go_to_sampleview()
 
     def run_grid_scan(self):
         """Run the 2D mesh scan + analysis and move to the best mesh position.
@@ -777,11 +768,10 @@ class PX1XrayCentring(AbstractXrayCentring):
             t0 = time.time()
             x, y, spots = self.do_mesh_analysis()
             log.info("[UC-time] grid: spot finding %.1f s", time.time() - t0)
-            t0 = time.time()
-            axsnap = self.ax_snap[0]
-            axheat = self.ax_heat[0]
-            self.mesh_heatmap_report(axsnap, axheat, spots)
-            log.info("[UC-time] grid: heatmap report %.1f s", time.time() - t0)
+            if self.fig:
+                t0 = time.time()
+                self.mesh_heatmap_report(self.ax_snap[0], self.ax_heat[0], spots)
+                log.info("[UC-time] grid: heatmap report %.1f s", time.time() - t0)
             self.show_spots_on_shape(self.mesh_grid, spots)
 
             if None in [x, y]:
@@ -854,9 +844,10 @@ class PX1XrayCentring(AbstractXrayCentring):
         self.emit('xcentringInfo', 'running', '  / best Y found at %s' % best_y)
         self.log_msg("helical%d        / omega %3.4f / best_y %s (pixels)" % (index + 1, omega, best_y))
 
-        ax_snap = self.ax_snap[index + 1]
-        ax_heat = self.ax_heat[index + 1]
-        self.helical_heatmap_report(ax_snap, ax_heat, index, spots)
+        if self.fig:
+            self.helical_heatmap_report(
+                self.ax_snap[index + 1], self.ax_heat[index + 1], index, spots
+            )
         if index < len(self.lines):
             self.show_spots_on_shape(self.lines[index], spots)
         return True
