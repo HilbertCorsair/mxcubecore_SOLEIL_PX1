@@ -416,7 +416,9 @@ class PX1XrayCentring(AbstractXrayCentring):
         Exchange) rather than an unload followed by a plain load.
         """
         try:
-            self.graphics_manager_hwo.clear_all()
+            # The web client's sample view: graphics_manager_hwo is still the
+            # Qt4 one when no grid scan ran (e.g. failed optical centring)
+            HWR.beamline.sample_view.clear_all()
         except Exception:
             log.exception("Error clearing graphics at end of unattended collect")
         self.found_spots = False
