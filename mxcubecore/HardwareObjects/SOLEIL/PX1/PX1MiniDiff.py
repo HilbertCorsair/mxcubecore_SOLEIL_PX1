@@ -92,6 +92,11 @@ class PX1MiniDiff(GenericDiffractometer):
         self.light_arm = self.get_object_by_role('lightarm')
         self.px1conf_ho = self.get_object_by_role('px1configuration')
         self.px1env_ho = self.get_object_by_role('px1environment')
+        self.connect(self.px1env_ho, "phaseChanged", self._env_phase_changed)
+        try:
+            self._env_phase_changed(self.px1env_ho.get_current_phase())
+        except Exception:
+            logging.getLogger("HWR").exception("PX1MiniDiff: cannot read the phase")
         self.pixels_per_mm_x = 0
         self.beam_x = None
         self.beam_y = None
@@ -107,6 +112,7 @@ class PX1MiniDiff(GenericDiffractometer):
                 GenericDiffractometer.PHASE_CENTRING,
                 GenericDiffractometer.PHASE_COLLECTION,
                 GenericDiffractometer.PHASE_DEFAULT,
+                "VISU_SAMPLE",
                 GenericDiffractometer.PHASE_UNKNOWN,
                 GenericDiffractometer.PHASE_PARTY,]
 
@@ -773,8 +779,25 @@ class PX1MiniDiff(GenericDiffractometer):
         # change moves the Smargon - goto_phase waits for both and holds the
         # goniometer gate meanwhile. The int mapping above is already
         # EnvironmentPhase's, so this is like for like.
-        self.px1env_ho.goto_phase(translation_to_env[phase], timeout or 60)
+        # strip: PHASE_CENTRING is "CENTRING " (trailing space)
+        self.px1env_ho.goto_phase(translation_to_env[phase.strip()], timeout or 60)
         self.update_backlight()
+
+    # Supervisor phase (currentPhase, "_" and spaces dropped) -> phase_list
+    env_phases = {
+        "TRANSFER": GenericDiffractometer.PHASE_TRANSFER,
+        "CENTRING": GenericDiffractometer.PHASE_CENTRING,
+        "COLLECT": GenericDiffractometer.PHASE_COLLECTION,
+        "DEFAULT": GenericDiffractometer.PHASE_DEFAULT,
+        "VISUSAMPLE": "VISU_SAMPLE",
+    }
+
+    def _env_phase_changed(self, env_phase):
+        """current_phase (get_current_phase) and phaseChanged for the web
+        client follow the supervisor; any other supervisor phase is UNKNOWN."""
+        key = str(env_phase).replace("_", "").replace(" ", "").upper()
+        self.current_phase = self.env_phases.get(key, GenericDiffractometer.PHASE_UNKNOWN)
+        self.emit("phaseChanged", (self.current_phase,))
 
     def prepare_centring(self, timeout=20):
         env_state = self.px1env_ho.get_state()

@@ -67,10 +67,16 @@ class TangoDCMotorWPositions(TangoMotorWPositions):
             return self.STATES.READY
         if ms in ("MOVING", "RUNNING"):
             return self.STATES.BUSY
-        if ms in ("FAULT", "ALARM"):
+        if ms in ("FAULT", "ALARM", "DISABLE"):
             return self.STATES.FAULT
         if ms == "OFF":
             return self.STATES.OFF
+        # Once per state, not at every poll
+        if ms != getattr(self, "_unknown_motstate", None):
+            self._unknown_motstate = ms
+            logging.getLogger("HWR").warning(
+                "%s: Tango state %r read as UNKNOWN", self.name(), ms
+            )
         return self.STATES.UNKNOWN
 
     def _add_channels(self):

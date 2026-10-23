@@ -80,6 +80,23 @@ class PX1Environment(HardwareObject):
             self.chan_auth.connect_signal("update", self._set_authorization_flag)
         except KeyError:
             logging.getLogger().warning("%s: cannot report Authorization", self.name())
+        # The supervisor phase, polled: phase changes made by any client
+        # (MXCuBE procedures, the supervisor GUI) reach the web client
+        try:
+            self.phase_chan = self.add_channel(
+                {
+                    "type": "tango",
+                    "name": "currentPhase",
+                    "tangoname": self.get_property("tangoname"),
+                    "polling": 500,
+                },
+                "currentPhase",
+            )
+            self.phase_chan.connect_signal(
+                "update", lambda phase: self.emit("phaseChanged", (phase,))
+            )
+        except Exception:
+            logging.getLogger().exception("%s: cannot report the phase", self.name())
 
     def _init_commands(self):
         if self.device is not None:
