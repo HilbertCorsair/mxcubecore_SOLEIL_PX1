@@ -93,6 +93,8 @@ class AbstractUnattendedCollect(HardwareObject):
                 "beam_pos": tuple(HWR.beamline.beam.get_beam_position_on_screen()),
                 "beam_width": beam_width,
                 "beam_height": beam_height,
+                # Follows the sample during the whole procedure (Grid.pinned)
+                "pinned": True,
             }
         )
         sample_view.emit("shapesChanged")
