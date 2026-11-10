@@ -19,6 +19,10 @@
 murko: https://github.com/MartinSavko/murko. The server answers zmq REQ
 requests; the client needs pyzmq, which is only imported when it is used.
 
+With the role "murko" in the beamline configuration, the automatic loop
+centring (centring method LOOP or FULLY_AUTOMATIC, see
+sample_centring.find_loop) asks murko where the loop is instead of lucid.
+
 Example yaml configuration:
 
     class: mxcubecore.HardwareObjects.Murko.Murko

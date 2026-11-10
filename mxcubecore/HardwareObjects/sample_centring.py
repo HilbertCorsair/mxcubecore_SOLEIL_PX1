@@ -8,6 +8,8 @@ import gevent.event
 import numpy
 from scipy import optimize
 
+from mxcubecore import HardwareRepository as HWR
+
 try:
     import lucid3 as lucid
 except ImportError:
@@ -570,22 +572,39 @@ def start_auto(
 
 
 def find_loop(sample_view, pixelsPerMm_Hor, chi_angle, msg_cb, new_point_cb):
-    snapshot_filename = os.path.join(
-        tempfile.gettempdir(), "mxcube_sample_snapshot.png"
-    )
-    sample_view.save_snapshot(snapshot_filename, overlay=False, bw=True)
+    """Pixel position (x, y) of the loop in the current image, -1, -1 if none.
 
-    # Lucid does not accept 0 degree rotation and
-    # has a reference frame that is reversed to the one used
-    # in MXCuBE
-    if chi_angle == 0:
-        chi_angle = None
+    Found by murko when the beamline has a murko object, by lucid otherwise.
+    """
+    murko = HWR.beamline.murko
+
+    if murko is not None:
+        image = sample_view.get_snapshot(return_as_array=True)
+        prediction = murko.predict(image)
+
+        if prediction is None:
+            return -1, -1
+
+        height, width = image.shape[:2]
+        info = "murko"
+        x, y = prediction["click"][0] * width, prediction["click"][1] * height
     else:
-        chi_angle = -chi_angle
+        snapshot_filename = os.path.join(
+            tempfile.gettempdir(), "mxcube_sample_snapshot.png"
+        )
+        sample_view.save_snapshot(snapshot_filename, overlay=False, bw=True)
 
-    info, x, y = lucid.find_loop(
-        snapshot_filename, rotation=chi_angle, debug=False, IterationClosing=6
-    )
+        # Lucid does not accept 0 degree rotation and
+        # has a reference frame that is reversed to the one used
+        # in MXCuBE
+        if chi_angle == 0:
+            chi_angle = None
+        else:
+            chi_angle = -chi_angle
+
+        info, x, y = lucid.find_loop(
+            snapshot_filename, rotation=chi_angle, debug=False, IterationClosing=6
+        )
 
     try:
         x = float(x)

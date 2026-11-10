@@ -23,8 +23,10 @@ import pickle
 import sys
 import types
 
+import numpy
 import pytest
 
+from mxcubecore.HardwareObjects import sample_centring
 from mxcubecore.HardwareObjects.Murko import MurkoUnavailable
 
 
@@ -125,3 +127,21 @@ def test_not_available(murko, monkeypatch):
     monkeypatch.setattr("socket.create_connection", refuse)
 
     assert not murko.is_available()
+
+
+def test_loop_centring_finds_the_loop_with_murko(beamline, murko, monkeypatch):
+    image = numpy.zeros((100, 200, 3))
+    predictions = [{"click": (0.25, 0.5), "box": (0.1, 0.2, 0.4, 0.8)}, None]
+    points = []
+    monkeypatch.setattr(beamline.sample_view, "get_snapshot", lambda **kwargs: image)
+    monkeypatch.setattr(murko, "predict", lambda image: predictions.pop(0))
+
+    assert beamline.murko is murko
+    assert sample_centring.find_loop(
+        beamline.sample_view, 1, 0, None, points.append
+    ) == (50, 50)
+    assert points == [(50, 50)]
+    # Nothing seen
+    assert sample_centring.find_loop(
+        beamline.sample_view, 1, 0, None, points.append
+    ) == (-1, -1)

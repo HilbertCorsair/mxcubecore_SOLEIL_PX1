@@ -248,6 +248,11 @@ class Beamline(HardwareObject):
         return self.get_object_by_role("offline_processing")
 
     @property
+    def murko(self) -> HardwareObject | None:
+        """Loop segmentation server, used by the automatic loop centring"""
+        return self.get_object_by_role("murko")
+
+    @property
     def characterisation(self) -> HardwareObject | None:
         return self.get_object_by_role("characterisation")
 
