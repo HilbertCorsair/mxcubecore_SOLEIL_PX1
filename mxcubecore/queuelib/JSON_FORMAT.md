@@ -85,6 +85,8 @@ Every task (`DataCollection`, `Characterisation`, `Workflow`, `GphlWorkflow`,
 - `taskIndex`: position within the flattened per-sample task list
 - `startedAt` / `endedAt`: UNIX time of the start and end of the node's last run,
   `null` until then. Also present on a `SampleNode`.
+- `groupID`: `queueID` of the `TaskGroup` the task belongs to. Tasks added one at a
+  time each get their own group; the tasks of one group share its `groupID`.
 
 ### Type-specific `parameters`
 

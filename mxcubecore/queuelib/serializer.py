@@ -140,7 +140,15 @@ class QueueSerializer:
                 result.append(self._handle_task_node(sample_node, n))
 
             else:
-                result.extend(self._queue_to_dict_rec(n))
+                rows = self._queue_to_dict_rec(n)
+
+                # The innermost group of a task is the one it belongs to
+                if isinstance(n, qmo.TaskGroup):
+                    for row in rows:
+                        if isinstance(row, TaskNodeModel) and row.groupID is None:
+                            row.groupID = n._node_id
+
+                result.extend(rows)
 
         for item in result:
             if item.queueID != -1:

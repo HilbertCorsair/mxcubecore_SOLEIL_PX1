@@ -481,6 +481,9 @@ class TaskNodeModel(QueueNodeModel):
     # True for the data collections of a diffraction plan
     isDiffractionPlan: bool = False  # noqa: N815
     name: str | None = None
+    # queueID of the TaskGroup the task belongs to, shared by the tasks of
+    # the group. A group of one task is the usual case.
+    groupID: int | None = None  # noqa: N815
 
     @field_validator("sampleID", "name", mode="before")
     @classmethod
