@@ -885,6 +885,14 @@ def mount_sample(data_model, centring_done_cb, async_result):
         sview = HWR.beamline.sample_view
         centring_method = HWR.beamline.queue_manager.centring_method
 
+        # An unattended collect centres the sample in its own tasks
+        if any(
+            isinstance(group, queue_model_objects.UnattendedCollect)
+            and group.is_enabled()
+            for group in data_model.get_children()
+        ):
+            centring_method = CENTRING_METHOD.NONE
+
         if centring_method != CENTRING_METHOD.NONE:
             try:
                 sview.connect("centringAccepted", centring_done_cb)

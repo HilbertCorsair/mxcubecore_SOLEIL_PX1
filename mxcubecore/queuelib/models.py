@@ -511,6 +511,20 @@ class WorkflowNodeModel(TaskNodeModel):
     parameters: WorkflowParameters
 
 
+class UnattendedCollectParameters(DataCollectionParameters):
+    """The parameters of the data collection of an unattended collect."""
+
+    # Set on the rows of a queued pipeline, one row per task
+    method: str | None = None
+    groupIndex: int | None = None  # noqa: N815
+
+
+class UnattendedCollectNodeModel(TaskNodeModel):
+    """One task of an unattended collect, its rows share the groupID."""
+
+    parameters: UnattendedCollectParameters
+
+
 class GenericTaskParameters(DataCollectionParameters):
     """Parameters of tasks defined by a queue entry DATA_MODEL, for instance
     the SSX collections. The fields that are not defined here are kept, they
@@ -556,6 +570,9 @@ def build_task_node_model(value: object):
     if task_type == "DataCollection":
         return validate_model_tolerant(DataCollectionNodeModel, normalized)
 
+    if task_type == "UnattendedCollect":
+        return validate_model_tolerant(UnattendedCollectNodeModel, normalized)
+
     return validate_model_tolerant(GenericTaskNodeModel, normalized)
 
 
@@ -598,6 +615,7 @@ TaskNodeUnion = (
     | XRFNodeModel
     | EnergyScanNodeModel
     | WorkflowNodeModel
+    | UnattendedCollectNodeModel
     | GenericTaskNodeModel
 )
 

@@ -31,6 +31,8 @@ class QueueManager(HardwareObject, QueueEntryContainer):
         self.centring_method = CENTRING_METHOD.NONE
         self.auto_add_diff_plan = False
         self._root_task = None
+        # The entry of a single entry run, None when the whole queue runs
+        self.run_root_entry = None
         self._paused_event = gevent.event.Event()
         self._paused_event.set()
         self._current_queue_entry = None
@@ -60,6 +62,7 @@ class QueueManager(HardwareObject, QueueEntryContainer):
     def __getstate__(self):
         d = dict(self.__dict__)
         d["_root_task"] = None
+        d["run_root_entry"] = None
         d["_paused_event"] = None
         return d
 
@@ -102,6 +105,7 @@ class QueueManager(HardwareObject, QueueEntryContainer):
             self.emit("statusMessage", ("status", "Queue running", "running"))
             self._is_stopped = False
             self._running = True
+            self.run_root_entry = entry
 
             if not entry:
                 self._current_queue_entries = []

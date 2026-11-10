@@ -45,6 +45,7 @@ objects:
   - collect: collect-mockup.xml
   # Procedures:
   - xrf_spectrum: xrf-spectrum-mockup.xml
+  - unattended_collect: unattended_collect.yml
   # Analysis:
   - procedure: procedure-mockup.yml
 
