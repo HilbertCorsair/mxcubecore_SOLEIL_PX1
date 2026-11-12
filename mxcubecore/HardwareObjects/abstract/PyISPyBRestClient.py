@@ -75,10 +75,7 @@ class PyISPyBRestClient:
         timeout = kwargs.pop("timeout", self._timeout)
         url = urljoin(self._rest_root, endpoint)
         response = method(url, timeout=timeout, **kwargs)
-        if response.status_code in [401, 400]:
-            import pdb
-            pdb.set_trace()
-
+        if response.status_code == 401:
             log.warning("Received 401. Re-authenticating.")
             self.authenticate()
             response = method(url, timeout=timeout, **kwargs)
@@ -86,12 +83,17 @@ class PyISPyBRestClient:
 
     @staticmethod
     def decode_json_response(response):
-
         request = getattr(response, "request", None)
-        method =  getattr(request, "method", "")
-
-
-
+        method = getattr(request, "method", "")
+        if response.status_code == 401:
+            # A redirect to another host drops the Authorization header
+            log.warning(
+                "401 from %s %s: redirects %s, Authorization sent: %s",
+                method,
+                response.url,
+                [(r.status_code, r.headers.get("Location")) for r in response.history],
+                "Authorization" in getattr(request, "headers", {}),
+            )
         log.debug(
             "Received response from %s %s. Status code: %s, Response text: %s",
             method,
@@ -99,7 +101,6 @@ class PyISPyBRestClient:
             response.status_code,
             response.text,
         )
-
         if response.status_code not in (200, 201):
             msg = (
                 f"Request {method} {response.url} failed with code: "

@@ -749,12 +749,13 @@ def test_store_beamline_setup_success(
     client.get.return_value = session
 
     bl_config = default_bl_config()
-    client.post.return_value = 101
+    client.post.return_value = {"beamLineSetupId": 101}
     adapter.update_session = Mock()
 
     result = adapter.store_beamline_setup(session_id, bl_config)
 
     assert result == 101
+    assert bl_config["beamLineSetupId"] == 101
 
     client.post.assert_called_once_with(
         "beamline-setups/beamline-setup",
@@ -764,74 +765,48 @@ def test_store_beamline_setup_success(
     adapter.update_session.assert_called_once_with(session)
 
 
+def test_store_beamline_setup_post_fails(adapter, client):
+    client.get.return_value = {"sessionId": 1}
+    client.post.side_effect = PyISPyBUnsuccessfulResponse("boom")
+    adapter.update_session = Mock()
+
+    assert adapter.store_beamline_setup(1, default_bl_config()) is None
+
+    adapter.update_session.assert_not_called()
+
+
+def _dc_post(endpoint, json):
+    if endpoint == "datacollections/group":
+        return {"dataCollectionGroupId": 77}
+    return {"dataCollectionId": 10, "dataCollectionGroupId": 77}
+
+
 def test_store_data_collection_without_bl_config(adapter, client):
     mx_collection = default_data_collection()
-
-    client.post.return_value = {
-        "dataCollectionId": 10,
-        "dataCollectionGroupId": 99
-    }
+    client.post.side_effect = _dc_post
 
     result = adapter.store_data_collection(mx_collection)
 
     assert result == (10, 0)
 
-    client.post.assert_called_once_with(
+    client.post.assert_any_call("datacollections/group", json=mx_collection)
+    client.post.assert_called_with(
         "datacollections/datacollection",
-        json=mx_collection,
+        json={**mx_collection, "dataCollectionGroupId": 77},
     )
 
 
-def test_store_data_collection_with_detector(adapter, client):
+def test_store_data_collection_with_bl_config(adapter, client):
     mx_collection = default_data_collection()
-
     bl_config = default_bl_config()
-
-    client.post.return_value = {
-        "dataCollectionId": 10,
-        "dataCollectionGroupId": 99
-    }
-
+    client.post.side_effect = _dc_post
     adapter.store_beamline_setup = Mock()
-    adapter.find_detector = Mock(return_value={"detectorId": 42})
-
-    result = adapter.store_data_collection(mx_collection, bl_config)
-
-    assert result == (10, 42)
-
-    adapter.store_beamline_setup.assert_called_once_with(
-        123,
-        bl_config,
-    )
-
-    adapter.find_detector.assert_called_once_with(
-        "ExampleManufacturer",
-        "ExampleModel",
-        "1x1",
-        "PixelDetector",
-    )
-
-    assert mx_collection["detectorId"] == 42
-
-
-def test_store_data_collection_without_detector(adapter, client):
-    mx_collection = default_data_collection()
-
-    bl_config = default_bl_config()
-
-    client.post.return_value = {
-        "dataCollectionId": 10,
-        "dataCollectionGroupId": 99
-    }
-
-    adapter.store_beamline_setup = Mock()
-    adapter.find_detector = Mock(return_value=None)
 
     result = adapter.store_data_collection(mx_collection, bl_config)
 
     assert result == (10, 0)
 
-    assert mx_collection["detectorId"] is None
+    adapter.store_beamline_setup.assert_called_once_with(123, bl_config)
 
 
 def test_update_data_collection_missing_collection_id(adapter, client):
@@ -846,48 +821,29 @@ def test_update_data_collection_missing_collection_id(adapter, client):
     client.post.assert_not_called()
 
 
-def test_update_data_collection_sets_group_id(adapter, client):
-    mx_collection = {
-        "collection_id": 123,
-    }
-
-    client.post.return_value = (1, 2)
-
-    adapter._store_data_collection_group = Mock(
-        return_value={"dataCollectionGroupId": 777}
-    )
-
-    adapter._update_data_collection(mx_collection)
-
-    assert mx_collection["group_id"] == 777
-
-
 def test_update_data_collection_success(
     adapter,
     client,
 ):
-    # given
     mx_collection = {
         "collection_id": 1,
     }
 
-    client.post.return_value = (1, 99)
+    client.post.return_value = {"dataCollectionId": 1, "dataCollectionGroupId": 99}
 
     adapter._store_data_collection_group = Mock(
         return_value={"dataCollectionGroupId": 99}
     )
 
-    # when
     result = adapter._update_data_collection(mx_collection)
 
-    # then
     assert result == (1, 99)
 
     adapter._store_data_collection_group.assert_called_once_with(mx_collection)
 
     client.post.assert_called_once_with(
         "datacollections/datacollection",
-        json=mx_collection,
+        json={**mx_collection, "dataCollectionGroupId": 99},
     )
 
 
