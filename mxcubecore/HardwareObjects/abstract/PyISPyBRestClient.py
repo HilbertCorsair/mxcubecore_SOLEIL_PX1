@@ -75,7 +75,10 @@ class PyISPyBRestClient:
         timeout = kwargs.pop("timeout", self._timeout)
         url = urljoin(self._rest_root, endpoint)
         response = method(url, timeout=timeout, **kwargs)
-        if response.status_code == 401:
+        if response.status_code in [401, 400]:
+            import pdb
+            pdb.set_trace()
+
             log.warning("Received 401. Re-authenticating.")
             self.authenticate()
             response = method(url, timeout=timeout, **kwargs)
@@ -83,8 +86,12 @@ class PyISPyBRestClient:
 
     @staticmethod
     def decode_json_response(response):
+
         request = getattr(response, "request", None)
-        method = getattr(request, "method", "")
+        method =  getattr(request, "method", "")
+
+
+
         log.debug(
             "Received response from %s %s. Status code: %s, Response text: %s",
             method,
@@ -92,6 +99,7 @@ class PyISPyBRestClient:
             response.status_code,
             response.text,
         )
+
         if response.status_code not in (200, 201):
             msg = (
                 f"Request {method} {response.url} failed with code: "

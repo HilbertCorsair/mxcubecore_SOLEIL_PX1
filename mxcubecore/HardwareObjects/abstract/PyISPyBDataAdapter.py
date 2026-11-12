@@ -6,7 +6,7 @@ from mxcubecore.HardwareObjects.abstract.PyISPyBRestClient import (
     PyISPyBUnsuccessfulResponse,
 )
 from mxcubecore.model.lims_session import LimsSessionManager, Proposal, Session
-
+import json
 
 class PyISPyBDataAdapter:
     """Adapter to convert data from PyISPyB REST API."""
@@ -59,7 +59,7 @@ class PyISPyBDataAdapter:
         title = session.get("title", "")
         start_datetime = datetime.fromisoformat(session.get("startDate"))
         end_datetime = datetime.fromisoformat(session.get("endDate"))
-        return Session(
+        session_obj = Session(
             code=proposal_code,
             number=proposal_number,
             proposal_name=proposal_name,
@@ -75,6 +75,8 @@ class PyISPyBDataAdapter:
             is_scheduled_time=self.__is_time_between(start_datetime, end_datetime),
             is_scheduled_beamline=True,  # MAX IV does not care about this value
         )
+        print(f"SESSION OBJECT: {session_obj}")
+        return session_obj
 
     @staticmethod
     def __to_sample(sample_data: dict) -> dict:
@@ -212,6 +214,7 @@ class PyISPyBDataAdapter:
             "comments": "Session created by the BCM",
             "scheduled": False,
         }
+
         return self.__to_session(self.client.post("sessions", json=payload))
 
     def _store_data_collection_group(self, group_data: dict) -> dict:
@@ -229,7 +232,11 @@ class PyISPyBDataAdapter:
                 "workflowId": 0
             }
         """
-        return self.client.post("datacollections/group", json=group_data)
+
+        print("The DATA_GROUP:******************************************************************************", json.dumps(group_data) )
+        test_data = {"sessionId": 47118, "experimentType": "OSC", "actualContainerSlotInSC": 5, "actualSampleSlotInContainer": 1}
+
+        return self.client.post("datacollections/group", json=test_data)
 
     def _update_data_collection(self, mx_collection: dict) -> tuple[int, int]:
         """Updates data collection in PyISPyB.
@@ -242,14 +249,19 @@ class PyISPyBDataAdapter:
             Tuple containing data collection id and data collection group id.
         """
         dc_id, dc_group_id = 0, 0
+        print("MXCOLLECTION :******************************************************************************", json.dumps(mx_collection) )
+
+
         if "collection_id" in mx_collection:
             group_id = self._store_data_collection_group(mx_collection)[
                 "dataCollectionGroupId"
             ]
+            test_data_collection =  {"dataCollectionGroupId": 167520 }
             try:
+
                 dc_id, dc_group_id, *_ = self.client.post(
                     "datacollections/datacollection",
-                    json={**mx_collection, "group_id": group_id},
+                    json=test_data_collection,
                 )
             except PyISPyBUnsuccessfulResponse:
                 self.logger.exception("Error in _update_data_collection")
@@ -474,7 +486,8 @@ class PyISPyBDataAdapter:
                 self.logger.exception(
                     "Failed to store or update beamline setup in PyISPyB"
                 )
-            bl_config["beamlineSetupId"] = beamline_setup_id
+
+            bl_config.update(beamline_setup_id)
             session["BeamLineSetup"] = bl_config
             self.update_session(session)
         return beamline_setup_id
@@ -488,6 +501,7 @@ class PyISPyBDataAdapter:
         return self._update_data_collection(mx_collection)
 
     def finalize_data_collection(self, mx_collection):
+        print(f"FINALIDING DATA COL  {mx_collection}")
         return self.update_data_collection(mx_collection)
 
     def _store_data_collection(self, mx_collection: dict, bl_config: dict | None):
@@ -500,29 +514,42 @@ class PyISPyBDataAdapter:
         Returns:
             Store data collection id and detector id if found, otherwise 0.
         """
+
+        print(f"Logging MXCOLLECTION {mx_collection}, \nBL_CONFIG:  {bl_config}\n ")
+
         detector_id = 0
+
         if bl_config:
             bl_config["synchrotronMode"] = bl_config.get(
                 "synchrotronMode", mx_collection.get("synchrotronMode", "")
             )
             self.store_beamline_setup(mx_collection["sessionId"], bl_config)
+            """
             detector = self.find_detector(
                 bl_config.get("detector_manufacturer", ""),
                 bl_config.get("detector_model", ""),
                 bl_config.get("detector_binning_mode", ""),
                 bl_config.get("detector_type", ""),
             )
+
+
+
+
             if detector:
                 detector_id = detector.get("detectorId", 0)
-
-        self.logger.debug(
+            """
+        self.logger.info(
             "POST datacollections/datacollection, keys: %s", sorted(mx_collection)
         )
+
+
+
+
         response = self.client.post(
             "datacollections/datacollection",
-            json={**mx_collection, "detectorId": detector_id}
-            if detector_id
-            else mx_collection,
+            json=json.dumps(mx_collection)#{**mx_collection, "detectorId": detector_id}
+            #if detector_id
+            #else mx_collection,
         )
         collection_id = response["dataCollectionId"]
         return collection_id, detector_id
