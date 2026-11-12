@@ -820,9 +820,15 @@ class PX1MiniDiff(GenericDiffractometer):
     def mount_finished(self, wash=False):
         if not wash:
             self.move_pin_length()
+            logging.getLogger("HWR").debug("Sample mounted!\nCENTRING phase set!" )
 
     def move_pin_length(self):
         try:
+            logging.getLogger("HWR").debug("Switching environment to CENTRING phase ..." )
+            self.px1env_ho.goto_centring_phase()
+            logging.getLogger("HWR").debug("Waiting for environment READY ..." )
+            self.px1env_ho.wait_ready()
+            logging.getLogger("HWR").debug("Adjusting for pin length ..." )
             pin_length_pos = float(self.px1conf_ho.get_pin_length())
             goto = float(pin_length_pos)
             logging.getLogger("HWR").debug(f"PX1MiniDiff --->  pin length value is: {pin_length_pos}")

@@ -359,6 +359,7 @@ class PX1Cryotong(Cats90):
             self.do_dry_and_soak()
 
     def _do_load_operation(self, sample, wash=False, shifts=None):
+        print ("--------------STARTED LOADING OP -------------------------------")
         selected=self.get_selected_sample()
         if sample is not None:
             if sample != selected:
@@ -420,7 +421,6 @@ class PX1Cryotong(Cats90):
             self._send_load(on_diff, argin)
             self.environment.wait_ready()
             HWR.beamline.diffractometer.mount_finished()
-        #self.videohub_ho.select_camera("OAV", process="mount")
 
     def _gonio_procedure(self, name):
         smargon = getattr(HWR.beamline.diffractometer, "smargon", None)
