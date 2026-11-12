@@ -805,72 +805,86 @@ def _dc_post(endpoint, json):
     return {"dataCollectionId": 10, "dataCollectionGroupId": 77}
 
 
-def test_store_data_collection_without_bl_config(adapter, client):
-    mx_collection = default_data_collection()
+def _collect_dict():
+    return {
+        "sessionId": 123,
+        "experiment_type": "OSC",
+        "status": "Running",
+        "resolution": {"upper": 1.8},
+        "wavelength": 0.98,
+        "oscillation_sequence": [
+            {
+                "start": 10.0,
+                "range": 0.1,
+                "overlap": 0,
+                "number_of_images": 100,
+                "start_image_number": 1,
+                "number_of_passes": 1,
+                "exposure_time": 0.02,
+            }
+        ],
+        "fileinfo": {
+            "directory": "/data/raw",
+            "prefix": "ref-x",
+            "template": "ref-x_1_%06d.h5",
+            "run_number": 1,
+        },
+    }
+
+
+def test_store_data_collection_maps_collect_dict(adapter, client):
+    collect = _collect_dict()
     client.post.side_effect = _dc_post
 
-    result = adapter.store_data_collection(mx_collection)
+    result = adapter.store_data_collection(collect)
 
     assert result == (10, 0)
-
-    client.post.assert_any_call(
-        "datacollections/group", json={"sessionId": 123}
-    )
-    client.post.assert_called_with(
-        "datacollections/datacollection",
-        json={**mx_collection, "dataCollectionGroupId": 77},
-    )
+    assert collect["group_id"] == 77
+    payload = client.post.call_args.kwargs["json"]
+    assert client.post.call_args.args == ("datacollections/datacollection",)
+    assert payload["dataCollectionGroupId"] == 77
+    assert payload["resolution"] == 1.8
+    assert payload["axisStart"] == 10.0
+    assert payload["axisEnd"] == pytest.approx(20.0)
+    assert payload["numberOfImages"] == 100
+    assert payload["imageDirectory"] == "/data/raw"
+    assert payload["dataCollectionNumber"] == 1
+    assert payload["runStatus"] == "Running"
+    assert "dataCollectionId" not in payload
+    assert "oscillation_sequence" not in payload
+    assert "sessionId" not in payload
 
 
 def test_store_data_collection_with_bl_config(adapter, client):
-    mx_collection = default_data_collection()
-    bl_config = default_bl_config()
     client.post.side_effect = _dc_post
     adapter.store_beamline_setup = Mock()
+    bl_config = default_bl_config()
 
-    result = adapter.store_data_collection(mx_collection, bl_config)
+    result = adapter.store_data_collection(_collect_dict(), bl_config)
 
     assert result == (10, 0)
-
     adapter.store_beamline_setup.assert_called_once_with(123, bl_config)
 
 
 def test_update_data_collection_missing_collection_id(adapter, client):
-    mx_collection = {
-        "other_key": 1,
-    }
-
-    result = adapter._update_data_collection(mx_collection)
+    result = adapter._update_data_collection({"other_key": 1})
 
     assert result == (0, 0)
-
     client.post.assert_not_called()
 
 
-def test_update_data_collection_success(
-    adapter,
-    client,
-):
-    mx_collection = {
-        "collection_id": 1,
-    }
+def test_update_data_collection_reuses_group_and_id(adapter, client):
+    collect = {**_collect_dict(), "collection_id": 10, "group_id": 77}
+    collect["resolution"] = 1.7
+    client.post.side_effect = _dc_post
 
-    client.post.return_value = {"dataCollectionId": 1, "dataCollectionGroupId": 99}
+    result = adapter._update_data_collection(collect)
 
-    adapter._store_data_collection_group = Mock(
-        return_value={"dataCollectionGroupId": 99}
-    )
-
-    result = adapter._update_data_collection(mx_collection)
-
-    assert result == (1, 99)
-
-    adapter._store_data_collection_group.assert_called_once_with(mx_collection)
-
-    client.post.assert_called_once_with(
-        "datacollections/datacollection",
-        json={**mx_collection, "dataCollectionGroupId": 99},
-    )
+    assert result == (10, 77)
+    client.post.assert_called_once()
+    payload = client.post.call_args.kwargs["json"]
+    assert payload["dataCollectionId"] == 10
+    assert payload["resolution"] == 1.7
 
 
 def test_store_energy_scan_success(

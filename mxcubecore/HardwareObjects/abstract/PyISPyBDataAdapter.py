@@ -257,16 +257,10 @@ class PyISPyBDataAdapter:
         """
         dc_id, dc_group_id = 0, 0
         if "collection_id" in mx_collection:
-            group_id = self._store_data_collection_group(mx_collection)[
-                "dataCollectionGroupId"
-            ]
+            # The endpoint creates or updates: dataCollectionId selects the update
             try:
-                response = self.client.post(
-                    "datacollections/datacollection",
-                    json={**mx_collection, "dataCollectionGroupId": group_id},
-                )
-                dc_id = response["dataCollectionId"]
-                dc_group_id = response["dataCollectionGroupId"]
+                dc_id, _ = self._store_data_collection(mx_collection, None)
+                dc_group_id = mx_collection["group_id"]
             except PyISPyBUnsuccessfulResponse:
                 self.logger.exception("Error in _update_data_collection")
         else:
@@ -528,13 +522,72 @@ class PyISPyBDataAdapter:
             self.store_beamline_setup(mx_collection["sessionId"], bl_config)
             # find_detector lookup disabled for now (detectors endpoint unused at PX1)
 
-        group_id = self._store_data_collection_group(mx_collection)[
-            "dataCollectionGroupId"
-        ]
-        payload = {**mx_collection, "dataCollectionGroupId": group_id}
-        self.logger.debug(
-            "POST datacollections/datacollection, keys: %s", sorted(payload)
+        if not mx_collection.get("group_id"):
+            mx_collection["group_id"] = self._store_data_collection_group(
+                mx_collection
+            )["dataCollectionGroupId"]
+
+        # Map the MXCuBE collect dict like ISPyBValueFactory.from_data_collect_parameters
+        osc = (mx_collection.get("oscillation_sequence") or [{}])[0]
+        fileinfo = mx_collection.get("fileinfo") or {}
+        resolution = mx_collection.get("resolution")
+        if isinstance(resolution, dict):
+            resolution = resolution.get("upper")
+        axis_end = None
+        if None not in (osc.get("start"), osc.get("range"), osc.get("number_of_images")):
+            axis_end = osc["start"] + (
+                osc["range"] - (osc.get("overlap") or 0)
+            ) * osc["number_of_images"]
+        payload = {
+            key: mx_collection.get(key)
+            for key in (
+                "wavelength",
+                "detectorDistance",
+                "resolutionAtCorner",
+                "xBeam",
+                "yBeam",
+                "beamSizeAtSampleX",
+                "beamSizeAtSampleY",
+                "slitGapHorizontal",
+                "slitGapVertical",
+                "transmission",
+                "flux",
+                "flux_end",
+                "synchrotronMode",
+                "undulatorGap1",
+                "undulatorGap2",
+                "undulatorGap3",
+                "xtalSnapshotFullPath1",
+                "xtalSnapshotFullPath2",
+                "xtalSnapshotFullPath3",
+                "xtalSnapshotFullPath4",
+                "centringMethod",
+                "imageSuffix",
+            )
+        }
+        payload.update(
+            {
+                "dataCollectionId": mx_collection.get("collection_id"),
+                "dataCollectionGroupId": mx_collection["group_id"],
+                "runStatus": mx_collection.get("status"),
+                "resolution": resolution,
+                "axisStart": osc.get("start"),
+                "axisEnd": axis_end,
+                "axisRange": osc.get("range"),
+                "overlap": osc.get("overlap"),
+                "numberOfImages": osc.get("number_of_images"),
+                "startImageNumber": osc.get("start_image_number"),
+                "numberOfPasses": osc.get("number_of_passes"),
+                "exposureTime": osc.get("exposure_time"),
+                "imageDirectory": fileinfo.get("directory"),
+                "imagePrefix": fileinfo.get("prefix"),
+                "fileTemplate": fileinfo.get("template"),
+                "dataCollectionNumber": fileinfo.get("run_number"),
+                "startTime": mx_collection.get("collection_start_time"),
+            }
         )
+        payload = {key: value for key, value in payload.items() if value is not None}
+        self.logger.debug("POST datacollections/datacollection: %s", payload)
         response = self.client.post("datacollections/datacollection", json=payload)
         collection_id = response["dataCollectionId"]
         return collection_id, detector_id
