@@ -775,6 +775,30 @@ def test_store_beamline_setup_post_fails(adapter, client):
     adapter.update_session.assert_not_called()
 
 
+def test_store_data_collection_group_maps_collect_dict(adapter, client):
+    client.post.return_value = {"dataCollectionGroupId": 5}
+    collect = {
+        "sessionId": 47118,
+        "experiment_type": "Characterization",
+        "blSampleId": -1,
+        "actualContainerSlotInSC": 5,
+        "actualSampleSlotInContainer": 1,
+        "fileinfo": {"directory": "/tmp"},
+    }
+
+    adapter._store_data_collection_group(collect)
+
+    client.post.assert_called_once_with(
+        "datacollections/group",
+        json={
+            "sessionId": 47118,
+            "experimentType": "Characterization",
+            "actualContainerSlotInSC": 5,
+            "actualSampleSlotInContainer": 1,
+        },
+    )
+
+
 def _dc_post(endpoint, json):
     if endpoint == "datacollections/group":
         return {"dataCollectionGroupId": 77}
@@ -789,7 +813,9 @@ def test_store_data_collection_without_bl_config(adapter, client):
 
     assert result == (10, 0)
 
-    client.post.assert_any_call("datacollections/group", json=mx_collection)
+    client.post.assert_any_call(
+        "datacollections/group", json={"sessionId": 123}
+    )
     client.post.assert_called_with(
         "datacollections/datacollection",
         json={**mx_collection, "dataCollectionGroupId": 77},

@@ -229,7 +229,21 @@ class PyISPyBDataAdapter:
                 "workflowId": 0
             }
         """
-        return self.client.post("datacollections/group", json=group_data)
+        # Map the MXCuBE collect dict like ISPyBValueFactory.dcg_from_dc_params
+        # blSampleId is int or None (AbstractCollect.get_sample_info); -1 = no LIMS sample
+        sample_id = group_data.get("blSampleId")
+        payload = {
+            "sessionId": group_data.get("sessionId"),
+            "experimentType": group_data.get("experiment_type"),
+            "blSampleId": sample_id if sample_id and sample_id > 0 else None,
+            "actualContainerSlotInSC": group_data.get("actualContainerSlotInSC"),
+            "actualSampleSlotInContainer": group_data.get(
+                "actualSampleSlotInContainer"
+            ),
+        }
+        payload = {key: value for key, value in payload.items() if value is not None}
+        self.logger.debug("POST datacollections/group: %s", payload)
+        return self.client.post("datacollections/group", json=payload)
 
     def _update_data_collection(self, mx_collection: dict) -> tuple[int, int]:
         """Updates data collection in PyISPyB.
