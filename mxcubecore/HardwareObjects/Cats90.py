@@ -896,8 +896,7 @@ class Cats90(SampleChanger):
 
         if not self.has_loaded_sample() or not self._chnSampleIsDetected.get_value():
             logging.getLogger("HWR").warning(
-                "  Trying do unload sample, but it does not seem to be any on diffr:  %s"
-                % argin
+                "  Trying do unload sample, but it does not seem to be any on diffr"
             )
 
         if sample_slot is not None:
@@ -1026,13 +1025,11 @@ class Cats90(SampleChanger):
     def cats_loaded_lid_changed(self, value):
         self.cats_loaded_lid = value
         self.cats_loaded_num = self._chnNumLoadedSample.get_value()
-        print("Call 3 lid changed")
         self._update_loaded_sample()
 
     def cats_loaded_num_changed(self, value):
         self.cats_loaded_lid = self._chnLidLoadedSample.get_value()
         self.cats_loaded_num = value
-        print(f"Call 4 num_changed with {value}")
         self._update_loaded_sample()
 
     def cats_barcode_changed(self, value):
@@ -1075,16 +1072,13 @@ class Cats90(SampleChanger):
         try:
             task_id = method(*args)
         except Exception:
-            import traceback
-
-            logging.getLogger("HWR").debug(
-                "Cats90. exception while executing server task"
+            logging.getLogger("HWR").exception(
+                "Cats90. exception while executing server task %s", method
             )
-            logging.getLogger("HWR").debug(traceback.format_exc())
             task_id = None
 
         waitsafe = kwargs.get("waitsafe", False)
-        logging.getLogger("HWR").debug(
+        logging.getLogger("HWR").info(
             "Cats90. executing method %s / task_id %s / waiting only for safe status is %s"
             % (str(method), task_id, waitsafe)
         )

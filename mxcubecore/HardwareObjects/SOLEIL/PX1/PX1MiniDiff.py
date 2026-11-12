@@ -800,48 +800,40 @@ class PX1MiniDiff(GenericDiffractometer):
         self.emit("phaseChanged", (self.current_phase,))
 
     def prepare_centring(self, timeout=20):
-        env_state = self.px1env_ho.get_state()
+        # goto_centring_phase blocks until the supervisor has stopped moving
+        # (PX1Environment._run_phase); readyForCentring can trail it.
         self.px1env_ho.goto_centring_phase()
-        if env_state != "ON" and not self.px1env_ho.ready_for_centring():
-            self.px1env_ho.goto_centring_phase()
-            gevent.sleep(0.1)
-        if not self.px1env_ho.ready_for_centring():
-            t0 = time.time()
-            while True:
-                env_state = self.px1env_ho.get_state()
-                if env_state != "RUNNING" and self.px1env_ho.ready_for_centring():
-                    break
-                if time.time() - t0 > timeout:
-                    logging.getLogger("HWR").debug("timeout sending supervisor to sample view phase")
-                    break
-                gevent.sleep(0.1)
+        wait_until(self.px1env_ho.ready_for_centring, timeout, what="CENTRING phase")
         self.light_arm._adjust_light_level()
 
     def mount_finished(self, wash=False):
-        if not wash:
-            self.move_pin_length()
-            logging.getLogger("HWR").debug("Sample mounted!\nCENTRING phase set!" )
+        """After a transfer: supervisor to CENTRING, then phiy to the pin length.
+
+        Called by PX1Cryotong._do_load inside the sample-load goniometer
+        procedure. A failure here is shown to the operator but does not fail the
+        mount: the pin is on the goniometer either way.
+        """
+        log = logging.getLogger("HWR")
+        try:
+            log.info("[mount] supervisor -> CENTRING")
+            self.prepare_centring()
+            if not wash:
+                self.move_pin_length()
+            log.info("[mount] goniometer ready for centring")
+        except Exception:
+            logging.getLogger("user_level_log").exception(
+                "Sample mounted, but CENTRING phase / pin length move failed"
+            )
 
     def move_pin_length(self):
-        try:
-            logging.getLogger("HWR").debug("Switching environment to CENTRING phase ..." )
-            self.px1env_ho.goto_centring_phase()
-            logging.getLogger("HWR").debug("Waiting for environment READY ..." )
-            self.px1env_ho.wait_ready()
-            logging.getLogger("HWR").debug("Adjusting for pin length ..." )
-            pin_length_pos = float(self.px1conf_ho.get_pin_length())
-            goto = float(pin_length_pos)
-            logging.getLogger("HWR").debug(f"PX1MiniDiff --->  pin length value is: {pin_length_pos}")
-            if abs(goto) > 4:
-                logging.getLogger("HWR").debug(" pin length position %s is maybe too big?" % goto)
-                return
-
-            mot_phiy = self.motor_hwobj_dict.get("phiy")
-            mot_phiy.move(goto)
-        except:
-            import traceback
-            logging.getLogger("HWR").debug(" cannot move to pin length ")
-            logging.getLogger("HWR").debug( traceback.format_exc() )
+        goto = float(self.px1conf_ho.get_pin_length())
+        if abs(goto) > 4:
+            logging.getLogger("HWR").warning(
+                "[mount] pin length position %s looks too big, phiy not moved", goto
+            )
+            return
+        logging.getLogger("HWR").info("[mount] phiy -> pin length %s", goto)
+        self.motor_hwobj_dict["phiy"].move(goto, wait=True)
 
     def smargon_state_changed(self, value):
         if value != self.smargon_state:

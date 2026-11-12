@@ -82,7 +82,6 @@ class PX1Cryotong(Cats90):
         self._chnHomeOpened.connect_signal("update", self._update_home_opened)
         self._chnIncoherentGonioSampleState.connect_signal("update", self._update_ack_sample_memory)
         self._chnDryAndSoakNeeded.connect_signal("update", self._dry_and_soak_needed)
-        self._chnSampleIsDetected.connect_signal( "update", self._update_sample_is_detected)
         self._chnCountDown.connect_signal("update", self._update_count_down)
 
         self._cmdDrySoak = self.add_command({
@@ -166,6 +165,14 @@ class PX1Cryotong(Cats90):
             has_loaded,
             on_diff,
         )
+        # A transfer owns the changer from _execute_task to _on_task_ended:
+        # the CATS reads ON again before the post-mount steps, and the web
+        # client shows the robot camera for as long as the state says so.
+        if self.task is not None and state not in (
+            SampleChangerState.Alarm,
+            SampleChangerState.Fault,
+        ):
+            state = self.task
         status = SampleChangerState.tostring(state)
         self._set_state(state, status)
 
@@ -256,10 +263,6 @@ class PX1Cryotong(Cats90):
             self._homeOpened = value
             self.emit("homeOpened", (value,))
 
-    def _update_sample_is_detected(self, value):
-        print(f"\nUpdating sample is detected ... <{value}>")
-        self.emit("sampleIsDetected", (value,))
-
     def _update_ack_sample_memory(self, value=None):
         if value is None:
             value = self._chnIncoherentGonioSampleState.get_value()
@@ -282,7 +285,6 @@ class PX1Cryotong(Cats90):
         self.dry_and_soak_needed = value
 
     def do_dry_and_soak(self):
-        print("\nTime to dry and soak .... ")
         homeOpened = self._chnHomeOpened.get_value()
 
         if not homeOpened:
@@ -350,99 +352,22 @@ class PX1Cryotong(Cats90):
 
     # ## OVERLOADED CATS90 methods ####
     def cats_pathrunning_changed(self, value):
-        # Hack to prevent a numerical value being passd on.
-        if not isinstance(value, bool):
-            value = self._chnDryAndSoakNeeded.get_value()
+        # Events and synchronous reads hand back bools, numbers or strings.
+        value = str(value).lower() in ("true", "1")
 
         Cats90.cats_pathrunning_changed(self, value)
-        if self.cats_running is False and self.dry_and_soak_needed:
+        # TangoChannel.get_value() runs this handler inside whoever reads the
+        # channel - during a transfer that is the load greenlet, polling for
+        # the end of the path. The transfer starts the drying itself, after
+        # the goniometer has been handed over (_do_load / _do_unload).
+        if not value and self.dry_and_soak_needed and self.task is None:
             self.do_dry_and_soak()
-
-    def _do_load_operation(self, sample, wash=False, shifts=None):
-        print ("--------------STARTED LOADING OP -------------------------------")
-        selected=self.get_selected_sample()
-        if sample is not None:
-            if sample != selected:
-                self._do_select(sample)
-                selected=self.get_selected_sample()
-        else:
-            if selected is not None:
-                 sample = selected
-            else:
-               raise Exception("No sample selected")
-
-        basketno = selected.get_basket_no()
-        sampleno = selected.get_vial_no()
-
-        logging.getLogger("HWR").debug("  ***** CATS *** doLoad basket:sample=%s:%s (wash=%s)" % (basketno, sampleno,wash))
-
-        lid, sample = self.basketsample_to_lidsample(basketno,sampleno)
-
-        # we should now check basket type on diffr to see if tool is different... then decide what to do
-        logging.getLogger("HWR").debug("  ***** CATS *** shifts are %s" % str(shifts))
-
-        if shifts is None:
-            xshift, yshift, zshift = ["0", "0", "0" ]
-        else:
-            xshift, yshift, zshift = map(str,shifts)
-
-        # prepare argin values
-        argin = ['1', str(int(lid)), str(sample), "1", "0", xshift, yshift, zshift]
-        logging.getLogger("HWR").debug("  ***** CATS *** doLoad argin:  %s / %s:%s" % (argin, basketno, sampleno))
-
-        #self.videohub_ho.select_camera("Robot", process="mount")
-        #self.videohub_ho.start_recording(file_prefix="mount")
-
-        # Chained load (Exchange) vs plain load is decided by the goniometer
-        # detector, not by our own loaded flag. Sending an Exchange to an empty
-        # goniometer is rejected by the CATS and leaves it in Alarm/Disabled,
-        # which then kills the whole queue run - and a stale flag is exactly
-        # what used to put us there. The flag is only used to name the pin.
-        on_diff = self.cats_sample_on_diffr() == 1
-        loaded = self.get_loaded_sample()
-
-        if loaded is not None and not on_diff:
-            logging.getLogger("HWR").warning(
-                "  ==========CATS=== %s is flagged loaded but nothing is detected"
-                " on the goniometer; loading %s:%s as a plain load"
-                % (loaded.get_address(), basketno, sampleno)
-            )
-
-        if on_diff and loaded is not None and selected == loaded and not wash:
-            msg = "Load aborted. Reason: \nSample " + str(loaded.get_address()) + " already loaded"
-            logging.getLogger("user_level_log").info(msg)
-            self.emit("catsError", msg)
-            self._update_state()
-            raise Exception(msg)
-
-        # The robot works at the goniometer: hold it until the pin is on and
-        # moved to its pin length, so no goniometer command lands meanwhile.
-        with self._gonio_procedure("sample load %s:%s" % (basketno, sampleno)):
-            self._send_load(on_diff, argin)
-            self.environment.wait_ready()
-            HWR.beamline.diffractometer.mount_finished()
 
     def _gonio_procedure(self, name):
         smargon = getattr(HWR.beamline.diffractometer, "smargon", None)
         if smargon is None or not hasattr(smargon, "procedure"):
             return nullcontext()
         return smargon.procedure(name)
-
-    def _send_load(self, on_diff, argin):
-        if on_diff:
-            logging.getLogger("HWR").warning("  ==========CATS=== chained load sample, sending to cats:  %s" % argin)
-            self.environment.wait_ready()
-            self._execute_server_task(self._cmdChainedLoad, argin)
-        else:
-            if self.cats_sample_on_diffr() == -1:
-                # Conflicting loaded-sample info from the CATS. Loading blind
-                # here is how a pin gets crushed; make the operator resolve it.
-                raise Exception(
-                    "CATS reports conflicting loaded-sample information. "
-                    "Please clear it (AckIncoherentGonioSampleState) before loading."
-                )
-            logging.getLogger("HWR").warning("  ==========CATS=== load sample, sending to cats:  %s" % argin)
-            self._execute_server_task(self._cmdLoad, argin)
 
     def wait_countdown(self, timeout=20):
         t0 = time.time()
@@ -459,31 +384,23 @@ class PX1Cryotong(Cats90):
                 break
         return count_down
 
-    def _do_load(self, sample=None, wash=None, souflette_time = True):
+    def _do_load(self, sample=None, wash=False):
+        """Mount, exchange or wash one pin, then hand the goniometer over.
 
+        Runs as the Loading task; _execute_task has already waited for the
+        changer to accept a transfer (_wait_transfer_ready). In order: transfer
+        phase, the CATS trajectory, the loaded flags, mount_finished (CENTRING
+        phase and pin length), then the gripper drying.
+        """
+        log = logging.getLogger("HWR")
 
-        ret = self.wait_countdown(22)
-
-        if ret != 0:
-            self.emit('loadError', "SC is counting down for too long. Aborted")
-            raise Exception("CRYOTONG Cannot load. Counting down in progress")
-
-        ret = self.check_power_on()
-        if ret is False:
-            logging.getLogger("user_level_log").error("CRYOTONG Cannot be powered")
-            raise Exception(
-                "CRYOTONG Cannot be powered. Aborting sample changer operation"
-            )
-
-        ret = self.check_drysoak()
-        if ret is False:
+        if not self.check_drysoak():
             logging.getLogger("user_level_log").error(
                 "CRYOTONG Home Open / DryAndSoak not valid for loading"
             )
             raise Exception("CRYOTONG Home Open / DryAndSoak not valid for loading")
 
-        ret = self.env_send_transfer()
-        if ret is False:
+        if not self.env_send_transfer():
             logging.getLogger("user_level_log").error(
                 "PX1 Environment cannot set transfer phase"
             )
@@ -491,37 +408,68 @@ class PX1Cryotong(Cats90):
                 "Cryotong cannot get to transfer phase. Aborting sample changer operation"
             )
 
-        self._do_load_operation(sample, wash)
-        # Check the value of the CATSCRYOTONG attribute dryAndSoakNeeded to warn
-        # user if it is True
-        dryAndSoak = self._chnDryAndSoakNeeded.get_value()
-        if dryAndSoak:
-            logging.getLogger("user_level_log").warning(
-                "CATS: It is recommended to Dry_and_Soak the gripper."
+        if sample is not None and sample != self.get_selected_sample():
+            self._do_select(sample)
+        selected = self.get_selected_sample()
+        if selected is None:
+            raise Exception("No sample selected")
+
+        basketno, sampleno = selected.get_basket_no(), selected.get_vial_no()
+        lid, num = self.basketsample_to_lidsample(basketno, sampleno)
+        argin = ["1", str(int(lid)), str(num), "1", "0", "0", "0", "0"]
+
+        # Exchange vs plain mount is decided by the goniometer detector, not by
+        # our loaded flag: an Exchange sent to an empty goniometer is rejected
+        # by the CATS and leaves it in Alarm.
+        on_diff = self.cats_sample_on_diffr() == 1
+        loaded = self.get_loaded_sample()
+
+        if on_diff and loaded is not None and selected == loaded and not wash:
+            msg = "Load aborted. Reason: \nSample %s already loaded" % loaded.get_address()
+            logging.getLogger("user_level_log").info(msg)
+            self.emit("catsError", msg)
+            raise Exception(msg)
+
+        if loaded is not None and not on_diff:
+            log.warning(
+                "[mount] %s is flagged loaded but nothing is detected on the "
+                "goniometer; plain mount", loaded.get_address(),
             )
 
-        incoherentSample = self._chnIncoherentGonioSampleState.get_value()
-        if incoherentSample:
+        cmd, what = (
+            (self._cmdChainedLoad, "exchange") if on_diff else (self._cmdLoad, "mount")
+        )
+        if wash:
+            what = "wash"
+
+        # Hold the goniometer until the pin is on, the supervisor is in
+        # CENTRING and phiy is at the pin length.
+        with self._gonio_procedure("sample %s %s:%s" % (what, basketno, sampleno)):
+            log.info("[mount] %s %s:%s, argin %s", what, basketno, sampleno, argin)
+            self._execute_server_task(cmd, argin)
+            # Synchronous read of both CATS attributes: the queue's
+            # mount_sample() gates on has_loaded_sample() right after load().
+            self._do_update_loaded_sample()
+            log.info("[mount] CATS path done, loaded sample: %s", self.get_loaded_sample())
+            HWR.beamline.diffractometer.mount_finished(wash=wash)
+
+        if self._chnIncoherentGonioSampleState.get_value():
             logging.getLogger("user_level_log").info(
                 "CATS: Load/Unload Error. Please try again."
             )
-            self.emit("loadError", incoherentSample)
-        # Must stay synchronous: base_queue_entry.mount_sample() gates on
-        # has_loaded_sample(), and AbstractSampleChanger._run's update_info()
-        # needs fresh flags to emit loadedSampleChanged. Reads both CATS
-        # attributes with a real read_attribute, not the 1 s poll cache.
-        self._do_update_loaded_sample()
+            self.emit("loadError", True)
 
-        # The drying time is not a data-freshness wait: _do_load_operation has
-        # already waited for the CATS path, environment.wait_ready() and
-        # diffractometer.mount_finished(). Backgrounding it lets the next queue
-        # phase (optical centring) overlap the blower.
-        if souflette_time:
-            if self.souflette_blocking:
-                gevent.sleep(self.souflette_seconds)
-                self._do_update_loaded_sample()
-            else:
-                self._start_souflette(self.souflette_seconds)
+        # The drying the pathRunning handler leaves to the transfer.
+        if self._chnDryAndSoakNeeded.get_value():
+            self.do_dry_and_soak()
+
+        # The blower settle is not a data-freshness wait; backgrounding it lets
+        # the next queue phase (optical centring) overlap it.
+        if self.souflette_blocking:
+            gevent.sleep(self.souflette_seconds)
+            self._do_update_loaded_sample()
+        else:
+            self._start_souflette(self.souflette_seconds)
 
         return True
 
@@ -614,13 +562,11 @@ class PX1Cryotong(Cats90):
     def _wait_transfer_ready(self, timeout=None):
         """Block until the CATS can actually accept a transfer command.
 
-        After every Put/Get the pathRunning handler fires do_dry_and_soak() and
-        the CATS reports DevState DISABLE for the whole drying cycle; a command
-        sent in that window is rejected by assert_can_execute_task() with
-        "bad state (Disabled)". Every readiness check this class owns
-        (wait_countdown, check_power_on, check_drysoak, env_send_transfer) lives
-        inside _do_load, i.e. AFTER that assert, so the barrier has to sit here,
-        in front of it.
+        After every Put/Get the transfer starts do_dry_and_soak() and the CATS
+        reports DevState DISABLE for the whole drying cycle; a command sent in
+        that window is rejected by assert_can_execute_task() with "bad state
+        (Disabled)", so the barrier sits in _execute_task, in front of it. It
+        also owns the countdown wait and the power-on, for every transfer.
 
         The authoritative signal is the CATS state, not our souflette timer: the
         drying cycle's real length is a hardware property. In a normal queue run
@@ -682,52 +628,63 @@ class PX1Cryotong(Cats90):
                 SampleChangerState.tostring(self.state),
             )
 
-        self.check_power_on()
-
-    def load(self, sample=None, wait=True, wash=True):
-        """Load, waiting first for the changer to be able to accept the command.
-
-        Cats90.load() goes straight to _execute_task, whose
-        assert_can_execute_task() rejects anything sent during the post-mount
-        drying cycle. See _wait_transfer_ready.
-        """
-        self._wait_transfer_ready()
-
-        return Cats90.load(self, sample=sample, wait=wait, wash=wash)
-
-    def unload(self, sample=None, wait=True, wash=False):
-        """Unload through the sample changer state machine.
-
-        AbstractSampleChanger.unload() cannot be reused here: it raises when
-        nothing is loaded and drops the PX1 specific wash flag. Going through
-        _execute_task is what makes update_info() run and the web client learn
-        that the goniometer is empty again.
-        """
-        self._wait_transfer_ready()
-        self.cancel_souflette(reason="unload")
-        self._update_state()
-        sample = self._resolve_component(sample)
-        self.assert_not_charging()
-
-        return self._execute_task(
-            SampleChangerState.Unloading, wait, self._do_unload, sample, wash
-        )
-
-    def _do_unload(self, sample=None, wash=None):
-        print("\nDoing unload ... ")
-        # The pin the pending timer is about to re-confirm is being removed.
-        self.cancel_souflette(reason="unload")
-
-        ret = self.check_power_on()
-        if ret is False:
+        if not self.check_power_on():
             logging.getLogger("user_level_log").error("CRYOTONG Cannot be powered")
             raise Exception(
                 "CRYOTONG Cannot be powered. Aborting sample changer operation"
             )
 
-        ret = self.env_send_transfer()
+    def _execute_task(self, task, wait, method, *args):
+        """Every transfer (mount, exchange, wash, unmount) waits here first.
 
-        if ret is False:
+        assert_can_execute_task() in the base class rejects anything sent
+        during the post-transfer drying cycle; see _wait_transfer_ready.
+        """
+        if task in (SampleChangerState.Loading, SampleChangerState.Unloading):
+            self._wait_transfer_ready()
+        return Cats90._execute_task(self, task, wait, method, *args)
+
+    def _on_task_ended(self, task):
+        # _update_state() published the task state while it ran; now that
+        # _run has cleared self.task, publish the hardware state again. Link
+        # callbacks run in the gevent hub, which must not block on Tango reads.
+        gevent.spawn(self._update_state)
+        Cats90._on_task_ended(self, task)
+
+    # load() and unload() bypass the base-class versions: Cats90.load refuses
+    # an unpowered arm that the barrier would power on, and
+    # AbstractSampleChanger.unload raises when nothing is loaded and drops the
+    # wash flag. Going through _execute_task is what runs update_info() and
+    # tells the web client the new goniometer contents.
+
+    def load(self, sample=None, wait=True, wash=False):
+        sample = self._resolve_component(sample)
+        self.assert_not_charging()
+        return self._execute_task(
+            SampleChangerState.Loading, wait, self._do_load, sample
+        )
+
+    def unload(self, sample=None, wait=True, wash=False):
+        sample = self._resolve_component(sample)
+        self.assert_not_charging()
+        return self._execute_task(
+            SampleChangerState.Unloading, wait, self._do_unload, sample, wash
+        )
+
+    def _do_unload(self, sample=None, wash=None):
+        """Put the mounted pin back. Runs as the Unloading task."""
+        log = logging.getLogger("HWR")
+
+        if not self.has_loaded_sample():
+            msg = "Trying to unload sample, but it does not seem to be any on diffractometer"
+            self.emit("catsError", msg)
+            log.warning(msg)
+            return True
+
+        # The pin the pending timer would re-confirm is being removed.
+        self.cancel_souflette(reason="unload")
+
+        if not self.env_send_transfer():
             logging.getLogger("user_level_log").error(
                 "PX1 Environment cannot set transfer phase"
             )
@@ -735,43 +692,22 @@ class PX1Cryotong(Cats90):
                 "Cryotong cannot get to transfer phase. Aborting sample changer operation"
             )
 
-        self._do_unload_operation(sample)
-        # Symmetric with _do_load: refresh the flags from the CATS attributes so
-        # has_loaded_sample() and the loadedSampleChanged signal are correct as
-        # soon as the unload returns.
-        self._do_update_loaded_sample()
+        if sample is not None:
+            self._do_select(sample)
+
+        argin = ["1", "0", "0", "0", "0"]
+        with self._gonio_procedure("sample unload"):
+            log.info("[unmount] %s, argin %s", self.get_loaded_sample(), argin)
+            self._execute_server_task(self._cmdUnload, argin)
+            self._do_update_loaded_sample()
+            log.info("[unmount] CATS path done, loaded sample: %s", self.get_loaded_sample())
+
+        if self._chnDryAndSoakNeeded.get_value():
+            self.do_dry_and_soak()
 
         return True
 
-    def _do_unload_operation(self,sample_slot=None, shifts=None):
-        # if not self.hasLoadedSample() or not self._chnSampleIsDetected.getValue():
-        if not self.has_loaded_sample():
-            msg = "Trying to unload sample, but it does not seem to be any on diffractometer"
-            self.emit("catsError", msg)
-            logging.getLogger("HWR").warning(msg)
-            return
-
-        if (sample_slot is not None):
-            self._do_select(sample_slot)
-
-        if shifts is None:
-            xshift, yshift, zshift = ["0", "0", "0"]
-        else:
-            xshift, yshift, zshift = map(str,shifts)
-
-        #loaded_lid = self._chnLidLoadedSample.get_value()
-        argin = ["1", "0", xshift, yshift, zshift]
-        #self.videohub_ho.select_camera("Robot", process="unmount")
-        #self.videohub_ho.start_recording(file_prefix="unmount")
-        logging.getLogger("HWR").warning("  ==========CATS=== unload sample, sending to cats:  %s" % argin)
-        with self._gonio_procedure("sample unload"):
-            self._execute_server_task(self._cmdUnload, argin)
-        #self.videohub_ho.select_camera("OAV", process="unmount")
-        self.update_info()
-
-
     def check_power_on(self):
-        print("\nChecking power on ....")
         if self._chnPowered.get_value():
             return True
 
@@ -856,7 +792,6 @@ class PX1Cryotong(Cats90):
         self._set_state(SampleChangerState.Ready)
 
     def check_drysoak(self):
-        print("Checking drysoak")
         if self._chnHomeOpened.get_value() is False:
             return True
 
@@ -879,7 +814,6 @@ class PX1Cryotong(Cats90):
             return False
 
     def env_send_transfer(self):
-        print("\nEnv_send_transfer ... (px1cryotong)")
 
         if self.environment.ready_for_transfer():
             return True

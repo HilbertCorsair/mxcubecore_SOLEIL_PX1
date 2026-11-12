@@ -141,10 +141,9 @@ class PX1Environment(HardwareObject):
     def wait_ready(self, timeout=60):
         """True once the supervisor is idle. Bounded, and never raises.
 
-        Called on the mount path (PX1Cryotong._do_load_operation, before a
-        chained load and again after the transfer), where it used to default
-        to timeout=None - a gevent.Timeout(None) never fires, so a supervisor
-        that settled anywhere but ON stalled the queue greenlet for ever.
+        It used to default to timeout=None - a gevent.Timeout(None) never
+        fires, so a supervisor that settled anywhere but ON stalled the
+        caller's greenlet for ever.
 
         STANDBY counts as ready because is_busy() in this class already treats
         it that way; requiring exactly ON made the two disagree.
