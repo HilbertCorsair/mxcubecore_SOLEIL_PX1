@@ -7,6 +7,7 @@ from mxcubecore.HardwareObjects.abstract.PyISPyBRestClient import (
 )
 from mxcubecore.model.lims_session import LimsSessionManager, Proposal, Session
 
+logging.getLogger("pyispyb_adapter").setLevel(logging.DEBUG)
 
 class PyISPyBDataAdapter:
     """Adapter to convert data from PyISPyB REST API."""
@@ -113,6 +114,9 @@ class PyISPyBDataAdapter:
         }
 
     def __find_proposal_by_id(self, proposal_id: int) -> Proposal:
+        self.logger.debug(
+            "GET proposals parameters: proposalId=%s", proposal_id
+        )
         return self.__to_proposal(
             self.client.get("proposals?proposalId=%s" % (proposal_id))[0]
         )
@@ -123,28 +127,48 @@ class PyISPyBDataAdapter:
 
     def get_proposals(self) -> list[Proposal]:
         """Returns proposals to which authenticated user has access."""
-        return [
-            self.__to_proposal(proposal) for proposal in self.client.get("proposals")
-        ]
+        self.logger.debug("GET proposals")
+
+        response = self.client.get("proposals")
+        self.logger.debug("GET proposals raw API response: %s", response)
+
+        proposals = [self.__to_proposal(proposal) for proposal in response]
+        self.logger.debug("GET proposals response: %s", proposals)
+
+        return proposals
 
     def find_proposal(self, code: str, number: str) -> Proposal:
         """Finds a proposal by its code and number."""
-        return self.__to_proposal(
-            self.client.get("proposals?search=%s%s" % (code, number))[0]
+        self.logger.debug(
+            "GET proposals parameters: search=%s%s", code, number
         )
+
+        response = self.client.get("proposals?search=%s%s" % (code, number))
+        self.logger.debug("Find proposals search by code and number response: %s", response)
+
+        proposal = self.__to_proposal(response[0])
+        self.logger.debug("GET proposals response: %s", proposal)
+
+        return proposal
 
     def get_sessions_by_code_and_number(
         self, code: str, number: str, beamline: str
     ) -> LimsSessionManager:
         """Finds a session by its proposal code and number and beamline name."""
-        return LimsSessionManager(
-            sessions=[
-                self.__to_session(session)
-                for session in self.client.get(
-                    "sessions?proposal=%s%s&beamLineName=%s" % (code, number, beamline)
-                )
-            ]
+        self.logger.debug(
+            "GET sessions parameters: proposal=%s%s, beamLineName=%s",
+            code,
+            number,
+            beamline,
         )
+
+        response = self.client.get("sessions?proposal=%s%s&beamLineName=%s" % (code, number, beamline))
+        self.logger.debug("GET sessions raw API response by code, number and beamline: %s", response)
+
+        sessions = LimsSessionManager(sessions=[self.__to_session(session) for session in response])
+        self.logger.debug("GET sessions response: %s", sessions)
+
+        return sessions
 
     def find_sessions_by_proposal_and_beamline_for_today(
         self, code: str, number: str, beamline: str
@@ -152,17 +176,35 @@ class PyISPyBDataAdapter:
         """Finds todays sessions by proposal code, number and beamline name."""
         today = datetime.today()  # noqa: DTZ002
         day, month, year = today.day, today.month, today.year
-        return [
+
+        self.logger.debug(
+            "GET sessions parameters: proposal=%s%s, beamLineName=%s, "
+            "year=%s, month=%s, day=%s",
+            code,
+            number,
+            beamline,
+            year,
+            month,
+            day,
+        )
+
+        response = self.client.get(
+        "sessions?proposal=%s%s&beamLineName=%s&year=%s&month=%s&day=%s"
+        % (code, number, beamline, year, month, day)
+        )
+        self.logger.debug("GET sessions raw API response for today: %s", response)
+
+        sessions = [
             self.__to_session(session)
-            for session in self.client.get(
-                "sessions?proposal=%s%s&beamLineName=%s&year=%s&month=%s&day=%s"
-                % (code, number, beamline, year, month, day)
-            )
-            if self.__is_time_between(
-                datetime.fromisoformat(session.get("startDate")),
-                datetime.fromisoformat(session.get("endDate")),
-            )
-        ]
+            for session in response
+                if self.__is_time_between(
+                    datetime.fromisoformat(session.get("startDate")),
+                    datetime.fromisoformat(session.get("endDate")),
+                )
+                ]
+        self.logger.debug("GET sessions converted response: %s", sessions)
+        return sessions
+       
 
     def get_sessions_by_username(
         self,
@@ -183,11 +225,22 @@ class PyISPyBDataAdapter:
             LimsSessionManager: A manager containing the list of sessions
         """
         sessions: list[Session] = []
-        for proposal in self.get_proposals():
+        proposals = self.get_proposals()
+        self.logger.debug("Processing sessions for proposals: %s", proposals)
+
+        for proposal in proposals:
             try:
-                session = self.find_sessions_by_proposal_and_beamline_for_today(
-                    proposal.code, proposal.number, self.beamline_name
-                )[0]
+                proposal_sessions = self.find_sessions_by_proposal_and_beamline_for_today(
+                proposal.code, proposal.number, self.beamline_name
+                )
+                self.logger.debug(
+                "Sessions found for proposal %s%s: %s",
+                proposal.code,
+                proposal.number,
+                proposal_sessions,
+                )
+                session = proposal_sessions[0]
+                
             except IndexError:
                 self.logger.info(
                     "No sessions planned for proposal %s%s. Creating new session.",
@@ -196,7 +249,10 @@ class PyISPyBDataAdapter:
                 )
                 session = self.create_session(proposal)
             sessions.append(session)
-        return LimsSessionManager(sessions=sessions)
+        result = LimsSessionManager(sessions=sessions)
+        self.logger.debug("get_sessions_by_username result: %s", result)
+
+        return result
 
     def create_session(self, proposal: Proposal) -> Session:
         """Creates new session via PyISPyB REST API for the given proposal."""
@@ -212,6 +268,7 @@ class PyISPyBDataAdapter:
             "comments": "Session created by the BCM",
             "scheduled": False,
         }
+        self.logger.debug("POST sessions payload: %s", payload)
         return self.__to_session(self.client.post("sessions", json=payload))
 
     def _store_data_collection_group(self, group_data: dict) -> dict:
@@ -284,6 +341,7 @@ class PyISPyBDataAdapter:
         image_id = 0
         if "dataCollectionId" in image_dict:
             try:
+                self.logger.debug("POST images/image payload: %s", image_dict)
                 response = self.client.post("images/image", json=image_dict)
                 self.logger.debug("PyISPYB store image response: %s", response)
                 image_id = response["imageId"]
@@ -343,6 +401,9 @@ class PyISPyBDataAdapter:
             robot_action["startTimestamp"] = robot_action.pop("startTime", "")
             robot_action["endTimestamp"] = robot_action.pop("endTime", "")
             try:
+                self.logger.debug(
+                            "POST events/robot-action payload: %s", robot_action
+                        )
                 robot_action_id = self.client.post(
                     "events/robot-action", json=robot_action
                 )
@@ -364,6 +425,8 @@ class PyISPyBDataAdapter:
             "blSampleId": entry_dict["blSampleId"],
         }
         try:
+            
+
             assoc_id = self.client.patch(
                 "events/energyscan/associate-bl-sample", json=payload
             )
@@ -384,6 +447,9 @@ class PyISPyBDataAdapter:
             Dictionary containing data collection details or empty if fetching failed.
         """
         try:
+            self.logger.debug(
+            "GET datacollections/%s", data_collection_id
+                )
             dc = self.client.get(f"datacollections/{data_collection_id}")
         except Exception:
             self.logger.exception("Failed to get data collection from PyISPyB")
@@ -444,6 +510,11 @@ class PyISPyBDataAdapter:
             if not beamline_setup_id:
                 msg = "Missing beamLineSetupId"
                 raise KeyError(msg)
+            self.logger.debug(
+                    "PATCH sessions/%s/associate-beamline-setup parameters: beamLineSetupId=%s",
+                    session_id,
+                    beamline_setup_id,
+                )
             return self.client.patch(
                 "sessions/%s/associate-beamline-setup?beamLineSetupId=%s"
                 % (
@@ -458,6 +529,7 @@ class PyISPyBDataAdapter:
     def get_session(self, session_id: int) -> dict:
         """Fetches session details from PyISPyB by session id."""
         try:
+            self.logger.debug("GET sessions/%s", session_id)
             session = self.client.get("sessions/%s" % session_id)
         except PyISPyBUnsuccessfulResponse:
             self.logger.exception("Failed to get session from PyISPyB")
@@ -477,6 +549,9 @@ class PyISPyBDataAdapter:
         session = self.get_session(session_id)
         if session:
             try:
+                self.logger.debug(
+                    "POST beamline-setups/beamline-setup payload: %s", bl_config
+                )
                 beamline_setup_id = self.client.post(
                     "beamline-setups/beamline-setup", json=bl_config
                 )
@@ -494,14 +569,33 @@ class PyISPyBDataAdapter:
 
     def store_data_collection(self, mx_collection, bl_config=None):
         self.logger.info("Storing datacollection in PyISPyB")
-        return self._store_data_collection(mx_collection, bl_config)
+
+        self.logger.debug("store_data_collection input: %s", mx_collection)
+        self.logger.debug("store_data_collection beamline config: %s", bl_config)
+
+        result = self._store_data_collection(mx_collection, bl_config)
+
+        self.logger.debug("store_data_collection result: %s", result)
+        return result
 
     def update_data_collection(self, mx_collection):
         self.logger.info("Updating datacollection in PyISPyB")
-        return self._update_data_collection(mx_collection)
+        self.logger.debug("update_data_collection input: %s", mx_collection)
+
+        result = self._update_data_collection(mx_collection)
+
+        self.logger.debug("update_data_collection result: %s", result)
+        return result
+
 
     def finalize_data_collection(self, mx_collection):
-        return self.update_data_collection(mx_collection)
+        self.logger.debug("finalize_data_collection input: %s", mx_collection)
+
+        result = self.update_data_collection(mx_collection)
+
+        self.logger.debug("finalize_data_collection result: %s", result)
+        return result
+    
 
     def _store_data_collection(self, mx_collection: dict, bl_config: dict | None):
         """Stores data collection group in PyISPyB and returns the group id.
@@ -603,6 +697,7 @@ class PyISPyBDataAdapter:
             energy scan.
         """
         try:
+            self.logger.debug("POST events/energyscan payload: %s", energyscan)
             return {
                 "energyScanId": self.client.post("events/energyscan", json=energyscan)
             }
@@ -622,6 +717,9 @@ class PyISPyBDataAdapter:
             of the stored XFE fluorescence spectrum.
         """
         try:
+            self.logger.debug(
+                "POST events/xfe-fluorescence-spectrum payload: %s", xfe_spectrum
+            )
             return {
                 "xfeFluorescenceSpectrumId": self.client.post(
                     "events/xfe-fluorescence-spectrum", json=xfe_spectrum
@@ -648,6 +746,9 @@ class PyISPyBDataAdapter:
             if bl_sample_id is None:
                 self.logger.error("Missing blSampleId")
                 return {}
+            self.logger.debug(
+                "PATCH samples/%s payload: %s", bl_sample_id, bl_sample
+            )
             return self.client.patch("samples/%s" % bl_sample_id, json=bl_sample)
         except PyISPyBUnsuccessfulResponse:
             self.logger.exception("Failed to update beamline sample in PyISPyB")
