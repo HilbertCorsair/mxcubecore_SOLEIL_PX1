@@ -38,8 +38,12 @@ class SOLEILSession(Session):
             )
 
 
-    def px1_authorisation (self, login_id, password):
-        px1_check = is_proposal_enabled(login_id)
+    def px1_authorisation(self, login_id, password, check_proposal=True):
+        """Return (proposal enabled on PX1, LDAP credentials valid).
+
+        Staff log in with a personal account: pass check_proposal=False.
+        """
+        px1_check = is_proposal_enabled(login_id) if check_proposal else True
         ldap_access, _ = self.ldap_ho.login(login_id, password)
 
         return (px1_check, ldap_access)
