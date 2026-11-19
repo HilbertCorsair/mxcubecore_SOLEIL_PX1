@@ -27,6 +27,8 @@ import copy
 from functools import reduce
 from io import BytesIO
 
+import gevent
+
 import numpy as np
 from PIL import Image
 
@@ -74,34 +76,63 @@ class SampleView(AbstractSampleView):
         self._last_oav_image = None
 
         self.hide_grid_threshold = self.get_property("hide_grid_threshold", 5)
+        # Each Smargon axis tick reaches every SmargonAxis as a stateChanged,
+        # so the motor signals come in bursts (~200/s while a mesh is
+        # rastered). The shapes are recomputed and sent at most this often.
+        self.shape_update_interval = self.get_property("shape_update_interval", 0.1)
+        self._shape_update_pending = None
+        self._last_shape_positions = None
+
+        # Roles can share one hardware object (sampy and phiz on PX1): connect
+        # it once.
+        connected = set()
         for motor_name, motor_ho in HWR.beamline.diffractometer.get_motors().items():
-            print (f"Connecting and updating position off: {motor_name}")
-            if motor_ho:
+            if motor_ho and id(motor_ho) not in connected:
+                connected.add(id(motor_ho))
                 try:
                     motor_ho.connect("stateChanged", self._update_shape_positions)
-                except Exception as e :
-                    print (f"Failed for {motor_name}: {e}")
-
+                except Exception:
+                    logging.getLogger("HWR").exception(
+                        "SampleView: could not connect to %s", motor_name
+                    )
 
     def _update_shape_positions(self, *args, **kwargs):
+        """Recompute the shapes' screen positions, at most every
+        shape_update_interval: the first signal arms a timer, the ones inside
+        the window are dropped, the timer uses the newest motor positions.
+        shapesChanged is only emitted when a shape moved, faded or hid.
+        """
+        if not kwargs.pop("now", False):
+            if self._shape_update_pending is None:
+                self._shape_update_pending = gevent.spawn_later(
+                    self.shape_update_interval,
+                    self._update_shape_positions,
+                    now=True,
+                )
+            return
 
-
-        try :
+        self._shape_update_pending = None
+        try:
+            positions = []
             for shape in self.get_shapes():
-                shape.update_position(HWR.beamline.diffractometer.motor_positions_to_screen)
+                shape.update_position(
+                    HWR.beamline.diffractometer.motor_positions_to_screen
+                )
+                positions.append(
+                    (
+                        shape.id,
+                        tuple(shape.screen_coord or ()),
+                        getattr(shape, "fade", None),
+                        getattr(shape, "state", None),
+                    )
+                )
 
-            self.emit("shapesChanged")
+            if positions != self._last_shape_positions:
+                self._last_shape_positions = positions
+                self.emit("shapesChanged")
         except Exception:
             logging.getLogger("HWR").exception("SampleView: could not update the shapes")
 
-        '''def _update_shape_positions(self, *args, **kwargs):
-            shapes_updated = False
-
-            for shape in self.get_shapes():
-                previous_screen_coord = shape.screen_coord
-                shape.update_position(HWR.beamline.diffractometer.motor_positions_to_screen)
-
-            self.emit("shapesChanged")'''
     def stop_stream(self):
         self._camera.stop_streaming()
 
