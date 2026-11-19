@@ -150,9 +150,15 @@ class PX1TangoLight(HardwareObject):
         
         return True
 
-    def _zoom_changed(self, position_name: str, pos: Any, valid: bool) -> None:
+    def _zoom_changed(self, position_name: str, pos: Any, valid: bool = True) -> None:
         """
-        Handle zoom position changes.
+        Handle zoom position changes: the light to the new zoom's level.
+
+        TangoDCMotorWPositions emits predefinedPositionChanged(username, pos),
+        only for a valid position; `valid` used to be required, so the call
+        failed and the light stayed at the previous zoom's level. The level is
+        set in its own greenlet: it is waited for (up to 3 s) and this runs in
+        the zoom's channel poll.
         Args:
             position_name: Name of the position
             pos: Position value
@@ -160,9 +166,9 @@ class PX1TangoLight(HardwareObject):
         """
         if not valid:
             return
-            
+
         if self.current_state == "in":
-            self._adjust_light_level()
+            gevent.spawn(self._adjust_light_level)
 
     def _adjust_light_level(self) -> None:
         """Set the light level of the current zoom position (zoom.xml lightLevel).

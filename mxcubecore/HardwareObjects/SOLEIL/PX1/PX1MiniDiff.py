@@ -782,6 +782,10 @@ class PX1MiniDiff(GenericDiffractometer):
         # strip: PHASE_CENTRING is "CENTRING " (trailing space)
         self.px1env_ho.goto_phase(translation_to_env[phase.strip()], timeout or 60)
         self.update_backlight()
+        # The supervisor leaves the light at its own (dim) level: the zoom's
+        # level, as prepare_centring does
+        if phase.strip() in ("CENTRING", "VISU_SAMPLE"):
+            self.light_arm._adjust_light_level()
 
     # Supervisor phase (currentPhase, "_" and spaces dropped) -> phase_list
     env_phases = {
@@ -1124,6 +1128,8 @@ class PX1MiniDiff(GenericDiffractometer):
                 self.update_zoom_calibration()
             except Exception:
                 log.exception("PX1MiniDiff: zoom calibration update failed")
+            # And it starts lit at the new zoom's level (waited for)
+            self.light_arm._adjust_light_level()
         return reached
 
     def wait_fresh_frame(self, frames=2, timeout=3):
