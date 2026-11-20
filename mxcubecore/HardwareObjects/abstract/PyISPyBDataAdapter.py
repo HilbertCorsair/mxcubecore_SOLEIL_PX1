@@ -448,9 +448,11 @@ class PyISPyBDataAdapter:
             "energyScanId": entry_dict["energyScanId"],
             "blSampleId": entry_dict["blSampleId"],
         }
+        # -1 = scan not stored / sample not in LIMS: not valid foreign keys
+        if any(not value or value < 0 for value in payload.values()):
+            self.logger.debug("No energy scan / sample association: %s", payload)
+            return -1
         try:
-            
-
             assoc_id = self.client.patch(
                 "events/energyscan/associate-bl-sample", json=payload
             )
@@ -807,7 +809,8 @@ class PyISPyBDataAdapter:
         try:
             bl_sample_id = bl_sample.get("blSampleId")
             if bl_sample_id is None:
-                self.logger.error("Missing blSampleId")
+                # AbstractCollect.current_lims_sample is empty when no LIMS sample
+                self.logger.debug("update_bl_sample: no blSampleId, nothing to update")
                 return {}
             self.logger.debug(
                 "PATCH samples/%s payload: %s", bl_sample_id, bl_sample

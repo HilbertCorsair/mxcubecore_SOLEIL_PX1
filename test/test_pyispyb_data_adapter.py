@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, Mock, patch
 
@@ -853,6 +854,26 @@ def test_store_data_collection_maps_centring_and_end_time(adapter, client):
     assert payload["phiStart"] == 3.0
 
 
+def test_store_data_collection_payload_is_json(adapter, client):
+    collect = {**_collect_dict(), "group_id": 77, "beamShape": "rectangular"}
+    client.post.side_effect = _dc_post
+
+    adapter.store_data_collection(collect)
+
+    payload = client.post.call_args.kwargs["json"]
+    assert payload["beamShape"] == "rectangular"
+    json.dumps(payload, allow_nan=False)
+
+
+@pytest.mark.parametrize(
+    "entry_dict",
+    [{"energyScanId": -1, "blSampleId": 1}, {"energyScanId": 125, "blSampleId": -1}],
+)
+def test_associate_bl_sample_and_energy_scan_invalid_ids(adapter, client, entry_dict):
+    assert adapter.associate_bl_sample_and_energy_scan(entry_dict) == -1
+    client.patch.assert_not_called()
+
+
 def test_update_data_collection_none_collection_id(adapter, client):
     result = adapter._update_data_collection({**_collect_dict(), "collection_id": None})
 
@@ -1082,8 +1103,7 @@ def test_update_bl_sample_missing_bl_sample_id(adapter, client):
     assert result == {}
 
     client.patch.assert_not_called()
-
-    adapter.logger.error.assert_called_once_with("Missing blSampleId")
+    adapter.logger.error.assert_not_called()
 
 
 def test_update_bl_sample_patch_failure(adapter, client):

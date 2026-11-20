@@ -672,7 +672,7 @@ class AbstractCollect(HardwareObject, object):
             beam_size_x, beam_size_y = HWR.beamline.beam.get_beam_size()
             params["beamSizeAtSampleX"] = beam_size_x
             params["beamSizeAtSampleY"] = beam_size_y
-            params["beamShape"] = HWR.beamline.beam.get_beam_shape()
+            params["beamShape"] = HWR.beamline.beam.get_beam_shape().value
             hor_gap, vert_gap = self.get_slit_gaps()
             params["slitGapHorizontal"] = hor_gap
             params["slitGapVertical"] = vert_gap
