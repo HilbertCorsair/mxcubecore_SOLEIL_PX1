@@ -956,7 +956,7 @@ def test_store_data_collection_maps_collect_dict(adapter, client):
     assert "dataCollectionId" not in payload
     assert "oscillation_sequence" not in payload
     assert payload["sessionId"] == 123
-    assert payload["experimentType"] == "OSC"
+    assert "experimentType" not in payload
     assert "blSampleId" not in payload
 
 

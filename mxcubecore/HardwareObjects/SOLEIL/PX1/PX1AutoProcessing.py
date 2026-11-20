@@ -201,8 +201,6 @@ class PX1AutoProcessing(HardwareObject):
        except Exception:
            log.exception("PX1AutoProcessing / could not read the beam shape")
 
-       payload = HWR.beamline.lims.repare_bytes_dict(payload)
-
        # Fail here, in context, rather than inside the background greenlet.
        json.dumps(payload, default=str)
 

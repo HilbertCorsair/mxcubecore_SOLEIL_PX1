@@ -720,7 +720,8 @@ class PyISPyBDataAdapter:
                 "dataCollectionGroupId": mx_collection["group_id"],
                 "sessionId": int(session_id) if session_id else None,
                 "blSampleId": sample_id if sample_id and sample_id > 0 else None,
-                "experimentType": mx_collection.get("experiment_type"),
+                # experimentType is left to the group: the DC endpoint passes the
+                # parsed enum straight to MySQL ("cannot be converted to a MySQL type")
                 "centeringMethod": mx_collection.get("centringMethod"),
                 "runStatus": mx_collection.get("status"),
                 "resolution": resolution,
