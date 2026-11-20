@@ -150,7 +150,7 @@ class ISPyBAbstractLIMS(AbstractLims):
         return self.adapter.update_bl_sample(bl_sample)
 
     def store_image(self, image_dict):
-        self.adapter.store_image(image_dict)
+        return self.adapter.store_image(image_dict)
 
     def find_sample_by_sample_id(self, sample_id):
         for sample in self.samples:
@@ -190,7 +190,7 @@ class ISPyBAbstractLIMS(AbstractLims):
         return self.adapter.associate_bl_sample_and_energy_scan(entry_dict)
 
     def get_data_collection(self, data_collection_id):
-        return self.adapter.get_data_collection(self, data_collection_id)
+        return self.adapter.get_data_collection(data_collection_id)
 
     def get_session(self, session_id):
         return self.adapter.get_session(session_id)

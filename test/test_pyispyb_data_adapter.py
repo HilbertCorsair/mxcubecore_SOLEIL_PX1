@@ -483,7 +483,7 @@ def test_store_robot_action_sucess(
     client,
 ):
     # given
-    client.post.return_value = 77
+    client.post.return_value = {"robotActionId": 77}
 
     robot_action = {
         "sampleId": 12,
@@ -748,20 +748,30 @@ def test_store_beamline_setup_success(
 
     client.get.return_value = session
 
-    bl_config = default_bl_config()
+    bl_config = {
+        **default_bl_config(),
+        "synchrotron_name": "SOLEIL",
+        "monochromator_type": "Si111",
+        "minimum_exposure_time": 0.01,
+        "minTransmission": 0.1,
+        "synchrotronMode": "Uniform",
+    }
     client.post.return_value = {"beamLineSetupId": 101}
     adapter.update_session = Mock()
 
     result = adapter.store_beamline_setup(session_id, bl_config)
 
     assert result == 101
-    assert bl_config["beamLineSetupId"] == 101
-
-    client.post.assert_called_once_with(
-        "beamline-setups/beamline-setup",
-        json=bl_config,
-    )
-
+    payload = client.post.call_args.kwargs["json"]
+    assert client.post.call_args.args == ("beamline-setups/beamline-setup",)
+    assert payload["synchrotronName"] == "SOLEIL"
+    assert payload["monochromatorType"] == "Si111"
+    assert payload["minExposureTimePerImage"] == 0.01
+    assert payload["minTransmission"] == 0.1
+    assert payload["synchrotronMode"] == "Uniform"
+    assert "setupDate" in payload
+    assert "detector_model" not in payload
+    assert session["BeamLineSetup"] == {"beamLineSetupId": 101}
     adapter.update_session.assert_called_once_with(session)
 
 
@@ -786,7 +796,7 @@ def test_store_data_collection_group_maps_collect_dict(adapter, client):
         "fileinfo": {"directory": "/tmp"},
     }
 
-    adapter._store_data_collection_group(collect)
+    assert adapter._store_data_collection_group(collect) == 5
 
     client.post.assert_called_once_with(
         "datacollections/group",
@@ -795,6 +805,99 @@ def test_store_data_collection_group_maps_collect_dict(adapter, client):
             "experimentType": "Characterization",
             "actualContainerSlotInSC": 5,
             "actualSampleSlotInContainer": 1,
+        },
+    )
+
+
+def test_store_data_collection_group_from_queue_entry(adapter, client):
+    """The queue entry passes experimentType and a string session id."""
+    client.post.return_value = {"dataCollectionGroupId": 6}
+    group_data = {
+        "sessionId": "47118",
+        "experimentType": "OSC",
+        "actualContainerSlotInSC": 2,
+        "actualSampleSlotInContainer": 9,
+    }
+
+    assert adapter._store_data_collection_group(group_data) == 6
+
+    client.post.assert_called_once_with(
+        "datacollections/group",
+        json={
+            "sessionId": 47118,
+            "experimentType": "OSC",
+            "actualContainerSlotInSC": 2,
+            "actualSampleSlotInContainer": 9,
+        },
+    )
+
+
+def test_store_data_collection_maps_centring_and_end_time(adapter, client):
+    collect = {
+        **_collect_dict(),
+        "group_id": 77,
+        "blSampleId": 42,
+        "centringMethod": "murko",
+        "collection_end_time": "2026-11-20 14:40:00",
+    }
+    collect["oscillation_sequence"][0]["phiStart"] = 3.0
+    client.post.side_effect = _dc_post
+
+    adapter.store_data_collection(collect)
+
+    payload = client.post.call_args.kwargs["json"]
+    assert payload["centeringMethod"] == "murko"
+    assert "centringMethod" not in payload
+    assert payload["endTime"] == "2026-11-20 14:40:00"
+    assert payload["blSampleId"] == 42
+    assert payload["phiStart"] == 3.0
+
+
+def test_update_data_collection_none_collection_id(adapter, client):
+    result = adapter._update_data_collection({**_collect_dict(), "collection_id": None})
+
+    assert result == (0, 0)
+    client.post.assert_not_called()
+
+
+def test_store_image_drops_non_schema_keys(adapter, client):
+    image_dict = {
+        **default_image_dict(),
+        "jpegFileOrigPath": "/local/a.jpeg",
+        "jpegThumbnailFileOrigPath": "/local/a.thumb.jpeg",
+        "motorPositionId": 3,
+    }
+    client.post.return_value = {"imageId": 9}
+
+    assert adapter.store_image(image_dict) == 9
+    client.post.assert_called_once_with("images/image", json=default_image_dict())
+
+
+def test_store_image_none_data_collection_id(adapter, client):
+    assert adapter.store_image({**default_image_dict(), "dataCollectionId": None}) == 0
+    client.post.assert_not_called()
+
+
+def test_store_robot_action_drops_unknown_sample(adapter, client):
+    client.post.return_value = {"robotActionId": 4}
+    robot_action = {
+        "sampleId": -1,
+        "sessionId": "47118",
+        "actionType": "LOAD",
+        "startTime": "2026-11-20 14:00:00",
+        "endTime": "2026-11-20 14:01:00",
+        "status": "SUCCESS",
+    }
+
+    assert adapter.store_robot_action(robot_action) == 4
+    client.post.assert_called_once_with(
+        "events/robot-action",
+        json={
+            "sessionId": 47118,
+            "actionType": "LOAD",
+            "status": "SUCCESS",
+            "startTimestamp": "2026-11-20 14:00:00",
+            "endTimestamp": "2026-11-20 14:01:00",
         },
     )
 
@@ -852,7 +955,9 @@ def test_store_data_collection_maps_collect_dict(adapter, client):
     assert payload["runStatus"] == "Running"
     assert "dataCollectionId" not in payload
     assert "oscillation_sequence" not in payload
-    assert "sessionId" not in payload
+    assert payload["sessionId"] == 123
+    assert payload["experimentType"] == "OSC"
+    assert "blSampleId" not in payload
 
 
 def test_store_data_collection_with_bl_config(adapter, client):
@@ -893,7 +998,7 @@ def test_store_energy_scan_success(
 ):
     energyscan = default_energy_scan()
 
-    client.post.return_value = 123
+    client.post.return_value = {"energyScanId": 123}
 
     result = adapter.store_energy_scan(energyscan)
 
@@ -922,7 +1027,7 @@ def test_store_xfe_spectrum_success(
 ):
     xfe_spectrum = default_xfe_spectrum()
 
-    client.post.return_value = 123
+    client.post.return_value = {"xfeFluorescenceSpectrumId": 123}
 
     result = adapter.store_xfe_spectrum(xfe_spectrum)
 

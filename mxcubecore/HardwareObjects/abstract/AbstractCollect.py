@@ -400,7 +400,6 @@ class AbstractCollect(HardwareObject, object):
                 == 0
                 and last_frame > 19
             ):
-                print("Trigger autoprocessinf depuis Abstract Collect Collection finished")
                 self.trigger_auto_processing("after", self.current_dc_parameters, 0)
 
         self.emit(
@@ -637,7 +636,6 @@ class AbstractCollect(HardwareObject, object):
                 collection_id, detector_id = HWR.beamline.lims.store_data_collection(
                     self.current_dc_parameters, self.bl_config
                 )
-                print(f" ==============Abstract collect store data collectio in lims {self.current_dc_parameters['synchrotronMode']}")
 
                 self.current_dc_parameters["collection_id"] = collection_id
                 self.collection_id = collection_id
@@ -678,16 +676,15 @@ class AbstractCollect(HardwareObject, object):
             hor_gap, vert_gap = self.get_slit_gaps()
             params["slitGapHorizontal"] = hor_gap
             params["slitGapVertical"] = vert_gap
-            #added :
-            self.current_dc_parameters["imageSuffix"] = "h5"# self.get_image_suffix()
+            params["imageSuffix"] = "h5"
+            params["collection_end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
-            """try:
+            try:
                 HWR.beamline.lims.update_data_collection(params)
-                logging.getLogger("HWR").info("+++++ In update_data_collection: %s" % params["collection_id"])
             except BaseException:
                 logging.getLogger("HWR").exception(
                     "Could not update data collection in LIMS"
-                )"""
+                )
 
     def store_sample_info_in_lims(self):
         """Store current sample information in LIMS database."""
@@ -747,7 +744,6 @@ class AbstractCollect(HardwareObject, object):
             if motor_position_id:
                 lims_image["motorPositionId"] = motor_position_id
             image_id = HWR.beamline.lims.store_image(lims_image)
-            print(f"Abstract collect------------------------store image in lims image_id:{image_id}")
             return image_id
 
     def update_lims_with_workflow(

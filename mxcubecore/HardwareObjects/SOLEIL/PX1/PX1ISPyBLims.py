@@ -102,6 +102,13 @@ class PX1ISPyBLims(ProposalTypeISPyBLims):
         session.is_scheduled_time = True
         session.is_scheduled_beamline = True
 
+        # Queue entries read the LIMS ids from the Session HO (sessionId of the
+        # data-collection group, robot actions, energy scans)
+        HWR.beamline.session.session_id = session.session_id
+        HWR.beamline.session.proposal_id = session.proposal_id
+        HWR.beamline.session.proposal_code = PROPOSAL_CODE
+        HWR.beamline.session.proposal_number = session.number
+
         self.session_manager = LimsSessionManager(
             sessions=[session], active_session=session
         )

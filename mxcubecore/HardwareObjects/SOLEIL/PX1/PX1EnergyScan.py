@@ -719,7 +719,7 @@ class PX1EnergyScan(AbstractEnergyScan, Equipment):
             scan_info.pop("blSampleId")
 
             self.log.debug("storing energy scan info in ISPyB")
-            db_ret = HWR.beamline.lims.storeEnergyScan(scan_info)
+            db_ret = HWR.beamline.lims.store_energy_scan(scan_info)
             self.log.debug("stored %s" % str(db_ret))
 
             if sample_id is not None and db_ret is not None:

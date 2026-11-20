@@ -271,28 +271,27 @@ class PyISPyBDataAdapter:
         self.logger.debug("POST sessions payload: %s", payload)
         return self.__to_session(self.client.post("sessions", json=payload))
 
-    def _store_data_collection_group(self, group_data: dict) -> dict:
+    def _store_data_collection_group(self, group_data: dict) -> int:
         """Stores data collection group in PyISPyB and returns the group id.
 
         Args:
-            group_data: A dictionary containing data collection group information.
+            group_data: The queue-entry group dict (experimentType) or the
+                MXCuBE collect dict (experiment_type).
 
         Returns:
-            Response from PyISPyB: {
-                "dataCollectionGroupId": 0,
-                "experimentType": "string",
-                "blSampleId": 0,
-                "sessionId": 0,
-                "workflowId": 0
-            }
+            The dataCollectionGroupId of the created group.
         """
-        # Map the MXCuBE collect dict like ISPyBValueFactory.dcg_from_dc_params
+        # Map like ISPyBValueFactory.dcg_from_dc_params
         # blSampleId is int or None (AbstractCollect.get_sample_info); -1 = no LIMS sample
         sample_id = group_data.get("blSampleId")
+        session_id = group_data.get("sessionId")
         payload = {
-            "sessionId": group_data.get("sessionId"),
-            "experimentType": group_data.get("experiment_type"),
+            "sessionId": int(session_id) if session_id else None,
+            "experimentType": group_data.get("experimentType")
+            or group_data.get("experiment_type"),
             "blSampleId": sample_id if sample_id and sample_id > 0 else None,
+            "actualSampleBarcode": group_data.get("actualSampleBarcode"),
+            "actualContainerBarcode": group_data.get("actualContainerBarcode"),
             "actualContainerSlotInSC": group_data.get("actualContainerSlotInSC"),
             "actualSampleSlotInContainer": group_data.get(
                 "actualSampleSlotInContainer"
@@ -300,7 +299,8 @@ class PyISPyBDataAdapter:
         }
         payload = {key: value for key, value in payload.items() if value is not None}
         self.logger.debug("POST datacollections/group: %s", payload)
-        return self.client.post("datacollections/group", json=payload)
+        response = self.client.post("datacollections/group", json=payload)
+        return response["dataCollectionGroupId"]
 
     def _update_data_collection(self, mx_collection: dict) -> tuple[int, int]:
         """Updates data collection in PyISPyB.
@@ -313,7 +313,7 @@ class PyISPyBDataAdapter:
             Tuple containing data collection id and data collection group id.
         """
         dc_id, dc_group_id = 0, 0
-        if "collection_id" in mx_collection:
+        if mx_collection.get("collection_id"):
             # The endpoint creates or updates: dataCollectionId selects the update
             try:
                 dc_id, _ = self._store_data_collection(mx_collection, None)
@@ -339,10 +339,30 @@ class PyISPyBDataAdapter:
         """
         self.logger.info("Storing image in LIMS")
         image_id = 0
-        if "dataCollectionId" in image_dict:
+        if image_dict.get("dataCollectionId"):
+            # Only the ImageCreate fields; PX1Collect adds local *OrigPath keys
+            payload = {
+                key: image_dict[key]
+                for key in (
+                    "imageId",
+                    "dataCollectionId",
+                    "imageNumber",
+                    "fileName",
+                    "fileLocation",
+                    "measuredIntensity",
+                    "jpegFileFullPath",
+                    "jpegThumbnailFileFullPath",
+                    "temperature",
+                    "cumulativeIntensity",
+                    "synchrotronCurrent",
+                    "comments",
+                    "machineMessage",
+                )
+                if image_dict.get(key) is not None
+            }
             try:
-                self.logger.debug("POST images/image payload: %s", image_dict)
-                response = self.client.post("images/image", json=image_dict)
+                self.logger.debug("POST images/image payload: %s", payload)
+                response = self.client.post("images/image", json=payload)
                 self.logger.debug("PyISPYB store image response: %s", response)
                 image_id = response["imageId"]
             except PyISPyBUnsuccessfulResponse:
@@ -398,15 +418,19 @@ class PyISPyBDataAdapter:
                 "dictionary, could not store robot action in LIMS"
             )
         else:
-            robot_action["startTimestamp"] = robot_action.pop("startTime", "")
-            robot_action["endTimestamp"] = robot_action.pop("endTime", "")
+            robot_action["startTimestamp"] = robot_action.pop("startTime", None)
+            robot_action["endTimestamp"] = robot_action.pop("endTime", None)
+            # lims_id -1 = sample not in LIMS: not a valid foreign key
+            if not robot_action["blSampleId"] or robot_action["blSampleId"] < 0:
+                robot_action["blSampleId"] = None
+            if robot_action.get("sessionId"):
+                robot_action["sessionId"] = int(robot_action["sessionId"])
+            payload = {k: v for k, v in robot_action.items() if v is not None}
             try:
-                self.logger.debug(
-                            "POST events/robot-action payload: %s", robot_action
-                        )
+                self.logger.debug("POST events/robot-action payload: %s", payload)
                 robot_action_id = self.client.post(
-                    "events/robot-action", json=robot_action
-                )
+                    "events/robot-action", json=payload
+                )["robotActionId"]
             except PyISPyBUnsuccessfulResponse:
                 self.logger.exception("Exception in store_robot_action")
         return robot_action_id
@@ -548,12 +572,36 @@ class PyISPyBDataAdapter:
         beamline_setup_id = None
         session = self.get_session(session_id)
         if session:
+            # BeamlineConfig fields -> BeamLineSetup schema (as ISPyBValueFactory.from_bl_config)
+            payload = {
+                "synchrotronName": bl_config.get("synchrotron_name") or "SOLEIL",
+                "synchrotronMode": bl_config.get("synchrotronMode"),
+                "focusingOptic": bl_config.get("focusing_optic"),
+                "monochromatorType": bl_config.get("monochromator_type"),
+                "beamDivergenceHorizontal": bl_config.get("beam_divergence_horizontal"),
+                "beamDivergenceVertical": bl_config.get("beam_divergence_vertical"),
+                "polarisation": bl_config.get("polarisation"),
+                "minExposureTimePerImage": bl_config.get("minimum_exposure_time"),
+                "setupDate": datetime.now().isoformat(),  # noqa: DTZ005
+            }
+            for key in (
+                "goniostatMinOscillationWidth",
+                "goniostatMaxOscillationSpeed",
+                "maxExpTimePerDataCollection",
+                "focalSpotSizeAtSample",
+                "minTransmission",
+                "undulatorType1",
+                "undulatorType2",
+                "undulatorType3",
+            ):
+                payload[key] = bl_config.get(key)
+            payload = {k: v for k, v in payload.items() if v is not None}
             try:
                 self.logger.debug(
-                    "POST beamline-setups/beamline-setup payload: %s", bl_config
+                    "POST beamline-setups/beamline-setup payload: %s", payload
                 )
                 beamline_setup_id = self.client.post(
-                    "beamline-setups/beamline-setup", json=bl_config
+                    "beamline-setups/beamline-setup", json=payload
                 )
             except PyISPyBUnsuccessfulResponse:
                 self.logger.exception(
@@ -561,8 +609,7 @@ class PyISPyBDataAdapter:
                 )
             else:
                 # The server returns {"beamLineSetupId": ..., ...}
-                bl_config.update(beamline_setup_id)
-                session["BeamLineSetup"] = bl_config
+                session["BeamLineSetup"] = beamline_setup_id
                 self.update_session(session)
                 beamline_setup_id = beamline_setup_id.get("beamLineSetupId")
         return beamline_setup_id
@@ -619,7 +666,7 @@ class PyISPyBDataAdapter:
         if not mx_collection.get("group_id"):
             mx_collection["group_id"] = self._store_data_collection_group(
                 mx_collection
-            )["dataCollectionGroupId"]
+            )
 
         # Map the MXCuBE collect dict like ISPyBValueFactory.from_data_collect_parameters
         osc = (mx_collection.get("oscillation_sequence") or [{}])[0]
@@ -655,14 +702,26 @@ class PyISPyBDataAdapter:
                 "xtalSnapshotFullPath2",
                 "xtalSnapshotFullPath3",
                 "xtalSnapshotFullPath4",
-                "centringMethod",
                 "imageSuffix",
+                "comments",
+                "beamShape",
+                "totalAbsorbedDose",
+                "actualSampleBarcode",
+                "actualContainerBarcode",
+                "actualSampleSlotInContainer",
+                "actualContainerSlotInSC",
             )
         }
+        session_id = mx_collection.get("sessionId")
+        sample_id = mx_collection.get("blSampleId")
         payload.update(
             {
                 "dataCollectionId": mx_collection.get("collection_id"),
                 "dataCollectionGroupId": mx_collection["group_id"],
+                "sessionId": int(session_id) if session_id else None,
+                "blSampleId": sample_id if sample_id and sample_id > 0 else None,
+                "experimentType": mx_collection.get("experiment_type"),
+                "centeringMethod": mx_collection.get("centringMethod"),
                 "runStatus": mx_collection.get("status"),
                 "resolution": resolution,
                 "axisStart": osc.get("start"),
@@ -678,6 +737,9 @@ class PyISPyBDataAdapter:
                 "fileTemplate": fileinfo.get("template"),
                 "dataCollectionNumber": fileinfo.get("run_number"),
                 "startTime": mx_collection.get("collection_start_time"),
+                "endTime": mx_collection.get("collection_end_time"),
+                "phiStart": osc.get("phiStart"),
+                "kappaStart": osc.get("kappaStart"),
             }
         )
         payload = {key: value for key, value in payload.items() if value is not None}
@@ -698,9 +760,8 @@ class PyISPyBDataAdapter:
         """
         try:
             self.logger.debug("POST events/energyscan payload: %s", energyscan)
-            return {
-                "energyScanId": self.client.post("events/energyscan", json=energyscan)
-            }
+            response = self.client.post("events/energyscan", json=energyscan)
+            return {"energyScanId": response["energyScanId"]}
 
         except PyISPyBUnsuccessfulResponse:
             self.logger.exception("Failed to store energy scan in PyISPyB")
@@ -720,10 +781,11 @@ class PyISPyBDataAdapter:
             self.logger.debug(
                 "POST events/xfe-fluorescence-spectrum payload: %s", xfe_spectrum
             )
+            response = self.client.post(
+                "events/xfe-fluorescence-spectrum", json=xfe_spectrum
+            )
             return {
-                "xfeFluorescenceSpectrumId": self.client.post(
-                    "events/xfe-fluorescence-spectrum", json=xfe_spectrum
-                )
+                "xfeFluorescenceSpectrumId": response["xfeFluorescenceSpectrumId"]
             }
         except PyISPyBUnsuccessfulResponse:
             self.logger.exception(
